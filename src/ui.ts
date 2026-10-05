@@ -1,4 +1,5 @@
-import type { AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
+import { InventoryView } from './inventory-ui';
+import type { Actor, Loot, LootKind, AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
 import { remainingGlide } from './game/drop';
 import { ZERO_DISTANCE } from './game/ballistics';
@@ -23,6 +24,10 @@ type Callbacks = {
   onReplayStop?: () => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
   onTouchOverlayChange?: (open: boolean) => void;
+  onInventoryPickup?: (lootId: string) => void;
+  onInventoryDrop?: (kind: LootKind, amount: number) => void;
+  onInventoryHeal?: () => void;
+  onInventoryChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
 const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false };
@@ -94,6 +99,8 @@ function formatTime(seconds: number): string {
 
 export class GameUI {
   public settings = readSettings();
+  public readonly inventory: InventoryView;
+  private inventoryPlayer: Actor | null = null;
   private callbacks: Callbacks;
   private root: HTMLElement;
   private elements = new Map<string, HTMLElement>();
@@ -177,7 +184,7 @@ export class GameUI {
           </aside>
         </div>
         <footer class="lobby-foot">
-          <div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển / lái dù</span><span><kbd>SPACE</kbd>Nhảy dù · mở dù</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>F</kbd>Lên / xuống xe</span><span><kbd>1 – 3</kbd>Chọn súng</span><span><kbd>M</kbd>Bản đồ lớn</span><span><kbd>ESC</kbd>Tạm dừng</span></div>
+          <div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển / lái dù</span><span><kbd>SPACE</kbd>Nhảy dù · mở dù</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>F</kbd>Lên / xuống xe</span><span><kbd>1 – 3</kbd>Chọn súng</span><span><kbd>Tab / I</kbd>Kho đồ</span><span><kbd>M</kbd>Bản đồ lớn</span><span><kbd>ESC</kbd>Tạm dừng</span></div>
           <div class="touch-guide"><span><b>NGÓN TRÁI</b>Kéo cần để di chuyển</span><span><b>NGÓN PHẢI</b>Vuốt để xoay camera</span><span><b>NÚT NGẮM</b>Bật / tắt ống ngắm</span><span><b>NÚT NHẢY</b>Nhảy khỏi máy bay · mở dù</span></div>
           <div class="touch-orientation-note">Xoay điện thoại ngang để chơi thoải mái.</div>
         </footer>
@@ -197,6 +204,7 @@ export class GameUI {
         </div>
       </div>
       <section id="hud" class="hud" aria-label="Thông tin trận đấu" hidden>
+        <button id="inventory-toggle" class="inventory-toggle" type="button" aria-label="Mở kho đồ" aria-controls="inventory-screen" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7V5a4 4 0 0 1 8 0v2M5 8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12H5zM5 14h14M9 17h6"/></svg><span>KHO ĐỒ</span><kbd>Tab</kbd></button>
         <div class="hud-brand"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>SOLO</small></span></div>
         <div class="compass"><div class="compass-needle"></div><div id="compass-labels" class="compass-labels"></div><span id="compass-degrees" class="compass-degrees">000°</span></div>
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
@@ -218,6 +226,20 @@ export class GameUI {
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
     `;
     root.querySelectorAll<HTMLElement>('[id]').forEach(element => this.elements.set(element.id, element));
+    this.inventory = new InventoryView(root, {
+      onClose: () => this.toggleInventory(false),
+      onSelectWeapon: weapon => this.callbacks.onSelectWeapon?.(weapon),
+      onPickup: id => this.callbacks.onInventoryPickup?.(id),
+      onDrop: (kind, amount) => this.callbacks.onInventoryDrop?.(kind, amount),
+      onHeal: () => this.callbacks.onInventoryHeal?.(),
+      onOpenChange: open => {
+        if (open) this.root.dataset.inventory = 'open'; else delete this.root.dataset.inventory;
+        this.el('inventory-toggle').setAttribute('aria-expanded', String(open));
+        this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
+        this.callbacks.onInventoryChange?.(open);
+      },
+    });
+    this.el('inventory-toggle').addEventListener('click', () => this.toggleInventory());
     const choose = (id: string, handler: (value: string) => void) => this.el(id).addEventListener('click', event => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-value]');
       if (button) handler(button.dataset.value!);
@@ -263,7 +285,7 @@ export class GameUI {
       const card = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-weapon]');
       if (!card) return;
       this.callbacks.onSelectWeapon?.(card.dataset.weapon as WeaponType);
-      this.closeInventory();
+      this.closeWeaponPicker();
     });
     this.el('map-screen').addEventListener('click', event => {
       if (event.target === this.el('map-screen')) this.toggleMap(false);
@@ -407,17 +429,33 @@ export class GameUI {
     this.text('best-kills', `${this.best.kills}`);
     this.text('best-time', formatTime(this.best.survival));
   }
-  private closeInventory(): void {
+  private closeWeaponPicker(): void {
     this.el('weapon-panel').classList.remove('touch-picker-open');
     this.el('touch-inventory-toggle').setAttribute('aria-expanded', 'false');
     this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
   }
 
   public get touchOverlayOpen(): boolean {
-    return this.touchMode && (this.mapOpen || this.el('weapon-panel').classList.contains('touch-picker-open'));
+    return this.inventory.open || this.touchMode && (this.mapOpen || this.el('weapon-panel').classList.contains('touch-picker-open'));
+  }
+
+  public get inventoryOpen(): boolean { return this.inventory.open; }
+
+  public toggleInventory(show?: boolean): void {
+    const open = show ?? !this.inventory.open;
+    if (open && (this.phase !== 'playing' || !this.inventoryPlayer?.alive || this.lastState?.spectating || !this.el('pause-screen').hidden)) return;
+    if (open) { this.toggleMap(false); this.closeWeaponPicker(); this.setAim(false, this.inventoryPlayer!.weapon); }
+    this.inventory.show(open);
+  }
+
+  public updateInventory(player: Actor, nearby: readonly Loot[], online = false): void {
+    this.inventoryPlayer = player;
+    if (!player.alive || this.phase !== 'playing' || this.lastState?.spectating) this.toggleInventory(false);
+    if (this.inventory.open) this.inventory.update(player, nearby, { online });
   }
 
   public update(state: GameState, world: WorldConfig, hint: string): void {
+    this.lastState = state;
     const phaseChanged = this.phase !== state.phase;
     if (phaseChanged) {
       this.phase = state.phase;
@@ -429,8 +467,8 @@ export class GameUI {
       this.root.dataset.phase = state.phase;
       this.hide('scope-overlay', true);
       this.aimStateKey = '';
-      this.closeInventory();
-      if (state.phase !== 'playing') this.toggleMap(false);
+      this.closeWeaponPicker();
+      if (state.phase !== 'playing') { this.toggleMap(false); this.toggleInventory(false); }
       if (state.phase === 'playing') { this.resultSaved = false; this.lastHits = state.hits; }
       if (state.phase === 'menu') this.showSettings(false);
       const focusId = state.phase === 'menu' ? 'start-button' : state.phase === 'paused' ? 'resume-button' : results ? 'restart-button' : null;
@@ -438,7 +476,10 @@ export class GameUI {
       if (results) this.showResults(state);
     }
     const player = state.actors.find(actor => actor.id === state.localId) ?? state.actors.find(actor => actor.isPlayer);
-    if (!player) return;
+    if (!player) { this.toggleInventory(false); return; }
+    this.inventoryPlayer = player;
+    (this.el('inventory-toggle') as HTMLButtonElement).disabled = !player.alive || !!state.spectating;
+    if (!player.alive || state.spectating) this.toggleInventory(false);
     if (this.currentWeapon !== player.weapon || phaseChanged) {
       this.currentWeapon = player.weapon;
       this.setAim(false, player.weapon);
@@ -642,6 +683,7 @@ export class GameUI {
 
   /** The in-game menu of an online match: it opens over the running game. */
   public setMpMenu(open: boolean): void {
+    if (open) this.toggleInventory(false);
     this.hide('pause-screen', !open);
     if (open) this.el('resume-button').focus({ preventScroll: true });
   }
@@ -698,8 +740,9 @@ export class GameUI {
   public toggleMap(show?: boolean): void {
     const open = show ?? this.el('map-screen').hidden;
     if (open && this.phase !== 'playing') return;
-    if (open) this.closeInventory();
+    if (open) this.closeWeaponPicker();
     this.hide('map-screen', !open);
+    if (open) this.toggleInventory(false);
     this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
     this.root.querySelector('.minimap-panel')?.setAttribute('aria-expanded', String(open));
     if (open && this.lastState) this.drawBigMap(this.lastState, this.lastWorld!);

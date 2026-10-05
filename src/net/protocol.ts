@@ -1,5 +1,5 @@
 /**
- * What goes over the wire. The host runs the real match and every ~100 ms sends a snapshot of what changed near the
+ * What goes over the wire. The host runs the real match and 15-20 times a second sends a snapshot of what changed near the
  * people playing; clients keep a mirror simulation (same seed, so the same island and loot) and apply the snapshots.
  * Everything here is plain data (JSON-friendly arrays, positions rounded to a centimetre) so it can be tested without
  * a network.
@@ -10,8 +10,18 @@ import { AMMO_ORDER, emptyAmmo, emptyReserve, WEAPON_ORDER } from '../game/weapo
 import { placePlane } from '../game/drop';
 
 export const PROTOCOL_VERSION = 1;
-/** Seconds between snapshots (10 Hz keeps a room of friends well inside the free Realtime message limits). */
-export const SNAPSHOT_INTERVAL = 0.1;
+/**
+ * How often each side talks. The free Realtime tier allows about 100 messages a second per project, and a room costs
+ * snapshots + (players - 1) input streams, so small rooms get a faster stream and big rooms a slower one:
+ * 2 players 40 msg/s, 4 players 80, 6 players 65.
+ */
+export function netRates(players: number): { snapshotHz: number; inputHz: number } {
+  if (players <= 4) return { snapshotHz: 20, inputHz: 20 };
+  if (players === 5) return { snapshotHz: 15, inputHz: 15 };
+  return { snapshotHz: 15, inputHz: 10 };
+}
+/** Seconds between snapshots when nothing else is known (a lone client measures the real spacing from the host's clock). */
+export const SNAPSHOT_INTERVAL = 1 / netRates(2).snapshotHz;
 /** Actors, cars and shots farther than this from every human are not sent: nobody could see them. */
 export const NEAR_DISTANCE = 420;
 /** Largest room. */
@@ -27,8 +37,8 @@ const AMMO_INDEX = new Map<string, number>(AMMO_ORDER.map((id, index) => [id, in
 export type ActorRow = [number, number, number, number, number, number, number, number, number, number];
 /** [index, x, y, z, yaw, speed, health, driver+1] */
 export type VehicleRow = [number, number, number, number, number, number, number, number];
-/** A new pickup: [index in the loot list, id, kind, x, y, z]. */
-export type LootRow = [number, string, string, number, number, number];
+/** A pickup: [index, id, kind, x, y, z, optional stack size, loaded rounds, durability]. */
+export type LootRow = [number, string, string, number, number, number, (number | null)?, (number | null)?, (number | null)?];
 
 /** Everything about one human that only they need to see precisely: their inventory and flight state. */
 export interface PrivateRow {
@@ -60,10 +70,12 @@ const horizontal = (a: { x: number; z: number }, b: { x: number; z: number }) =>
 export class SnapshotBuilder {
   private seq = 0;
   private lootSent: number;
+  private initialLootCount: number;
   private lootActive: boolean[];
 
   constructor(private readonly sim: GameSimulation) {
     this.lootSent = sim.state.loot.length;
+    this.initialLootCount = this.lootSent;
     this.lootActive = sim.state.loot.map(loot => loot.active);
   }
 
@@ -80,10 +92,15 @@ export class SnapshotBuilder {
       c.push([index, r2(v.position.x), r2(v.position.y), r2(v.position.z), r2(v.yaw), r2(v.speed), Math.round(v.health), driver + 1]);
     });
     const add: LootRow[] = [];
-    for (let i = this.lootSent; i < state.loot.length; i++) {
+    // Re-send dynamic pickups with the periodic resync, so a missed snapshot cannot permanently lose a drop.
+    const firstLoot = (this.seq + 1) % 50 === 0 ? this.initialLootCount : this.lootSent;
+    for (let i = firstLoot; i < state.loot.length; i++) {
       const loot = state.loot[i];
-      add.push([i, loot.id, loot.kind, r2(loot.position.x), r2(loot.position.y), r2(loot.position.z)]);
-      this.lootActive[i] = loot.active;
+      const row: LootRow = [i, loot.id, loot.kind, r2(loot.position.x), r2(loot.position.y), r2(loot.position.z)];
+      if (loot.amount !== undefined || loot.loadedAmmo !== undefined || loot.durability !== undefined) row.push(loot.amount ?? null, loot.loadedAmmo ?? null, loot.durability ?? null);
+      add.push(row);
+      // New pickups start active on mirrors; include an off entry when they were already taken this interval.
+      this.lootActive[i] = true;
     }
     this.lootSent = state.loot.length;
     const off: number[] = [];
@@ -199,9 +216,23 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
     car.driverId = driver ? state.actors[driver - 1]?.id ?? null : null;
   }
   // Loot: items the host added since (dropped gear, crate contents), and items it says were picked up.
-  for (const [index, id, kind, x, y, z] of snap.loot.add) {
-    if (!state.loot[index]) state.loot[index] = { id, kind: kind as LootKind, position: { x, y, z }, active: true };
+  let changedLoot = false;
+  for (const [index, id, kind, x, y, z, amount, loadedAmmo, durability] of snap.loot.add) {
+    if (!Number.isSafeInteger(index) || index < 0 || index > 1_000_000) continue;
+    // A previous add packet may be missing: keep every slot safe for spatial indexing and rendering until it arrives.
+    while (state.loot.length <= index) {
+      state.loot.push({ id: `pending-loot-${state.loot.length}`, kind: 'medkit', position: { x: 0, y: 0, z: 0 }, active: false });
+    }
+    if (state.loot[index].id !== id) {
+      changedLoot = true;
+      state.loot[index] = { id, kind: kind as LootKind, position: { x, y, z }, active: true };
+      if (typeof amount === 'number') state.loot[index].amount = amount;
+      if (typeof loadedAmmo === 'number') state.loot[index].loadedAmmo = loadedAmmo;
+      if (typeof durability === 'number') state.loot[index].durability = durability;
+    }
   }
+  // Replacing a placeholder keeps the length: change array identity so the mirror rebuilds its spatial loot index.
+  if (changedLoot) state.loot = [...state.loot];
   for (const index of snap.loot.off) if (state.loot[index]) state.loot[index].active = false;
   if (snap.loot.all) for (const index of snap.loot.all) if (state.loot[index]) state.loot[index].active = false;
   state.airdrops = snap.drops.map(([id, x, y, z, landed, empty]) => {
@@ -220,7 +251,7 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   for (const row of snap.priv) {
     const actor = sim.actorById(row.id);
     if (!actor) continue;
-    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true);
+    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true, result.flightRegress === true);
     else { actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]); }
   }
   for (const [index, kills, rank] of snap.humans) {
@@ -237,7 +268,7 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   return result;
 }
 
-function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean): void {
+function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean, keepFlight: boolean): void {
   const previous = actor.ammo;
   actor.weapon = WEAPON_ORDER[row.weapon] ?? actor.weapon;
   actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]);
@@ -253,6 +284,7 @@ function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protec
   actor.helmet = row.helmet[0]; actor.helmetHp = row.helmet[1];
   actor.vest = row.vest[0]; actor.vestHp = row.vest[1];
   actor.reloading = row.reload; actor.healing = row.heal;
-  if (row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }
-  sim.setMotion(actor, { vy: row.vy, speed: row.speed });
+  // The stage and its velocity/time must agree: a pre-jump plane payload would otherwise stop a predicted fall.
+  if (!keepFlight && row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }
+  if (!keepFlight) sim.setMotion(actor, { vy: row.vy, speed: row.speed });
 }

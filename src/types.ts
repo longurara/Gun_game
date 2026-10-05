@@ -93,7 +93,15 @@ export interface Actor {
   /** Opponents (and people) this actor has put down, and the place and time of its own death. */
   kills?: number; rank?: number; diedAt?: number;
 }
-export interface Loot { id: string; kind: LootKind; position: Vec3; active: boolean }
+export interface Loot {
+  id: string; kind: LootKind; position: Vec3; active: boolean;
+  /** Exact stack size for dropped ammunition or medkits; absent uses the normal world pickup size. */
+  amount?: number;
+  /** Magazine left in a dropped gun (including zero); absent is a fresh world gun with its spare magazine. */
+  loadedAmmo?: number;
+  /** Remaining armour durability; absent is a fresh piece. */
+  durability?: number;
+}
 export interface ZoneState {
   center: Vec2; radius: number; nextCenter: Vec2; nextRadius: number;
   stage: number; timeRemaining: number; isShrinking: boolean;

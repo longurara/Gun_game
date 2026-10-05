@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
 import { Lobby, makeRoomCode, normalizeRoomCode } from '../src/net/lobby.ts';
 import type { RoomConfig } from '../src/net/lobby.ts';
+import { netRates } from '../src/net/protocol.ts';
 import { ClientSession, HostSession, matchOptions } from '../src/net/session.ts';
 import type { MatchSetup } from '../src/net/session.ts';
 import { LoopbackNetwork } from '../src/net/transport.ts';
@@ -263,7 +264,7 @@ test('the drop in multiplayer: each player jumps when they choose, and predictio
   assert.ok(Math.hypot(a.sim.player.position.x - m.hostSim.actorById('p1')!.position.x, a.sim.player.position.z - m.hostSim.actorById('p1')!.position.z) < 5);
 });
 
-test('bandwidth: a client sends about ten packets a second, the host about ten snapshots a second, each small', () => {
+test('bandwidth: two players cost about twenty packets a second each way, and the rate backs off in bigger rooms', () => {
   const m = startMatch({ latency: 60 }, { map: 'valley', botCount: 20, difficulty: 'normal' });
   m.hostSim.botsFrozen = false;
   const a = m.peers[0];
@@ -271,8 +272,8 @@ test('bandwidth: a client sends about ten packets a second, the host about ten s
   const before = { host: { ...m.hostStats }, client: { ...a.stats } };
   m.run(10);
   const hostPerSecond = (m.hostStats.sent - before.host.sent) / 10, clientPerSecond = (a.stats.sent - before.client.sent) / 10;
-  assert.ok(hostPerSecond >= 8 && hostPerSecond <= 11, `host ${hostPerSecond} messages/s`);
-  assert.ok(clientPerSecond >= 8 && clientPerSecond <= 12, `client ${clientPerSecond} messages/s`);
+  assert.ok(hostPerSecond >= 17 && hostPerSecond <= 22, `host ${hostPerSecond} messages/s`);
+  assert.ok(clientPerSecond >= 17 && clientPerSecond <= 24, `client ${clientPerSecond} messages/s`);
   const snapshotBytes = (m.hostStats.bytes - before.host.bytes) / (m.hostStats.sent - before.host.sent);
   assert.ok(snapshotBytes < 9000, `a snapshot averages ${snapshotBytes.toFixed(0)} bytes`);
   // Idle clients still send a heartbeat so the host does not drop them.
@@ -327,4 +328,66 @@ test('5% packet loss and heavy jitter: still playable, no divergence of the loot
   m.run(10);
   const wrong = m.hostSim.state.loot.filter((l, i) => a.sim.state.loot[i].active !== l.active).length;
   assert.ok(wrong <= 3, `${wrong} loot flags differ after the resync`);
+});
+
+test('room message budget: snapshots plus every input stream stay under the free Realtime limit for any room size', () => {
+  for (let players = 2; players <= 6; players++) {
+    const { snapshotHz, inputHz } = netRates(players);
+    const perSecond = snapshotHz + (players - 1) * inputHz;
+    assert.ok(perSecond <= 85, `${players} players: ${perSecond} messages/s`);
+    assert.ok(snapshotHz >= 15 && inputHz >= 10);
+  }
+});
+
+test('smooth remote movement over a jittery network: a player walking at a steady pace never freezes or lurches on the observer screen', () => {
+  const m = startMatch({ latency: 100, jitter: 60 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  const place = (id: string, x: number, z: number) => { for (const sim of [m.hostSim, a.sim, b.sim]) sim.actorById(id)!.position = { x, y: 0, z }; };
+  place('p0', -60, 30); place('p1', -40, -22); place('p2', 30, 30);
+  m.run(1);
+  a.input = { ...idle, moveX: 1 };
+  m.run(1.5);
+  const seen = () => b.sim.actorById('p1')!.position.x;
+  let last = seen(), frozen = 0, lurch = 0, frames = 0, walked = 0;
+  for (let i = 0; i < 30 * 4; i++) {
+    m.frame();
+    const step = seen() - last; last = seen(); frames++; walked += step;
+    const expected = walked / frames;
+    if (step < expected * 0.25) frozen++;
+    if (step > expected * 2.5) lurch++;
+  }
+  assert.ok(frozen / frames < 0.03, `${frozen}/${frames} frames where the walker stood still on screen`);
+  assert.ok(lurch / frames < 0.03, `${lurch}/${frames} frames where the walker jumped ahead`);
+  m.hostSession.close();
+});
+
+test('a long ping does not make the local player rubber-band while sprinting in the open', () => {
+  const m = startMatch({ latency: 220, jitter: 40 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a] = m.peers;
+  m.hostSim.botsFrozen = true;
+  for (const sim of [m.hostSim, a.sim, m.peers[1].sim]) { sim.actorById('p0')!.position = { x: -60, y: 0, z: 30 }; sim.actorById('p1')!.position = { x: -40, y: 0, z: -22 }; sim.actorById('p2')!.position = { x: 30, y: 0, z: 30 }; }
+  m.run(1);
+  a.input = { ...idle, moveX: 1, sprint: true };
+  let last = { ...a.sim.player.position }, biggest = 0, smallest = Infinity, first = true;
+  m.run(5, () => {
+    const now = a.sim.player.position, step = Math.hypot(now.x - last.x, now.z - last.z);
+    if (first) { first = false; return; }
+    biggest = Math.max(biggest, step); smallest = Math.min(smallest, step); last = { ...now };
+  });
+  assert.ok(biggest < 0.4, `largest per-frame step ${biggest.toFixed(2)} m (a sprint is about 0.2)`);
+  assert.ok(smallest > 0.05, `smallest per-frame step ${smallest.toFixed(2)} m: the view was pulled back`);
+  m.hostSession.close();
+});
+
+test('input is sent the moment movement changes instead of waiting for the next regular packet', () => {
+  const m = startMatch({ latency: 20 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a] = m.peers;
+  m.hostSim.botsFrozen = true;
+  m.run(1);
+  const before = a.stats.sent;
+  a.input = { ...idle, moveX: 1 };
+  m.frame(); m.frame();
+  assert.ok(a.stats.sent > before, 'a key press goes out within two frames');
+  m.hostSession.close();
 });

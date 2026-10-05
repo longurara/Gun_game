@@ -6,6 +6,8 @@ import './air-hud.css';
 import './stance-hud.css';
 import './lobby.css';
 import './social.css';
+import './inventory.css';
+import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -33,7 +35,7 @@ import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, ammoTypeOf } from './game/weapons';
-import type { Actor, GameSettings, GyroMode, Loot, PlayerInput, Vehicle, WeaponType } from './types';
+import type { Actor, GameSettings, GyroMode, Loot, LootKind, PlayerInput, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
@@ -63,6 +65,7 @@ import '@babylonjs/core/Rendering/depthRendererSceneComponent.js';
 const MeshBuilder = { CreateBox, CreateGround, CreateCylinder, CreateSphere, CreateTorus, CreateLines };
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas')!;
+canvas.tabIndex = -1;
 const touchDevice = isTouchDevice();
 document.documentElement.dataset.input = touchDevice ? 'touch' : 'mouse';
 const sim = new GameSimulation({ botCount: 5, difficulty: 'normal' });
@@ -122,6 +125,7 @@ let flagBeam: Mesh | null = null, flagBeamAt: { x: number; z: number } | null = 
 let gyroOnMode: GyroMode = 'aim';
 const pitchMin = () => sim.player.air ? -1.4 : -0.7;
 
+let inventoryPreview: InventoryPreview | null = null;
 const ui = new GameUI({
   onStart: (next) => { settings = next; applySettings(); syncGyro(); start(); },
   onResume: () => { void audio.unlock(); if (net) { mpMenuOpen = false; ui.setMpMenu(false); } else sim.setPaused(false); lockPointer(); clock = performance.now(); },
@@ -135,8 +139,21 @@ const ui = new GameUI({
   onSpectateExit: () => { if (net) leaveMatch(); else sim.endSpectating(); },
   onSettings: (next) => { settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro(); },
   onSelectWeapon: selectWeapon,
+  onInventoryPickup: pickupInventory,
+  onInventoryDrop: dropInventory,
+  onInventoryHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
+  onInventoryChange: open => {
+    inventoryPreview?.setVisible(open);
+    if (open) {
+      releaseInput(); pendingJump = false;
+      lastInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
+      mobile?.setEnabled(false);
+      ui.updateInventory(sim.player, sim.nearbyLoot(), !!net);
+    } else if (sim.state.phase === 'playing' && sim.player.alive && !ui.mapOpen && !mpMenuOpen && !sim.state.spectating) lockPointer();
+  },
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
 });
+inventoryPreview = new InventoryPreview(ui.inventory.canvas);
 settings = ui.settings;
 const gyro = new Gyro(onGyroLook, status => ui.setGyroStatus(GYRO_STATUS_TEXT[status]));
 {
@@ -146,17 +163,21 @@ const gyro = new Gyro(onGyroLook, status => ui.setGyroStatus(GYRO_STATUS_TEXT[st
 if (touchDevice) {
   mobile = new MobileControls(canvas, {
     onLook: (dx, dy) => {
-      if (sim.state.phase !== 'playing' || ui.touchOverlayOpen) return;
+      if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
       const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? WEAPONS[sim.player.weapon].zoom : null);
       const scale = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
       lookBy(dx * sensitivity * scale, -dy * sensitivity * scale);
     },
     onFire: (pressed) => {
-      shooting = pressed && sim.state.phase === 'playing' && !ui.touchOverlayOpen;
+      shooting = pressed && sim.state.phase === 'playing' && !gameplayInputBlocked();
       if (shooting) { void audio.unlock(); triggerPending = true; }
     },
-    onAimToggle: () => { if (sim.state.phase === 'playing') { void audio.unlock(); if (aiming) aiming = false; else beginAim(); } },
-    onJump: (pressed) => { mobileJump = pressed; },
+    onAimToggle: () => { if (sim.state.phase === 'playing' && !gameplayInputBlocked()) { void audio.unlock(); if (aiming) aiming = false; else beginAim(); } },
+    onJump: (pressed) => {
+      mobileJump = pressed && !gameplayInputBlocked();
+      // At 30 FPS a tap can end before the next frame; preserve its airborne press edge.
+      if (mobileJump && sim.airborne) pendingJump = true;
+    },
     onReload: () => { if (doReload()) { void audio.unlock(); audio.reload(); } },
     onInteract: () => { if (!doInteract()) useVehicle(); },
     onHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
@@ -229,7 +250,7 @@ function toggleStance(stance: 'crouch' | 'prone') {
 
 /** Phone rotation (radians) becomes camera rotation, scaled down while zoomed so a scope stays steady. */
 function onGyroLook(dYaw: number, dPitch: number) {
-  if (sim.state.phase !== 'playing' || ui.touchOverlayOpen || settings.gyro === 'off') return;
+  if (sim.state.phase !== 'playing' || gameplayInputBlocked() || settings.gyro === 'off') return;
   // "Khi ngắm": only while looking down the sights or holding the trigger, so walking is never twitchy.
   if (settings.gyro === 'aim' && !aiming && !shooting) return;
   const zoom = aiming ? WEAPONS[sim.player.weapon].zoom : 1;
@@ -248,6 +269,16 @@ function doHeal(): boolean {
   const ok = sim.heal();
   if (ok) net?.client?.queueCommand('heal');
   return ok;
+}
+function pickupInventory(id: string): void {
+  if (!ui.inventoryOpen || !sim.nearbyLoot().some(item => item.id === id)) return;
+  if (net?.client) net.client.queueCommand('inventory-pickup', id);
+  else sim.pickupLoot(id);
+}
+function dropInventory(kind: LootKind, amount: number): void {
+  if (!ui.inventoryOpen || sim.state.phase !== 'playing' || !sim.player.alive || sim.player.air || sim.player.vehicleId) return;
+  if (net?.client) net.client.queueCommand('inventory-drop', { kind, amount });
+  else sim.dropItem(kind, amount);
 }
 function doInteract(): boolean {
   if (net?.client) {
@@ -441,7 +472,14 @@ function configureWorld() {
   }
 }
 
+function gameplayInputBlocked(): boolean {
+  return mpMenuOpen || ui.mapOpen || ui.touchOverlayOpen;
+}
+
 function lockPointer() {
+  if (gameplayInputBlocked()) return;
+  // A joined match starts without a local click: leave hidden lobby inputs/buttons behind.
+  canvas.focus({ preventScroll: true });
   if (touchDevice || !canvas.requestPointerLock) return;
   try {
     const result = canvas.requestPointerLock();
@@ -453,7 +491,7 @@ function lockPointer() {
 
 function releaseInput() {
   keys.clear(); shooting = false; triggerPending = false; aiming = false;
-  mobileJump = false; mobile?.reset();
+  mobileJump = false; pendingJump = false; mobile?.reset();
   if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
 
@@ -462,7 +500,7 @@ function pause() {
   if (sim.state.phase !== 'playing') return;
   // Online the world cannot be paused (other people are in it): the menu just opens over the running game.
   if (net) { if (!mpMenuOpen) { mpMenuOpen = true; releaseInput(); ui.setMpMenu(true); } return; }
-  sim.setPaused(true); releaseInput(); audio.pause();
+  sim.setPaused(true); ui.toggleInventory(false); releaseInput(); audio.pause();
 }
 
 function applySettings() {
@@ -1297,7 +1335,16 @@ function events(dt: number) {
 }
 
 window.addEventListener('keydown', event => {
-  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+  if (event.defaultPrevented || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+  if ((event.code === 'Tab' || event.code === 'KeyI') && sim.state.phase === 'playing' && !mpMenuOpen && !replay && !sim.state.spectating) {
+    event.preventDefault();
+    if (!event.repeat) ui.toggleInventory();
+    return;
+  }
+  if (ui.inventoryOpen) {
+    if (event.code === 'Escape' && !event.repeat) { event.preventDefault(); ui.toggleInventory(false); }
+    return;
+  }
   if (event.code === 'Escape' && !event.repeat) {
     if (replay) { stopReplay(); return; }
     if (net && mpMenuOpen) { mpMenuOpen = false; ui.setMpMenu(false); void audio.unlock(); lockPointer(); return; }
@@ -1306,6 +1353,8 @@ window.addEventListener('keydown', event => {
     return;
   }
   if (sim.state.phase !== 'playing') return;
+  if (event.code === 'KeyM' && !event.repeat && !mpMenuOpen) { ui.toggleMap(); return; }
+  if (gameplayInputBlocked()) return;
   if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
   if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
@@ -1325,14 +1374,13 @@ window.addEventListener('keydown', event => {
     if (weapon) selectWeapon(weapon);
   }
   if (event.code === 'KeyG' && sim.airborne) toggleAutoGlide();
-  if (event.code === 'KeyM') ui.toggleMap();
   if (event.code === 'KeyQ') cycleWeapon(1);
   if (event.code === 'KeyC') toggleStance('crouch');
   if (event.code === 'KeyZ') toggleStance('prone');
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 canvas.addEventListener('mousedown', event => {
-  if (touchDevice || sim.state.phase !== 'playing') return;
+  if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
   event.preventDefault(); void audio.unlock();
   if (!document.pointerLockElement) lockPointer();
   if (event.button === 0) { shooting = true; triggerPending = true; }
@@ -1341,17 +1389,17 @@ canvas.addEventListener('mousedown', event => {
 window.addEventListener('mouseup', event => { if (touchDevice) return; if (event.button === 0) shooting = false; if (event.button === 2) aiming = false; });
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 canvas.addEventListener('wheel', event => {
-  if (sim.state.phase !== 'playing') return;
+  if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
   event.preventDefault(); cycleWeapon(event.deltaY >= 0 ? 1 : -1);
 }, { passive: false });
 window.addEventListener('mousemove', event => {
-  if (touchDevice || sim.state.phase !== 'playing' || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
+  if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked() || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
   const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(WEAPONS[sim.player.weapon].zoom) : 1);
   lookBy(event.movementX * sensitivity, -event.movementY * sensitivity);
 });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
-  if (!locked && hadLock && sim.state.phase === 'playing') pause();
+  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen) pause();
   hadLock = locked;
 });
 window.addEventListener('blur', () => { if (!net) pause(); });
@@ -1408,11 +1456,12 @@ try {
     lastRenderTime = now;
     const dt = Math.min(0.1, Math.max(0, (now - clock) / 1000)); clock = now;
     if (sim.state.phase === 'playing') {
-      const rawForward = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (mobile?.movement.forward ?? 0);
-      const rawSide = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
+      const rawForward = gameplayInputBlocked() ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (mobile?.movement.forward ?? 0);
+      const rawSide = gameplayInputBlocked() ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
       const length = Math.max(1, Math.hypot(rawForward, rawSide));
       const forward = rawForward / length, side = rawSide / length;
-      const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight') || !!mobile?.movement.sprint;
+      const sprint = !gameplayInputBlocked() && (keys.has('ShiftLeft') || keys.has('ShiftRight') || !!mobile?.movement.sprint);
+      const jump = !gameplayInputBlocked() && (keys.has('Space') || mobileJump || pendingJump);
       const car = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
       if (car) {
         if (!wasDriving) { yaw = car.yaw; pitch = -0.2; snapCamera = true; }
@@ -1421,12 +1470,12 @@ try {
           const heading = car.speed >= 0 ? car.yaw : car.yaw + Math.PI;
           yaw += Math.atan2(Math.sin(heading - yaw), Math.cos(heading - yaw)) * Math.min(1, dt * 1.6);
         }
-        sim.update(dt, lastInput = { moveX: 0, moveZ: 0, sprint: false, jump: keys.has('Space') || mobileJump, throttle: Math.max(-1, Math.min(1, rawForward)), steer: Math.max(-1, Math.min(1, rawSide)) });
+        sim.update(dt, lastInput = { moveX: 0, moveZ: 0, sprint: false, jump, throttle: Math.max(-1, Math.min(1, rawForward)), steer: Math.max(-1, Math.min(1, rawSide)) });
         audio.engine(car.speed, rawForward);
       } else {
         let moveX = Math.sin(yaw) * forward + Math.cos(yaw) * side, moveZ = Math.cos(yaw) * forward - Math.sin(yaw) * side;
         const flag = ui.waypoint, air = sim.player.air;
-        if (autoGlide && air && air.mode !== 'plane' && flag) {
+        if (autoGlide && !gameplayInputBlocked() && air && air.mode !== 'plane' && flag) {
           // Head for the flag, easing off as it nears so the canopy comes down on it.
           const dx = flag.x - sim.player.position.x, dz = flag.z - sim.player.position.z, distance = Math.hypot(dx, dz);
           const cap = air.mode === 'chute' ? (sprint ? DROP.chuteFast : DROP.chute).h : (sprint ? DROP.dive : DROP.freefall).h;
@@ -1434,10 +1483,10 @@ try {
           moveX = distance > 0.5 ? dx / distance * throttle : 0; moveZ = distance > 0.5 ? dz / distance * throttle : 0;
         }
         if (!air) autoGlide = false;
-        sim.update(dt, lastInput = { moveX, moveZ, sprint, jump: keys.has('Space') || mobileJump || pendingJump });
-        pendingJump = false;
+        sim.update(dt, lastInput = { moveX, moveZ, sprint, jump });
         sim.player.yaw = yaw;
       }
+      pendingJump = false;
       if (wasDriving && !car) { snapCamera = true; pitch = -0.12; }
       wasDriving = !!car;
       const lowStance = sim.player.stance ?? 'stand';
@@ -1508,7 +1557,7 @@ try {
     ui.setReplayAvailable(canReplay() && !replay);
     audio.setListenerYaw(yaw);
     renderZone(); updateCamera(dt);
-    if (sim.state.phase === 'playing' && (triggerPending || shooting && WEAPONS[sim.player.weapon].fireMode === 'auto')) shoot();
+    if (sim.state.phase === 'playing' && !gameplayInputBlocked() && (triggerPending || shooting && WEAPONS[sim.player.weapon].fireMode === 'auto')) shoot();
     triggerPending = false;
     events(sim.state.phase === 'paused' ? 0 : dt);
     if (sim.state.phase !== lastPhase) {
@@ -1522,10 +1571,12 @@ try {
     if (sim.player.alive && sim.player.health < 50 && sim.player.medkits > 0) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
     const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên xe` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
     if (!touchDevice || now - lastHudTime >= 90 || hudPhase !== sim.state.phase || hudWeapon !== sim.player.weapon) {
-      ui.update(sim.state, sim.world, hint); lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
+      ui.update(sim.state, sim.world, hint);
+      ui.updateInventory(sim.player, ui.inventoryOpen ? sim.nearbyLoot() : [], !!net);
+      lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
     }
-    ui.setAim(aiming && sim.state.phase === 'playing', sim.player.weapon);
-    mobile?.setEnabled(sim.state.phase === 'playing' && !ui.touchOverlayOpen);
+    ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon);
+    mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
     ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / 300 } : null);
     // Frame-rate readout, refreshed twice a second from the last 120 frames.
@@ -1565,9 +1616,10 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
       glideReady: !!ui.waypoint && !!sim.player.air && sim.player.air.mode !== 'plane', glideOn: autoGlide,
     });
     scene.render();
+    if (ui.inventoryOpen) inventoryPreview?.update(sim.player, sim.state.elapsed);
   });
   if (import.meta.env.DEV) {
-    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()) }) } });
+    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, beginMultiplayer, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()) }) } });
   }
 } catch (error) {
   console.error(error);

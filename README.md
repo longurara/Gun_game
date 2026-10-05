@@ -103,6 +103,7 @@ Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; bi�
 | Chuột trái | Giữ để bắn súng tự động; mỗi nhấp một phát với súng bán tự động / lên đạn từng phát |
 | Giữ chuột phải | Ngắm qua vai; DMR-14 / SR-98 / AMR-50 mở ống ngắm 4× / 6× / 8× |
 | C / Z | Ngồi / nằm (bấm lại để đứng lên). Nhảy hoặc chạy cũng đứng lên |
+| Tab / I | Mở kho đồ; trong kho dùng Tab để chuyển mục, I hoặc Esc để đóng |
 | R | Nạp đạn |
 | E | Nhặt vật phẩm gần nhất (nếu không có gì để nhặt thì lên/xuống xe) |
 | F | Lên / xuống xe. Trên không: giống Space (nhảy / mở dù) |
@@ -113,6 +114,12 @@ Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; bi�
 | Esc | Tạm dừng / tiếp tục |
 
 Di chuyển, nhảy hoặc bắn sẽ hủy hồi máu. Khi chuyển sang cửa sổ/tab khác hoặc mất khóa chuột, trận tự tạm dừng. Tạm dừng đóng băng bot, vòng bo và các bộ đếm gameplay.
+
+## Kho đồ
+
+Nhấn **Tab / I** hoặc nút **KHO ĐỒ** để mở kho trong trận. Màn hình có đồ trong tầm nhặt, đạn và cứu thương đang mang, nhân vật 3D với mũ/giáp hiện tại và ba ô súng. Chọn **NHẶT** để lấy đúng vật phẩm, chọn ô súng để đổi vũ khí, **DÙNG** để hồi máu, hoặc **BỎ** để đặt đồ xuống đất. Mỗi lần thả đạn tối đa 30 viên; súng giữ số đạn trong băng và giáp giữ độ bền khi nhặt lại. Cần giữ ít nhất một khẩu súng. Không nhặt/thả khi đang trên không hoặc trong xe.
+
+Trong kho, **Tab** chuyển giữa các nút; **I / Esc** hoặc **ĐÓNG** quay lại trận. Điều khiển di chuyển/bắn được ngắt khi mở kho, nhưng **trận đấu vẫn tiếp tục**, cả khi chơi một mình và online. Trên điện thoại, kho tự sắp xếp theo màn hình ngang/dọc. Nhặt và thả đồ online do chủ phòng xác nhận rồi đồng bộ về mọi người.
 
 ## Điều khiển cảm ứng
 
@@ -235,6 +242,10 @@ Bot gần bạn: nhặt đồ trong nhà và quanh đó (chọn thứ có giá t
 Atlas ImageGen có bốn ô alpha riêng cho cây thông xa, cành thông, cành lá rộng và bụi cỏ; texture vỏ cây dùng UV chạy dọc thân. Cây gần dựng tán từ nhiều cành nhỏ, dùng chung một material và gộp mesh theo chunk. Cỏ nhận bóng trên PC, lay động bằng shader GPU và thu chiều cao ở rìa vùng hiển thị; không cập nhật ma trận mỗi khung hình.
 
 Cỏ phân bố cố định theo địa hình, tránh đường, sông, hồ và dốc đá. Giới hạn 6.000 bụi trên PC, 2.600 trên thiết bị cảm ứng; bán kính thấy cỏ tương ứng khoảng 32 m và 22 m. Điện thoại vẫn render đủ DPR, không bật bóng. Texture và prompt nằm ở `src/assets/textures/`; đây là albedo, chưa phải bộ vật liệu PBR đầy đủ.
+
+### Texture môi trường
+
+Tường vữa, mái ngói, đá, mặt đường nhựa và mặt tiền cửa sổ dùng 5 albedo tạo bằng ImageGen trong `src/assets/textures/`. Game tải bản WebP 1024 × 1024 (tổng khoảng 1,91 MB); PNG gốc và toàn bộ prompt được giữ trong [environment-imagegen-prompts.json](src/assets/textures/environment-imagegen-prompts.json). Mái có UV theo chiều sống mái và độ dài thật của dốc, tường và đá lặp ở tỷ lệ 2 m, nhựa đường ở tỷ lệ 4 m. Vật liệu được dùng chung và gộp theo ô địa hình.
 
 ## Dữ liệu trên trình duyệt
 

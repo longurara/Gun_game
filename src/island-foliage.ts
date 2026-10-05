@@ -186,6 +186,8 @@ export function createFacadeMaterial(scene: Scene): StandardMaterial {
   material.diffuseColor = Color3.White();
   material.specularColor = Color3.Black();
   material.backFaceCulling = false;
+  // One opaque, orthographic ImageGen bay per panel; preserve the painted fallback while it loads.
+  useGeneratedAlbedo(material, GENERATED_TEXTURES.facade, 1, 1.1);
   return material;
 }
 

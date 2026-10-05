@@ -1,0 +1,176 @@
+/* Full match inventory. The transparent character canvas shares the game's soldier model. */
+.inventory-screen{position:absolute;inset:0;z-index:42;pointer-events:auto;color:#e8e9e1;background:linear-gradient(90deg,#090f13f0 0%,#0b1218bd 46%,#090f13e8 100%),linear-gradient(0deg,#080c10e8,transparent 75%);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);--inventory-yellow:#e4bf63;--inventory-muted:#a3aaa8;--inventory-line:#d9e2dc24}
+.inventory-screen button{color:inherit;border:0;border-radius:0;cursor:pointer}
+.inventory-screen button:disabled{cursor:default;opacity:.35}
+.inventory-screen button:focus-visible{outline:2px solid var(--inventory-yellow);outline-offset:2px}
+.inventory-shell{width:min(1520px,100%);height:100%;margin:auto;padding:26px clamp(18px,3.3vw,54px) 17px;display:flex;flex-direction:column}
+.inventory-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--inventory-line);flex:none}
+.inventory-title-group{display:flex;align-items:center;gap:20px}
+.inventory-wordmark{font-size:11px;letter-spacing:2.5px;font-weight:800;color:var(--inventory-yellow);display:flex;gap:20px;align-items:center}
+.inventory-wordmark i{height:22px;width:1px;display:block;background:var(--inventory-line)}
+.inventory-title-group h2{font-family:var(--display);font-size:34px;font-weight:400;letter-spacing:1.5px;line-height:1;margin:0}
+.inventory-header-sub{font-size:8px;letter-spacing:1.8px;color:#9ea7a6;padding-top:4px}
+.inventory-close{display:flex;gap:12px;align-items:center;background:#f1f4ec08;padding:8px 9px 8px 13px;min-height:40px;border:1px solid var(--inventory-line)!important;font-size:10px;letter-spacing:1.3px}
+.inventory-close:hover{background:#f1f4ec13}
+.inventory-close kbd{color:#c0c6c2;letter-spacing:0}
+.inventory-close svg{width:20px;height:20px}
+.inventory-layout{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(185px,.85fr) minmax(265px,1.65fr) minmax(230px,1.13fr);gap:clamp(12px,1.5vw,24px);flex:1;min-height:0;padding:27px 0 22px}
+.inventory-column{display:flex;flex-direction:column;min-width:0;min-height:0}
+.inventory-section-title{display:flex;align-items:center;justify-content:space-between;gap:6px;border-bottom:1px solid var(--inventory-line);padding-bottom:12px;flex:none}
+.inventory-section-title h3{font-family:var(--display);font-weight:400;font-size:20px;line-height:1.1;margin:0;letter-spacing:1px}
+.inventory-section-title>span{font-size:8px;letter-spacing:1px;color:#abb2ae;white-space:nowrap}
+.inventory-column-note{font-size:10px;color:var(--inventory-muted);margin:10px 0 15px;letter-spacing:.2px;flex:none}
+.inventory-item-list{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#b7c1b64d transparent}
+.inventory-item-row{display:grid;grid-template-columns:37px minmax(0,1fr) auto;column-gap:9px;row-gap:9px;align-items:center;padding:11px 10px 9px;margin:0 0 5px;background:#e3ebe909;border:1px solid #e3ebe909;min-height:82px}
+.inventory-item-row:hover{background:#e3ebe912;border-color:#e4bf634d}
+.inventory-item-icon{overflow:hidden;width:37px;height:37px;display:grid;place-items:center;background:#b4c4b911;color:#c3cbbf;border:1px solid #c3d1c51a}
+.inventory-item-icon svg{width:25px;height:25px}
+#inventory-screen .inventory-item-icon .slot-weapon-icon{width:36px;height:22px}
+.inventory-item-copy{min-width:0}
+.inventory-item-copy b{display:block;font-size:11px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.inventory-item-copy small{display:block;font-size:9px;color:#909e9a;line-height:1.4;margin-top:3px}
+.inventory-item-count{font-family:var(--display);font-size:17px;letter-spacing:.5px;color:#dce0d2;white-space:nowrap}
+.inventory-vicinity .inventory-item-count{font-family:inherit;font-size:8px;color:#a8b3ab;font-weight:500}
+.inventory-item-actions{grid-column:2/4;display:flex;gap:6px;justify-content:flex-end}
+.inventory-action{font-size:8px!important;letter-spacing:.8px;padding:6px 10px;background:#b4c4b915;min-width:48px;min-height:26px;border:1px solid #cad3c424!important}
+.inventory-action:hover{background:#e4bf6328;color:#f0d389}
+.inventory-action-primary{background:#e4bf631c;color:var(--inventory-yellow)!important;border-color:#e4bf6340!important}
+.inventory-empty{border:1px dashed #d9e2dc20;text-align:center;padding:25px 12px;color:var(--inventory-muted);margin-top:1px}
+.inventory-empty-icon{display:block;margin:0 auto 14px;color:#adbdb166}
+.inventory-empty-icon svg{width:29px;height:29px}
+.inventory-empty p{margin:0 0 8px;font-size:11px;line-height:1.5}
+.inventory-empty small{display:block;font-size:9px;line-height:1.7;color:#82918a}
+.inventory-carried .inventory-section-title{border-color:#e4bf637d}
+.inventory-carried .inventory-section-title h3{color:var(--inventory-yellow)}
+.inventory-character-panel{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.inventory-character-heading{display:flex;justify-content:space-between;gap:6px;padding:0 10px;font-size:8px;letter-spacing:1.4px;flex:none;line-height:20px}
+.inventory-character-heading>span{color:#b7c0b8}
+.inventory-character-heading i{font-style:normal;color:#7c8b83;font-size:7px;letter-spacing:1px}
+.inventory-character-stage{position:relative;flex:1;min-height:150px;overflow:hidden}
+.inventory-character-halo{position:absolute;inset:8% 15% 6% 2%;background:radial-gradient(ellipse at 50% 60%,#87988c24,transparent 65%);pointer-events:none}
+#inventory-character{position:absolute;left:0;top:0;display:block;width:82%;height:100%;outline:none;pointer-events:none;touch-action:none}
+.inventory-armor-slots{position:absolute;right:0;top:24%;display:flex;flex-direction:column;gap:22px;width:128px;z-index:2}
+.inventory-armor-slot{position:relative;padding:11px 9px 9px;background:#0b1318a1;border:1px solid #d9e2dc29;display:grid;grid-template-columns:27px minmax(0,1fr);gap:8px;align-items:center}
+.inventory-armor-slot.empty{border-color:#d9e2dc16;color:#849189}
+.inventory-armor-icon{display:flex;align-items:center;color:#b7c1b1}
+.inventory-armor-icon svg{width:27px;height:27px}
+.inventory-armor-copy{min-width:0}
+.inventory-armor-copy b{display:block;font-size:9px;font-weight:500;line-height:1.4}
+.inventory-armor-copy small{display:block;font-size:7px;letter-spacing:.25px;color:#99a499;white-space:nowrap;margin-top:4px}
+.inventory-armor-track{height:3px;background:#d9e2dc1a;margin-top:7px;overflow:hidden}
+.inventory-armor-track span{display:block;height:100%;background:var(--inventory-yellow);transform-origin:left}
+.inventory-armor-track span.low{background:#cb775e}
+.inventory-armor-drop{grid-column:1/3;justify-self:end;font-size:7px;letter-spacing:1px;background:transparent;color:#a8b3aa!important;padding:5px 0 0 6px;min-height:20px}
+.inventory-armor-drop:hover{color:var(--inventory-yellow)!important}
+.inventory-character-info{margin:3px auto 0;width:min(220px,80%);flex:none;padding-top:13px;border-top:1px solid #d9e2dc20}
+.inventory-character-info>strong{display:block;font-family:var(--display);font-size:24px;letter-spacing:1.5px;font-weight:400;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:15px}
+.inventory-health-caption{display:flex;align-items:center;justify-content:space-between;font-size:8px;letter-spacing:1.2px;color:#aeb8ad}
+.inventory-health-caption b{font-weight:500;color:#dce2d4;font-size:10px;letter-spacing:.5px}
+.inventory-health-track{background:#dee5d722;height:5px;margin-top:7px;overflow:hidden}
+.inventory-health-track span{display:block;background:#c7d1af;height:100%;transform-origin:left}
+.inventory-health-track span.low{background:#cf725a}
+.inventory-weapon-list{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#b7c1b64d transparent}
+.inventory-weapon-slot{border:1px solid #d9e2dc26;background:linear-gradient(110deg,#26352d41,#131d226e);min-height:135px;position:relative;flex:1;max-height:220px;display:flex;flex-direction:column}
+.inventory-weapon-slot.equipped{border-color:#e4bf63ad;background:linear-gradient(110deg,#544c2726,#131d226e)}
+.inventory-weapon-slot.equipped:before{content:"";position:absolute;left:-1px;top:23%;bottom:23%;width:2px;background:var(--inventory-yellow)}
+.inventory-slot-top{display:flex;align-items:center;gap:10px;padding:10px 12px 0;flex:none}
+.inventory-slot-number{font-family:var(--display);font-size:18px;line-height:1;color:#697c72}
+.inventory-weapon-slot.equipped .inventory-slot-number{color:var(--inventory-yellow)}
+.inventory-slot-type{font-size:7px;letter-spacing:1.3px;color:#9ca99e}
+.inventory-weapon-drop{font-size:8px;letter-spacing:1px;margin-left:auto;padding:5px 0 5px 10px;background:transparent;color:#a2afa2!important;position:relative;z-index:1}
+.inventory-weapon-drop:hover{color:var(--inventory-yellow)!important}
+.inventory-weapon-select{position:relative;flex:1;min-height:0;width:100%;text-align:left;display:flex;flex-direction:column;padding:3px 13px 11px;background:transparent}
+.inventory-weapon-select:hover{background:#e4bf6307}
+.inventory-weapon-name{font-family:var(--display);font-size:23px;line-height:1.2;font-weight:400;letter-spacing:.6px;color:#e7e9dd}
+.inventory-weapon-category{font-size:8px;letter-spacing:.3px;margin-top:4px;color:#94a498;line-height:1.3}
+.inventory-weapon-art{display:flex;align-items:center;justify-content:center;flex:1;min-height:24px;margin:6px 0;color:#b0bba8}
+#inventory-screen .inventory-weapon-art .slot-weapon-icon{width:80%;max-width:215px;height:clamp(29px,5.5vh,56px);opacity:.86}
+.inventory-weapon-ammo{display:flex;align-items:baseline;gap:9px}
+.inventory-weapon-ammo b{font-size:13px;letter-spacing:.8px;font-weight:600}
+.inventory-weapon-ammo small{font-size:8px;color:#93a296}
+.inventory-equipped-label{display:none;position:absolute;right:13px;bottom:13px;font-size:7px;letter-spacing:1px;color:var(--inventory-yellow)}
+.equipped .inventory-equipped-label{display:block}
+.inventory-weapon-slot.empty{border-style:dashed;background:#ffffff02;opacity:.65}
+.inventory-weapon-slot.empty .inventory-weapon-name{font-family:inherit;font-size:12px;letter-spacing:1.4px;color:#95a49a;padding-top:10px}
+.inventory-weapon-slot.empty .inventory-weapon-category{font-size:9px;color:#7d8b83}
+.inventory-weapon-slot.empty .inventory-weapon-ammo{opacity:.2}
+.inventory-loadout-note{font-size:9px;line-height:1.6;color:#798d7d;margin:12px 0 0;flex:none}
+.inventory-footer{border-top:1px solid var(--inventory-line);padding-top:13px;display:flex;align-items:center;gap:20px;flex:none;min-height:34px}
+.inventory-key-hints{display:flex;gap:20px;color:#949f97;font-size:8px;letter-spacing:.6px}
+.inventory-key-hints>span{white-space:nowrap}
+.inventory-key-hints kbd{padding:2px 4px;font-size:8px;border-color:#e4bf634a;color:#dccb99;margin-right:3px}
+.inventory-footer p{margin:0;font-size:9px;color:#8e9c93;line-height:1.5}
+.inventory-footer-brand{font-size:9px;letter-spacing:1.5px;color:#a4b4a6;margin-left:auto;white-space:nowrap}
+.inventory-footer-brand i{color:var(--inventory-yellow);font-style:normal;margin:0 5px}
+.inventory-toggle{position:absolute;left:18px;top:18px;pointer-events:auto;display:flex;align-items:center;gap:8px;min-height:38px;padding:8px 12px;color:#e3e7db;background:#0c151bc9;border:1px solid #d7e1d230!important;font-size:9px;font-weight:600;letter-spacing:1.2px}
+.inventory-toggle:hover{border-color:#e4bf6399!important;color:#e4bf63}
+.inventory-toggle svg{width:17px;height:17px;color:#c8cda8}
+.inventory-toggle kbd{font-size:8px;letter-spacing:0;padding:2px 4px;color:#a7b398;border-color:#becab32c}
+#ui-root[data-inventory="open"]>.hud{visibility:hidden}
+@media(min-width:901px) and (max-height:650px){
+  .inventory-shell{padding-top:17px;padding-bottom:12px}.inventory-header{padding-bottom:12px}.inventory-layout{padding-top:17px;padding-bottom:14px}
+  .inventory-title-group h2{font-size:29px}.inventory-item-row{padding:8px 8px 7px;min-height:72px;column-gap:7px}.inventory-weapon-slot{min-height:111px}.inventory-weapon-name{font-size:20px}
+  .inventory-character-info>strong{font-size:21px;margin-bottom:10px}.inventory-armor-slots{gap:14px;top:21%}.inventory-armor-slot{padding:8px}
+}
+@media(max-width:1180px) and (min-width:901px){
+  .inventory-shell{padding-left:22px;padding-right:22px}.inventory-layout{grid-template-columns:minmax(150px,.75fr) minmax(165px,.85fr) minmax(235px,1.35fr) minmax(215px,1.07fr);gap:14px}
+  .inventory-header-sub{display:none}.inventory-section-title h3{font-size:18px}.inventory-section-title>span{font-size:7px;letter-spacing:.5px}
+  .inventory-item-row{grid-template-columns:31px minmax(0,1fr) auto;column-gap:7px;padding-left:8px;padding-right:8px}.inventory-item-icon{width:31px;height:34px}.inventory-item-copy b{font-size:10px}.inventory-item-count{font-size:15px}
+  .inventory-armor-slots{width:111px}.inventory-armor-slot{grid-template-columns:22px minmax(0,1fr);gap:5px}.inventory-armor-icon svg{width:22px;height:24px}.inventory-armor-copy b{font-size:8px}.inventory-armor-copy small{font-size:6px}
+  .inventory-equipped-label{font-size:6px}.inventory-character-heading{font-size:7px;padding:0 3px}.inventory-character-heading i{font-size:6px}
+}
+@media(max-width:900px) and (orientation:landscape){
+  .inventory-shell{padding:10px max(12px,env(safe-area-inset-right)) 7px max(12px,env(safe-area-inset-left))}
+  .inventory-header{padding-bottom:8px}.inventory-title-group{gap:13px}.inventory-wordmark{font-size:8px;gap:13px;letter-spacing:1.6px}.inventory-wordmark i{height:17px}.inventory-title-group h2{font-size:24px}.inventory-header-sub{display:none}.inventory-close{min-height:30px;padding:3px 8px;font-size:8px;gap:8px}.inventory-close kbd{display:none}
+  .inventory-layout{grid-template-columns:minmax(115px,.72fr) minmax(140px,.88fr) minmax(170px,1.2fr) minmax(174px,1.05fr);gap:10px;padding:11px 0 7px}
+  .inventory-section-title{padding-bottom:6px;align-items:baseline}.inventory-section-title h3{font-size:16px;letter-spacing:.6px}.inventory-section-title>span{font-size:6px;letter-spacing:.3px}.inventory-column-note{font-size:8px;margin:6px 0 8px}
+  .inventory-item-row{grid-template-columns:25px minmax(0,1fr) auto;column-gap:6px;row-gap:5px;padding:7px 6px 5px;min-height:65px;margin-bottom:4px}.inventory-item-icon{width:25px;height:28px}.inventory-item-icon svg{width:20px;height:20px}#inventory-screen .inventory-item-icon .slot-weapon-icon{width:25px;height:17px}.inventory-item-copy b{font-size:9px}.inventory-item-copy small{font-size:7px;margin-top:1px}.inventory-item-count{font-size:13px}.inventory-vicinity .inventory-item-count{font-size:6px}.inventory-item-actions{gap:5px}.inventory-action{min-height:25px;font-size:7px!important;padding:5px 6px;min-width:38px}
+  .inventory-empty{padding:14px 7px}.inventory-empty-icon{margin-bottom:8px}.inventory-empty p{font-size:9px}.inventory-empty small{font-size:7px}
+  .inventory-character-heading{font-size:6px;line-height:14px;padding:0 3px}.inventory-character-heading i{display:none}.inventory-character-stage{min-height:100px}.inventory-armor-slots{width:82px;gap:9px;top:15%}.inventory-armor-slot{padding:5px;grid-template-columns:18px minmax(0,1fr);gap:4px}.inventory-armor-icon svg{width:18px;height:20px}.inventory-armor-copy b{font-size:7px;line-height:1.2}.inventory-armor-copy small{font-size:5px;letter-spacing:0;margin-top:3px}.inventory-armor-track{height:2px;margin-top:4px}.inventory-armor-drop{font-size:6px;min-height:19px;padding-top:2px}
+  .inventory-character-info{width:82%;padding-top:7px;margin-top:0}.inventory-character-info>strong{font-size:17px;margin-bottom:5px}.inventory-health-caption{font-size:6px}.inventory-health-caption b{font-size:8px}.inventory-health-track{height:3px;margin-top:4px}
+  .inventory-weapon-list{gap:6px}.inventory-weapon-slot{min-height:72px;max-height:130px}.inventory-slot-top{padding:5px 8px 0;gap:7px}.inventory-slot-number{font-size:12px}.inventory-slot-type{font-size:5px;letter-spacing:.8px}.inventory-weapon-drop{font-size:6px;min-height:19px;padding:2px 0 2px 9px}.inventory-weapon-select{padding:1px 8px 6px}.inventory-weapon-name{font-size:16px}.inventory-weapon-category{font-size:6px;margin-top:1px}.inventory-weapon-art{position:absolute;right:8px;top:22px;width:62px;margin:0;opacity:.6}#inventory-screen .inventory-weapon-art .slot-weapon-icon{width:62px;height:23px}.inventory-weapon-ammo{margin-top:auto;gap:5px;padding-top:4px}.inventory-weapon-ammo b{font-size:9px}.inventory-weapon-ammo small{font-size:6px}.inventory-equipped-label{font-size:5px;right:8px;bottom:7px;letter-spacing:.4px}.inventory-weapon-slot.empty .inventory-weapon-name{font-size:9px;padding-top:3px}.inventory-weapon-slot.empty .inventory-weapon-category{font-size:7px}.inventory-loadout-note{display:none}
+  .inventory-footer{padding-top:6px;min-height:19px;gap:10px}.inventory-key-hints{font-size:6px;gap:10px}.inventory-key-hints kbd{font-size:6px}.inventory-footer p{font-size:7px}.inventory-footer-brand{font-size:6px;letter-spacing:1px}
+}
+@media(max-width:900px) and (orientation:portrait){
+  .inventory-shell{padding:18px max(14px,env(safe-area-inset-right)) 12px max(14px,env(safe-area-inset-left))}
+  .inventory-header{padding-bottom:13px}.inventory-title-group{gap:13px}.inventory-title-group h2{font-size:29px}.inventory-wordmark{font-size:9px;gap:13px;letter-spacing:1.7px}.inventory-header-sub{display:none}.inventory-close{min-height:44px;padding:7px 10px;font-size:10px;gap:7px}.inventory-close kbd{display:none}
+  /* A single scrolling column lets each section keep its intrinsic height. */
+  .inventory-layout{display:flex;flex-direction:column;gap:25px;overflow:auto;overscroll-behavior:contain;align-content:initial;padding:18px 0 24px;scrollbar-width:thin}
+  .inventory-layout>.inventory-column{flex:none;min-height:auto}
+  .inventory-character-panel{order:0;flex:none;height:360px;min-height:360px}.inventory-loadout{order:1}.inventory-vicinity{order:2}.inventory-carried{order:3}
+  .inventory-character-heading{padding:0 9px;font-size:8px}.inventory-character-heading i{font-size:7px}.inventory-character-stage{min-height:245px}
+  #inventory-character{width:74%;left:0}
+  .inventory-armor-slots{right:0;top:15%;width:140px;gap:15px}.inventory-armor-slot{padding:10px 9px;grid-template-columns:27px minmax(0,1fr);gap:7px}.inventory-armor-copy b{font-size:10px}.inventory-armor-copy small{font-size:8px;letter-spacing:0}
+  #inventory-screen .inventory-armor-drop{font-size:10px;min-height:44px;padding-top:6px;min-width:44px}
+  .inventory-character-info{width:220px;padding-top:9px}.inventory-character-info>strong{font-size:23px;margin-bottom:10px}.inventory-health-caption{font-size:9px}.inventory-health-caption b{font-size:11px}.inventory-health-track{height:5px;margin-top:6px}
+  .inventory-section-title{padding-bottom:11px}.inventory-section-title h3{font-size:23px;letter-spacing:.7px}.inventory-section-title>span{font-size:9px;letter-spacing:.5px}.inventory-column-note{font-size:11px;margin:10px 0 14px}
+  .inventory-weapon-list{display:flex;flex:none;flex-direction:column;gap:11px;min-height:auto;height:auto;overflow:visible}
+  .inventory-weapon-slot{height:192px;min-height:192px;max-height:none;flex:none}
+  .inventory-slot-top{padding:8px 13px 0;gap:10px}.inventory-slot-number{font-size:20px}.inventory-slot-type{font-size:9px;letter-spacing:.8px;flex:1}
+  #inventory-screen .inventory-weapon-drop{font-size:11px;padding:7px 0 7px 10px;min-height:44px;min-width:44px}
+  .inventory-weapon-select{padding:3px 14px 15px;min-height:130px}
+  .inventory-weapon-name{font-size:27px;letter-spacing:.5px;max-width:65%;overflow-wrap:anywhere}.inventory-weapon-category{font-size:11px;line-height:1.5;margin-top:4px;max-width:58%}
+  .inventory-weapon-art{position:absolute;right:13px;top:28px;width:43%;height:54px;min-height:54px;margin:0}
+  #inventory-screen .inventory-weapon-art .slot-weapon-icon{width:100%;height:54px;max-width:230px}
+  .inventory-weapon-ammo{margin-top:auto;flex-direction:row;align-items:baseline;gap:9px;padding-top:13px}.inventory-weapon-ammo b{font-size:16px;letter-spacing:.7px}.inventory-weapon-ammo small{font-size:11px}
+  .inventory-equipped-label{font-size:9px;letter-spacing:.5px;right:14px;bottom:17px}
+  .inventory-weapon-slot.empty .inventory-weapon-name{font-size:15px;letter-spacing:1px;padding-top:4px}.inventory-weapon-slot.empty .inventory-weapon-category{font-size:11px;max-width:90%}
+  .inventory-loadout-note{font-size:11px;line-height:1.6;margin:13px 0 0}
+  .inventory-item-list{min-height:auto;overflow:visible;flex:none}
+  .inventory-item-row{grid-template-columns:43px minmax(0,1fr) auto;column-gap:11px;row-gap:10px;padding:13px 12px 10px;min-height:111px;margin-bottom:8px}
+  .inventory-item-icon{width:43px;height:43px}.inventory-item-icon svg{width:28px;height:28px}
+  #inventory-screen .inventory-item-icon .slot-weapon-icon{width:42px;height:25px}
+  .inventory-item-copy b{font-size:13px;line-height:1.5}.inventory-item-copy small{font-size:11px;line-height:1.4;margin-top:4px}.inventory-item-count{font-size:21px}.inventory-vicinity .inventory-item-count{font-size:10px}
+  #inventory-screen .inventory-action{font-size:11px!important;padding:10px 14px;min-height:44px;min-width:64px}
+  .inventory-item-actions{gap:9px}
+  .inventory-empty{padding:25px 16px}.inventory-empty p{font-size:13px}.inventory-empty small{font-size:11px}
+  .inventory-footer{padding-top:10px;min-height:27px}.inventory-key-hints,.inventory-footer-brand{display:none}.inventory-footer p{font-size:10px;line-height:1.5}
+}
+html[data-input="touch"] .inventory-toggle{top:calc(40px + env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));min-height:44px;padding:9px 11px;font-size:8px;gap:7px}
+html[data-input="touch"] .inventory-toggle kbd{display:none}
+html[data-input="touch"] .inventory-key-hints{display:none}
+html[data-input="touch"] .inventory-action{min-height:34px}
+html[data-input="touch"] .inventory-weapon-drop,html[data-input="touch"] .inventory-armor-drop{min-height:30px}
+@media(prefers-reduced-motion:reduce){.inventory-screen *{scroll-behavior:auto!important}}
+
+@media (orientation:portrait){html[data-input="touch"] .inventory-toggle{top:calc(92px + env(safe-area-inset-top));}}

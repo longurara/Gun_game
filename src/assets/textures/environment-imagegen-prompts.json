@@ -1,0 +1,67 @@
+{
+  "generator": "Built-in ImageGen",
+  "date": "2026-10-05",
+  "assets": [
+    {
+      "key": "plaster",
+      "file": "plaster-v1.png",
+      "prompt": "Use case: photorealistic-natural. Asset type: a single production 3D game ALBEDO texture, square 1024x1024, opaque. Create a seamless tileable exterior lime plaster / rendered concrete wall surface for a temperate island survival shooter. Orthographic flat macro surface, entire image filled edge to edge, representing 2m x 2m of wall. Fine irregular trowel grain, subtle aggregate pores, natural very faint mottling, sparse hairline wear and tiny shallow chips. Surface feels tactile and weathered but maintained, no large damage patches. Palette neutral pale warm greige, extremely low saturation, most luminance 0.80 to 0.94; moderate delicate detail and few shallow pores near 0.70. The game will multiply this albedo by existing beige or sage vertex tint, so keep it bright. Homogeneous evenly distributed detail without focal objects, without obvious repeated stains. Opposite edges match exactly for seamless horizontal AND vertical repeat. Flat diffuse shadow-free illumination; no baked sun direction, cast shadow, perspective, vignette or depth of field. NO windows, doors, bricks, seam lines, graffiti, text, labels, watermark, material sphere, atlas or presentation. Output only the square texture.",
+      "runtimeFile": "plaster-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "roof",
+      "file": "roof-tiles-v1.png",
+      "prompt": "Use case: photorealistic-natural. Asset type: one production 3D game seamless roof tile ALBEDO, square 1024x1024 opaque image. Orthographic surface texture of weathered interlocking terracotta roof tiles, desaturated to pale neutral grey for tinting with red-brown, charcoal and blue-grey vertex colours. Fill image edge to edge. Exactly 6 evenly spaced tile columns across and 7 horizontal overlapping tile rows down, slight natural irregularity within a regular modular repeat; all tiles run vertically down the image, long gentle barrel curves with subtly recessed narrow vertical seams and delicate thin horizontal overlaps. Fine fired clay pores, subtle worn ceramic grain, restrained mottled wear, few tiny speckles. No large broken tiles, no strong streaks, no moss clusters. Pale neutral grey, mostly luminance 0.75 to 0.92, shallow seams around 0.58-0.65, never black troughs or white shine. Depict surface material under flat fully diffuse lighting with very subtle relief cues only, no baked cast shadows or directional light. Match opposite edges exactly for a seamlessly repeating rectangular grid. This will cover sloped roof geometry with U along eaves and V along roof slope: no building silhouette, ridge, sky, rafters, scene, perspective, text, labels, watermark, atlas or material ball. Deliver only the full bleed square texture.",
+      "runtimeFile": "roof-tiles-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "rock",
+      "file": "rock-v1.png",
+      "prompt": "Use case: photorealistic-natural. Asset type: one production 3D game seamlessly tileable ROCK ALBEDO texture, square 1024x1024 opaque image. Flat orthographic close-up of weathered grey limestone / granite outcrop, representing 2m x 2m of a continuous rock surface. Fine mineral grains, subtle irregular fissures and broken strata, naturally distributed tiny pits, restrained flaking mineral facets, very sparse small muted lichen specks. Detailed tactile natural stone, subtle layered structure, no huge cracks, no polygon borders and no scattered individual rock objects. Bright nearly monochromatic warm grey, low saturation, diffuse luminance mostly 0.75 to 0.92 with restrained shallow darker pores; no dark black crevices, no sharp white highlights. Existing game vertex colour will tint the rock. Homogeneous texture fills the square; opposite edges must match perfectly for seamless two-axis repeat. Flat diffuse shadow-free lighting, no perspective, sun direction, cast shadows, vignette, depth of field, landscape, boulder silhouette, text, watermark, atlas, collage or material sphere. Output the texture only.",
+      "runtimeFile": "rock-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "asphalt",
+      "file": "asphalt-v1.png",
+      "prompt": "Use case: photorealistic-natural. Asset type: production game seamless asphalt ALBEDO, single square 1024x1024 opaque image. Top-down orthographic flat close-up of a continuous lightly weathered asphalt road surface, 4m x 4m real-world repeat. Dense fine crushed mineral aggregate embedded in bitumen, believable fine granular road microtexture, subtly irregular small mineral chips, tiny pores, sparse almost invisible thin healed hairline cracks. No large stones, potholes, broad fissures, tar snakes or bold patches. Colour unusually light neutral silver-grey with most luminance 0.75 to 0.92, moderate delicate contrast and few pores near 0.64, because the game's dark charcoal vertex colour will provide the asphalt tone. Continuous homogeneous full bleed square; exact seamless matching opposite edges horizontally and vertically. Flat completely diffuse albedo lighting, no baked sun, cast shadows, glossy wet highlights, perspective, vignette or depth of field. NO lane markings, lines, curbs, leaves, grass, road scene, text, label, watermark, atlas or material sphere. Deliver only one texture.",
+      "runtimeFile": "asphalt-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "facade",
+      "file": "facade-v1.png",
+      "prompt": "Use case: photorealistic-natural. Asset type: one opaque square 1024x1024 game building facade ALBEDO bay texture. Front orthographic straight-on view of exactly ONE modest temperate island apartment facade module spanning 3.6m width x 3.2m height. Image will be stretched slightly to that world aspect ratio. Whole image filled by pale warm grey lightly weathered lime plaster / concrete wall, fine subtle trowel grain, shallow mineral pores. Exactly one inset rectangular window, centered horizontally, positioned about 20 percent down from top to 68 percent down from top, width 52 percent of image. Window has off-white painted frame of realistic thin thickness, two vertical panes separated by one slim mullion, faint horizontal crossbar slightly above midpoint. Glass is dark muted blue-grey with very subtle broad diffuse sky tint, no mirror image scenery; shallow recessed border and a thin weathered stone sill just below. Bottom 8 percent of image is a modest darker horizontal concrete floor-slab band spanning full width; thin understated seam at its top. Very subtle wall grime beneath sill, not a dramatic dirty streak. Wall luminance mostly 0.78 to 0.92, glass around 0.25-0.40; neutral low saturation because existing vertex colours tint the module. Side edges wall detail match for horizontal bay repeats; top edge and bottom edge match a vertically stacked apartment floor seam. Flat diffuse material illumination, restrained recess cues, no directional cast shadow or perspective. NO extra windows, buildings, street, balcony, plants, air conditioner, roof silhouette, sky, logos, text, labels, watermark, collage or material ball. Deliver only the square full bleed facade texture.",
+      "runtimeFile": "facade-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    }
+  ],
+  "notes": "Original opaque RGB PNGs retained. Runtime WebP exports resized to 1024 square, quality 88. Albedo only. UV tiling inspected in Babylon.js."
+}

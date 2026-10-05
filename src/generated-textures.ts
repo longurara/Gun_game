@@ -4,8 +4,13 @@ import groundUrl from './assets/textures/ground-detail-v1.png?url';
 import woodUrl from './assets/textures/wood-grain-v1.png?url';
 import foliageUrl from './assets/textures/foliage-atlas-v2.png?url';
 import barkUrl from './assets/textures/bark-v1.png?url';
+import plasterUrl from './assets/textures/plaster-v1.webp?url';
+import roofUrl from './assets/textures/roof-tiles-v1.webp?url';
+import rockUrl from './assets/textures/rock-v1.webp?url';
+import asphaltUrl from './assets/textures/asphalt-v1.webp?url';
+import facadeUrl from './assets/textures/facade-v1.webp?url';
 
-export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl, foliage: foliageUrl, bark: barkUrl } as const;
+export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl, foliage: foliageUrl, bark: barkUrl, plaster: plasterUrl, roof: roofUrl, rock: rockUrl, asphalt: asphaltUrl, facade: facadeUrl } as const;
 
 /** Keep the existing finish visible while an ImageGen albedo loads; cancel work when its owner is disposed. */
 export function useGeneratedAlbedo(material: StandardMaterial, url: string, repeat = 1, level = 1): Texture {

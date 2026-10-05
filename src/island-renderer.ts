@@ -46,17 +46,19 @@ const PALETTE = {
   trim: hex('#eae5d6'), door: hex('#5a4030'), shadowStone: hex('#6a6c64'), warmStone: hex('#8a7b66'),
 };
 
-/** Batched props with plain, sawn-wood and bark finishes. */
+type PropFinish = 'plain' | 'wood' | 'bark' | 'plaster' | 'roof' | 'rock';
+const PROP_FINISHES: PropFinish[] = ['plain', 'wood', 'bark', 'plaster', 'roof', 'rock'];
+
+/** One mesh per chunk; each surface finish owns a contiguous index range. */
 class Geometry {
   positions: number[] = [];
   normals: number[] = [];
   colors: number[] = [];
   indices: number[] = [];
   uvs: number[] = [];
-  wood = false;
-  bark = false;
-  private readonly woodIndices: number[] = [];
-  private readonly barkIndices: number[] = [];
+  finish: PropFinish = 'plain';
+  roofAlongX = true;
+  private readonly finishIndices: number[][] = [this.indices, [], [], [], [], []];
   private uvOverride: Map<number[], [number, number]> | null = null;
 
   /** One triangle with a colour at each corner; winding is corrected so the face points along `outward` (Babylon is left-handed). */
@@ -75,11 +77,14 @@ class Geometry {
       this.normals.push(nx * sign, ny * sign, nz * sign);
       this.colors.push(color[0], color[1], color[2], 1);
       const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
-      // U follows the horizontal grain on wood; each tile covers two metres.
-      const [u, v] = ax >= ay && ax >= az ? [p[2], p[1]] : ay >= az ? [p[0], p[2]] : [p[0], p[1]];
+      // Each tile covers two metres; roof rows follow the ridge on horizontal caps.
+      const top = ay >= ax && ay >= az;
+      const [u, v] = ax >= ay && ax >= az ? [p[2], p[1]] : top
+        ? this.finish === 'roof' && !this.roofAlongX ? [p[2], p[0]] : [p[0], p[2]]
+        : [p[0], p[1]];
       this.uvs.push(...(this.uvOverride?.get(p) ?? [u / 2, v / 2]));
     }
-    (this.bark ? this.barkIndices : this.wood ? this.woodIndices : this.indices).push(base, base + 1, base + 2);
+    this.finishIndices[PROP_FINISHES.indexOf(this.finish)].push(base, base + 1, base + 2);
   }
 
   tri(a: number[], b: number[], c: number[], outward: number[], color: Rgb): void { this.triC(a, b, c, outward, color, color, color); }
@@ -163,36 +168,53 @@ class Geometry {
     }
   }
 
-  /** Two-pitch roof: eaves at `y0`, ridge `rise` above, running along the longer side. */
-  gable(cx: number, y0: number, cz: number, w: number, d: number, rise: number, color: Rgb): void {
+  /** Tile rows run along the ridge; V measures the slope itself, so pitched roofs never stretch. */
+  gable(cx: number, y0: number, cz: number, w: number, d: number, rise: number, color: Rgb, wallColor: Rgb): void {
     const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, ry = y0 + rise;
-    const eave = shade(color, 0.84), ridge = shade(color, 1.1);
+    const eave = shade(color, 0.84), ridge = shade(color, 1.1), previous = this.finish;
+    this.finish = 'roof';
+    this.roofAlongX = w >= d;
+    const pitch = (corners: number[][], outward: number[], darken = 1) => {
+      const slope = Math.hypot((w >= d ? d : w) / 2, rise);
+      this.uvOverride = new Map<number[], [number, number]>(corners.map(point => [point, [
+        (w >= d ? point[0] - x0 : point[2] - z0) / 2,
+        (point[1] - y0) / rise * slope / 2,
+      ]]));
+      this.quadC(corners[0], corners[1], corners[2], corners[3], outward,
+        shade(eave, darken), shade(eave, darken), shade(ridge, darken), shade(ridge, darken));
+      this.uvOverride = null;
+    };
     if (w >= d) {
-      this.quadC([x0, y0, z0], [x1, y0, z0], [x1, ry, cz], [x0, ry, cz], [0, 1, -d / (2 * rise)], eave, eave, ridge, ridge);
-      this.quadC([x1, y0, z1], [x0, y0, z1], [x0, ry, cz], [x1, ry, cz], [0, 1, d / (2 * rise)], shade(eave, 0.82), shade(eave, 0.82), shade(ridge, 0.82), shade(ridge, 0.82));
-      this.tri([x0, y0, z0], [x0, y0, z1], [x0, ry, cz], [-1, 0, 0], shade(color, 0.7));
-      this.tri([x1, y0, z1], [x1, y0, z0], [x1, ry, cz], [1, 0, 0], shade(color, 0.7));
+      pitch([[x0, y0, z0], [x1, y0, z0], [x1, ry, cz], [x0, ry, cz]], [0, 1, -d / (2 * rise)]);
+      pitch([[x1, y0, z1], [x0, y0, z1], [x0, ry, cz], [x1, ry, cz]], [0, 1, d / (2 * rise)], 0.82);
+      this.finish = 'plaster';
+      this.tri([x0, y0, z0], [x0, y0, z1], [x0, ry, cz], [-1, 0, 0], shade(wallColor, 0.86));
+      this.tri([x1, y0, z1], [x1, y0, z0], [x1, ry, cz], [1, 0, 0], shade(wallColor, 0.86));
     } else {
-      this.quadC([x0, y0, z1], [x0, y0, z0], [cx, ry, z0], [cx, ry, z1], [-w / (2 * rise), 1, 0], shade(eave, 0.82), shade(eave, 0.82), shade(ridge, 0.82), shade(ridge, 0.82));
-      this.quadC([x1, y0, z0], [x1, y0, z1], [cx, ry, z1], [cx, ry, z0], [w / (2 * rise), 1, 0], eave, eave, ridge, ridge);
-      this.tri([x1, y0, z0], [x0, y0, z0], [cx, ry, z0], [0, 0, -1], shade(color, 0.7));
-      this.tri([x0, y0, z1], [x1, y0, z1], [cx, ry, z1], [0, 0, 1], shade(color, 0.7));
+      pitch([[x0, y0, z1], [x0, y0, z0], [cx, ry, z0], [cx, ry, z1]], [-w / (2 * rise), 1, 0], 0.82);
+      pitch([[x1, y0, z0], [x1, y0, z1], [cx, ry, z1], [cx, ry, z0]], [w / (2 * rise), 1, 0]);
+      this.finish = 'plaster';
+      this.tri([x1, y0, z0], [x0, y0, z0], [cx, ry, z0], [0, 0, -1], shade(wallColor, 0.86));
+      this.tri([x0, y0, z1], [x1, y0, z1], [cx, ry, z1], [0, 0, 1], shade(wallColor, 0.86));
     }
+    this.finish = previous;
   }
 
   build(name: string, scene: Scene, material: StandardMaterial | MultiMaterial): Mesh | null {
-    if (!this.indices.length && !this.woodIndices.length && !this.barkIndices.length) return null;
+    if (!this.finishIndices.some(indices => indices.length)) return null;
     const mesh = new Mesh(name, scene);
     const data = new VertexData();
     data.positions = this.positions; data.normals = this.normals; data.colors = this.colors;
-    data.uvs = this.uvs; data.indices = [...this.indices, ...this.woodIndices, ...this.barkIndices];
+    data.uvs = this.uvs; data.indices = this.finishIndices.flat();
     data.applyToMesh(mesh);
     mesh.material = material;
     if (material instanceof MultiMaterial) {
       mesh.releaseSubMeshes();
-      if (this.indices.length) SubMesh.CreateFromIndices(0, 0, this.indices.length, mesh);
-      if (this.woodIndices.length) SubMesh.CreateFromIndices(1, this.indices.length, this.woodIndices.length, mesh);
-      if (this.barkIndices.length) SubMesh.CreateFromIndices(2, this.indices.length + this.woodIndices.length, this.barkIndices.length, mesh);
+      let offset = 0;
+      this.finishIndices.forEach((indices, slot) => {
+        if (indices.length) SubMesh.CreateFromIndices(slot, offset, indices.length, mesh);
+        offset += indices.length;
+      });
     }
     mesh.isPickable = false;
     mesh.freezeWorldMatrix();
@@ -247,13 +269,17 @@ export class IslandRenderer {
     bump.level = 0.22;
     this.terrainMaterial.bumpTexture = bump;
     const plainProps = make('island-props-plain'), woodProps = make('island-props-wood'), barkProps = make('island-props-bark');
+    const plasterProps = make('island-props-plaster'), roofProps = make('island-props-roof'), rockProps = make('island-props-rock');
     woodProps.specularColor = new Color3(0.10, 0.10, 0.10); woodProps.specularPower = 28;
     useGeneratedAlbedo(woodProps, GENERATED_TEXTURES.wood, 1, 1.12);
     useGeneratedAlbedo(barkProps, GENERATED_TEXTURES.bark);
+    useGeneratedAlbedo(plasterProps, GENERATED_TEXTURES.plaster, 1, 1.1);
+    useGeneratedAlbedo(roofProps, GENERATED_TEXTURES.roof, 1, 1.1);
+    useGeneratedAlbedo(rockProps, GENERATED_TEXTURES.rock, 1, 1.1);
     this.propMaterial = new MultiMaterial('island-props', scene);
-    this.propMaterial.subMaterials = [plainProps, woodProps, barkProps];
+    this.propMaterial.subMaterials = [plainProps, woodProps, barkProps, plasterProps, roofProps, rockProps];
     this.roadMaterial = make('island-roads');
-    useGeneratedAlbedo(this.roadMaterial, GENERATED_TEXTURES.ground, 0.5, 1.25);
+    useGeneratedAlbedo(this.roadMaterial, GENERATED_TEXTURES.asphalt, 0.5, 1.1);
     this.foliageMaterial = createFoliageMaterial(scene);
     this.facadeMaterial = createFacadeMaterial(scene);
     for (const obstacle of world.obstacles) this.bucket(this.byChunk, this.keyAt(obstacle.x, obstacle.z), obstacle);
@@ -509,7 +535,7 @@ export class IslandRenderer {
 
   /** Door and window trim, derived from the wall pieces that frame each opening. */
   private trim(g: Geometry, o: Obstacle, bottom: number): void {
-    g.wood = true;
+    g.finish = 'wood';
     const alongX = o.width >= o.depth;
     const length = alongX ? o.width : o.depth, thick = (alongX ? o.depth : o.width) + 0.12;
     const frame = (offset: number, y: number, h: number, w: number, color: Rgb, t = thick) => {
@@ -540,8 +566,10 @@ export class IslandRenderer {
     const panels = new CardBatch();
     const key = cz * this.grid + cx;
     for (const obstacle of this.byChunk.get(key) ?? []) {
-      geometry.wood = obstacle.kind === 'crate';
-      geometry.bark = obstacle.kind === 'tree';
+      geometry.finish = obstacle.kind === 'crate' ? 'wood' : obstacle.kind === 'tree' ? 'bark'
+        : obstacle.kind === 'roof' ? 'roof' : obstacle.kind === 'rock' ? 'rock'
+        : obstacle.kind === 'wall' || obstacle.kind === 'building' ? 'plaster' : 'plain';
+      geometry.roofAlongX = obstacle.width >= obstacle.depth;
       const base = obstacleBase(obstacle);
       const bottom = base + (obstacle.bottom ?? 0);
       const height = base + obstacle.height - bottom;
@@ -558,8 +586,10 @@ export class IslandRenderer {
             0, height * 0.9, height, ATLAS.conifer, [v * 0.98, v, v * 0.96], 0.85);
         } else if (obstacle.kind === 'roof') {
           const rise = Math.max(0.9, Math.min(obstacle.width, obstacle.depth) * 0.3);
-          geometry.box(obstacle.x, base, obstacle.z, obstacle.width - 0.6, HOUSE_HEIGHT, obstacle.depth - 0.6, PALETTE.plaster[Math.floor(seed * 5)], 0.85);
-          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.roof[Math.floor(seed * 5)]);
+          const plaster = PALETTE.plaster[Math.floor(seed * 5)];
+          geometry.finish = 'plaster';
+          geometry.box(obstacle.x, base, obstacle.z, obstacle.width - 0.6, HOUSE_HEIGHT, obstacle.depth - 0.6, plaster, 0.85);
+          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.roof[Math.floor(seed * 5)], plaster);
         } else if (obstacle.kind === 'building') geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, PALETTE.block[Math.floor(seed * 3)]);
         continue;
       }
@@ -571,11 +601,14 @@ export class IslandRenderer {
         case 'roof': {
           const color = PALETTE.roof[Math.floor(seed * 5)];
           const rise = Math.max(0.9, Math.min(obstacle.width, obstacle.depth) * 0.3);
-          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, color);
+          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, color, PALETTE.plaster[Math.floor(seed * 5)]);
           // A slim ridge cap, and on some houses a chimney.
           if (obstacle.width >= obstacle.depth) geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, obstacle.width, 0.16, 0.34, shade(color, 0.7), 1);
           else geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, 0.34, 0.16, obstacle.depth, shade(color, 0.7), 1);
-          if (seed > 0.55) geometry.box(obstacle.x + (seed - 0.55) * obstacle.width * 0.6, bottom + rise * 0.45, obstacle.z, 0.7, rise * 0.9 + 0.6, 0.7, hex('#76706a'), 0.85);
+          if (seed > 0.55) {
+            geometry.finish = 'plaster';
+            geometry.box(obstacle.x + (seed - 0.55) * obstacle.width * 0.6, bottom + rise * 0.45, obstacle.z, 0.7, rise * 0.9 + 0.6, 0.7, hex('#76706a'), 0.85);
+          }
           break;
         }
         case 'building': this.block(geometry, panels, obstacle, bottom, height, seed); break;
