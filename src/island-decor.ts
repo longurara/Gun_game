@@ -13,9 +13,12 @@ import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 import type { WorldConfig } from './types';
 import { groundNoise } from './game/world';
 import { ATLAS } from './island-foliage';
+import { GrassWind } from './foliage-wind';
+import { SpatialGrid } from './game/spatial';
 
 const SUN_DIRECTION = [-0.5, -1, 0.65] as const;
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+type GrassExclusion = { ax: number; az: number; bx: number; bz: number; pad: number };
 
 /** Periodic noise texture: tileable, so it repeats without visible seams. */
 function noiseTexture(scene: Scene, name: string, size: number, draw: (x: number, y: number, size: number) => [number, number, number, number]): DynamicTexture {
@@ -108,9 +111,25 @@ export class IslandDecor {
   private grassAt = { x: 1e9, z: 1e9 };
   private grassMatrices = new Float32Array(0);
   private grassColors = new Float32Array(0);
+  private readonly grassWind: GrassWind;
+  private readonly grassExclusions = new SpatialGrid<GrassExclusion>(64);
   private scroll = 0;
 
   constructor(private readonly scene: Scene, private readonly world: WorldConfig, touch: boolean, private readonly foliage: StandardMaterial) {
+    this.grassWind = new GrassWind(foliage);
+    this.grassWind.radius = touch ? 24 : 34;
+    const addRibbon = (ax: number, az: number, bx: number, bz: number, width: number) => {
+      const pad = width / 2 + 1.2;
+      this.grassExclusions.insertBox({ ax, az, bx, bz, pad }, Math.min(ax, bx) - pad, Math.min(az, bz) - pad,
+        Math.max(ax, bx) + pad, Math.max(az, bz) + pad);
+    };
+    for (const road of world.roads) addRibbon(road.a.x, road.a.z, road.b.x, road.b.z, road.width);
+    for (const river of world.water?.rivers ?? []) {
+      for (let i = 0; i + 1 < river.points.length; i++) {
+        const a = river.points[i], b = river.points[i + 1];
+        addRibbon(a.x, a.z, b.x, b.z, river.width);
+      }
+    }
     const normals = waterNormals(scene);
     normals.uScale = normals.vScale = 1;
     this.water = new StandardMaterial('island-water', scene);
@@ -315,6 +334,7 @@ export class IslandDecor {
     data.positions = positions; data.normals = normals; data.colors = colors; data.uvs = uvs; data.indices = indices;
     data.applyToMesh(mesh);
     mesh.material = this.foliage;
+    mesh.receiveShadows = true;
     mesh.isPickable = false;
     mesh.alwaysSelectAsActiveMesh = true;
     this.grassMatrices = new Float32Array(count * 16);
@@ -327,14 +347,14 @@ export class IslandDecor {
     return mesh;
   }
 
-  private roadDistance(x: number, z: number): number {
-    let best = Infinity;
-    for (const road of this.world.roads) {
-      const dx = road.b.x - road.a.x, dz = road.b.z - road.a.z;
-      const t = Math.max(0, Math.min(1, ((x - road.a.x) * dx + (z - road.a.z) * dz) / (dx * dx + dz * dz || 1)));
-      best = Math.min(best, Math.hypot(x - road.a.x - dx * t, z - road.a.z - dz * t));
-    }
-    return best;
+  private onRoadOrRiver(x: number, z: number): boolean {
+    let blocked = false;
+    this.grassExclusions.queryBox(x, z, x, z, ribbon => {
+      const dx = ribbon.bx - ribbon.ax, dz = ribbon.bz - ribbon.az;
+      const t = clamp01(((x - ribbon.ax) * dx + (z - ribbon.az) * dz) / (dx * dx + dz * dz || 1));
+      if (Math.hypot(x - ribbon.ax - dx * t, z - ribbon.az - dz * t) < ribbon.pad) { blocked = true; return true; }
+    });
+    return blocked;
   }
 
   private nearTown(x: number, z: number): boolean {
@@ -347,35 +367,46 @@ export class IslandDecor {
     const matrices = this.grassMatrices, colors = this.grassColors;
     const max = colors.length / 4;
     matrices.fill(0);
-    const radius = 34, spacing = 0.85, terrain = this.world.terrain ?? (() => 0);
+    // A six-metre safety band stays outside the visible fade during each four-metre update.
+    const radius = this.grassWind.radius + 6, spacing = 0.85, terrain = this.world.terrain ?? (() => 0);
     const lakes = this.world.water?.lakes ?? [];
-    let n = 0;
-    for (let gx = Math.floor((cx - radius) / spacing); gx <= Math.floor((cx + radius) / spacing) && n < max; gx++) {
-      for (let gz = Math.floor((cz - radius) / spacing); gz <= Math.floor((cz + radius) / spacing) && n < max; gz++) {
-        const hash = Math.abs(Math.sin(gx * 127.1 + gz * 311.7) * 43758.5453) % 1;
-        const hash2 = Math.abs(Math.sin(gx * 269.5 + gz * 183.3) * 43758.5453) % 1;
-        const x = (gx + hash) * spacing, z = (gz + hash2) * spacing;
+    const hashAt = (gx: number, gz: number, salt: number) => Math.abs(Math.sin(gx * 127.1 + gz * 311.7 + salt * 74.7) * 43758.5453) % 1;
+    const candidates: Array<{ x: number; z: number; gx: number; gz: number; d: number }> = [];
+    for (let gx = Math.floor((cx - radius) / spacing); gx <= Math.floor((cx + radius) / spacing); gx++) {
+      for (let gz = Math.floor((cz - radius) / spacing); gz <= Math.floor((cz + radius) / spacing); gz++) {
+        const x = (gx + hashAt(gx, gz, 1)) * spacing, z = (gz + hashAt(gx, gz, 2)) * spacing;
         const d = Math.hypot(x - cx, z - cz);
-        if (d > radius) continue;
-        // Thin out with distance; denser where the ground noise says meadow.
-        const meadow = groundNoise(x, z);
-        if (hash2 > (1 - d / radius) * (0.45 + meadow * 0.9)) continue;
-        const y = terrain(x, z);
-        if (y < 2.6 || this.nearTown(x, z) || this.roadDistance(x, z) < 4.5) continue;
-        if (lakes.some(l => Math.hypot(x - l.x, z - l.z) < l.r * 1.2)) continue;
-        const scale = 0.55 + hash * 0.75, rotation = hash2 * Math.PI * 2, c = Math.cos(rotation), s = Math.sin(rotation);
-        const m = n * 16;
-        matrices[m] = c * scale; matrices[m + 2] = -s * scale;
-        matrices[m + 5] = scale * (0.8 + hash2 * 0.5);
-        matrices[m + 8] = s * scale; matrices[m + 10] = c * scale;
-        matrices[m + 12] = x; matrices[m + 13] = y - 0.05; matrices[m + 14] = z; matrices[m + 15] = 1;
-        // Tufts take the ground's own tint (dry on bare patches, lush in the meadow) so they melt into it.
-        const tint = 0.8 + hash * 0.4;
-        const dry = clamp01(groundNoise(x * 0.22 + 91, z * 0.22 - 37) * 2 - 0.9);
-        const k = n * 4;
-        colors[k] = (0.95 + dry * 0.5) * tint; colors[k + 1] = (1.02 + meadow * 0.2 - dry * 0.1) * tint; colors[k + 2] = (0.78 - dry * 0.2) * tint; colors[k + 3] = 1;
-        n++;
+        if (d < radius) candidates.push({ x, z, gx, gz, d });
       }
+    }
+    // Fill nearby cells first if the phone budget is reached, keeping grass on every side.
+    candidates.sort((a, b) => a.d - b.d);
+    let n = 0;
+    for (const { x, z, gx, gz } of candidates) {
+      if (n >= max) break;
+      const hash = hashAt(gx, gz, 3), hash2 = hashAt(gx, gz, 4);
+      // A stable patch distribution avoids selection/rotation correlation and moving density rings.
+      const meadow = groundNoise(x, z);
+      const density = 0.42 + meadow * 0.42;
+      if (hashAt(gx, gz, 5) > density) continue;
+      const y = terrain(x, z);
+      if (y < 2.6 || this.nearTown(x, z) || this.onRoadOrRiver(x, z)) continue;
+      if (lakes.some(l => Math.hypot(x - l.x, z - l.z) < l.r * 1.2)) continue;
+      const slope = Math.hypot((terrain(x + 0.75, z) - terrain(x - 0.75, z)) / 1.5,
+        (terrain(x, z + 0.75) - terrain(x, z - 0.75)) / 1.5);
+      if (hashAt(gx, gz, 6) > 1 - clamp01((slope - 0.35) / 0.3)) continue;
+      const scale = 0.48 + hash * 0.64, rotation = hash2 * Math.PI * 2, c = Math.cos(rotation), s = Math.sin(rotation);
+      const m = n * 16;
+      matrices[m] = c * scale; matrices[m + 2] = -s * scale;
+      matrices[m + 5] = scale * (0.8 + hash2 * 0.5);
+      matrices[m + 8] = s * scale; matrices[m + 10] = c * scale;
+      matrices[m + 12] = x; matrices[m + 13] = y - 0.05; matrices[m + 14] = z; matrices[m + 15] = 1;
+      // Tufts take the ground's own tint (dry on bare patches, lush in the meadow) so they melt into it.
+      const tint = 0.86 + hashAt(gx, gz, 7) * 0.12;
+      const dry = clamp01(groundNoise(x * 0.22 + 91, z * 0.22 - 37) * 2 - 0.9);
+      const k = n * 4;
+      colors[k] = tint * (0.98 + dry * 0.02); colors[k + 1] = tint * (1 - dry * 0.12); colors[k + 2] = tint * (0.94 - dry * 0.15); colors[k + 3] = 1;
+      n++;
     }
     mesh.thinInstanceBufferUpdated('matrix');
     mesh.thinInstanceBufferUpdated('color');
@@ -390,6 +421,9 @@ export class IslandDecor {
     this.sea.position.x = Math.round(x / 50) * 50;
     this.sea.position.z = Math.round(z / 50) * 50;
     this.scroll += dt;
+    this.grassWind.time = this.scroll;
+    this.grassWind.x = x;
+    this.grassWind.z = z;
     const bump = this.water.bumpTexture as Texture;
     bump.uOffset = this.scroll * 0.012;
     bump.vOffset = this.scroll * 0.007;
@@ -399,11 +433,12 @@ export class IslandDecor {
       if (cloud.mesh.position.x < x - 1700) cloud.mesh.position.x += 3400;
       cloud.mesh.position.z += (z - cloud.mesh.position.z > 1700 ? 3400 : z - cloud.mesh.position.z < -1700 ? -3400 : 0);
     }
-    if (Math.hypot(x - this.grassAt.x, z - this.grassAt.z) > 9) this.rebuildGrass(x, z);
+    if (Math.hypot(x - this.grassAt.x, z - this.grassAt.z) > 4) this.rebuildGrass(x, z);
   }
 
   dispose(): void {
-    for (const mesh of this.meshes) mesh.dispose(false, true);
+    // Grass shares its atlas material with every streamed tree; IslandRenderer owns that material.
+    for (const mesh of this.meshes) mesh.dispose(false, mesh !== this.grass);
     this.meshes.length = 0;
     this.water.dispose(true, true);
   }

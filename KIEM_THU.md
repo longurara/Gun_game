@@ -45,6 +45,14 @@ Chrome trong khung xem của ứng dụng, laptop Intel Arc, bản dev:
 
 Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng lặp render của game rồi đo: ở giữa thị trấn, mỗi lần chạy vòng lặp (mô phỏng + HUD + dựng cảnh phía CPU) mất **trung vị khoảng 4,7 ms**, ~100–130 mesh đang vẽ nhờ gộp mesh theo ô, vật phẩm dùng instance và cỏ dùng thin instance. Đây là thời gian CPU trên một laptop, **không phải số FPS đo được** và không bao gồm thời gian GPU.
 
+## Cỏ và cây ImageGen — 05/10/2026
+
+- `npm test`: **322/322 đạt**. `npm run build -- --outDir output/foliage-build`: TypeScript và build production đạt.
+- Chromium PC 1280 × 720: atlas alpha 1254 × 1254 và bark tải đúng; shader gió biên dịch, không có lỗi JavaScript/console. Trong cảnh rừng kiểm tra có 4.437 bụi cỏ, dưới giới hạn 6.000; không lấn đường, sông hay hồ. Sau dịch chuyển 4,2 m, toàn bộ 613 bụi trong vòng 15 m ban đầu vẫn tồn tại.
+- Chromium giả lập cảm ứng 844 × 390, DPR 3: canvas **2532 × 1170**, 2.446 bụi cỏ, dưới giới hạn 2.600, không bật shadow. Thời gian gió tăng trong khi ma trận instance không thay đổi; bắn giảm đạn 15 → 14. Về menu và vào trận lại chỉ còn một foliage material và một atlas đang dùng, alpha vẫn đúng.
+- Production preview: `foliage-atlas-v2.png` và `bark-v1.png` trả HTTP 200. Đã nhìn trực tiếp ảnh PC, điện thoại và cây thông gần; bỏ normal bị lật xuống ở mặt sau cỏ để loại mảng đen.
+- Asset là albedo ImageGen, prompt được lưu trong `src/assets/textures/foliage-imagegen-prompts.json`; chưa có bộ PBR bark/foliage đầy đủ. Đây là kiểm tra trình duyệt giả lập, chưa xác nhận FPS hay bộ nhớ trên điện thoại thật.
+
 ## Chưa kiểm tra / giới hạn
 
 - **Chưa chạy trên điện thoại thật.** Chỉ giả lập khung nhìn và cảm ứng trong Chrome; chưa đo FPS, nhiệt, pin hay bộ nhớ với 100 bot.
