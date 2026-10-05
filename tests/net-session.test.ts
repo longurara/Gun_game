@@ -4,6 +4,7 @@ import { GameSimulation } from '../src/game/simulation.ts';
 import { Lobby, makeRoomCode, normalizeRoomCode } from '../src/net/lobby.ts';
 import type { RoomConfig } from '../src/net/lobby.ts';
 import { netRates } from '../src/net/protocol.ts';
+import { WEAPON_ORDER } from '../src/game/weapons.ts';
 import { ClientSession, HostSession, matchOptions } from '../src/net/session.ts';
 import type { MatchSetup } from '../src/net/session.ts';
 import { LoopbackNetwork } from '../src/net/transport.ts';
@@ -389,5 +390,146 @@ test('input is sent the moment movement changes instead of waiting for the next 
   a.input = { ...idle, moveX: 1 };
   m.frame(); m.frame();
   assert.ok(a.stats.sent > before, 'a key press goes out within two frames');
+  m.hostSession.close();
+});
+
+/** A shooter aims at a runner exactly where the runner is drawn on the shooter's screen, and fires on a steady beat. */
+function runnerDuel(latency: number, jitter: number) {
+  const m = startMatch({ latency, jitter }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  const place = (id: string, x: number, z: number) => { for (const sim of [m.hostSim, a.sim, b.sim]) sim.actorById(id)!.position = { x, y: 0, z }; };
+  place('p0', -70, -55); place('p1', -60, -22); place('p2', -60, 0);
+  m.run(1);
+  const victim = m.hostSim.actorById('p2')!;
+  let landed = 0, shots = 0, last = victim.health;
+  // The runner paces sideways at walking speed; the host sees every hit as a drop in their health.
+  for (let i = 0; i < 40; i++) {
+    b.input = { ...idle, moveX: Math.floor(i / 8) % 2 === 0 ? 1 : -1 };
+    m.run(0.2);
+    const seen = a.sim.actorById('p2')!.position;
+    const target = { x: seen.x, y: seen.y + 1.0, z: seen.z };
+    if (a.sim.shootPlayer(target, true)) { a.session.queueFire(target, true); shots++; }
+    m.run(0.3);
+    if (victim.health < last - 0.5) landed++;
+    last = victim.health;
+    if (victim.health <= 30) { victim.health = 100; last = 100; b.sim.player.health = 100; }
+    a.sim.player.ammo[a.sim.player.weapon] = 30; m.hostSim.actorById('p1')!.ammo[a.sim.player.weapon] = 30;
+  }
+  m.hostSession.close();
+  return { landed, shots };
+}
+
+test('lag compensation: shots at a moving target, aimed where the shooter sees it, land on the host (without it only about one in ten did)', () => {
+  for (const [latency, jitter] of [[50, 10], [100, 20], [200, 60]]) {
+    const { landed, shots } = runnerDuel(latency, jitter);
+    assert.ok(shots >= 12, `${shots} shots fired`);
+    assert.ok(landed / shots >= 0.6, `${landed} of ${shots} shots landed at ${latency} ms ± ${jitter}`);
+  }
+});
+
+test('a jump looks the same on a laggy client as offline: same height, same time in the air, no snap back', () => {
+  const m = startMatch({ latency: 100, jitter: 20 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  for (const sim of [m.hostSim, a.sim, b.sim]) { sim.actorById('p0')!.position = { x: -70, y: 0, z: -55 }; sim.actorById('p1')!.position = { x: -60, y: 0, z: -22 }; sim.actorById('p2')!.position = { x: 30, y: 0, z: 30 }; }
+  m.run(1);
+  const ys: number[] = [];
+  a.input = { ...idle, jump: true };
+  m.frame();
+  a.input = { ...idle };
+  for (let i = 0; i < 30 * 2; i++) { ys.push(a.sim.player.position.y); m.frame(); }
+  const peak = Math.max(...ys);
+  const airFrames = ys.filter(y => y > 0.01).length;
+  // 6.7 m/s up against 18 m/s² gravity: 1.25 m high, 0.74 s in the air (about 22 frames at 30 fps).
+  assert.ok(peak > 1.1 && peak < 1.4, `peak ${peak.toFixed(2)} m`);
+  assert.ok(airFrames >= 19 && airFrames <= 25, `${airFrames} frames in the air`);
+  m.hostSession.close();
+});
+
+test('crouching and switching weapons stay put on the client while the host catches up, instead of flickering back', () => {
+  const m = startMatch({ latency: 120, jitter: 20 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  for (const sim of [m.hostSim, a.sim, b.sim]) { sim.actorById('p0')!.position = { x: -70, y: 0, z: -55 }; sim.actorById('p1')!.position = { x: -60, y: 0, z: -22 }; sim.actorById('p2')!.position = { x: 30, y: 0, z: 30 }; }
+  m.run(1);
+  const me = a.sim.player, other = WEAPON_ORDER.find(weapon => weapon !== me.weapon)!;
+  for (const sim of [m.hostSim, a.sim]) sim.actorById('p1')!.ownedWeapons.push(other);
+  assert.ok(a.sim.setStance('crouch'));
+  a.session.queueCommand('stance', 'crouch');
+  assert.ok(a.sim.switchWeapon(other));
+  a.session.queueCommand('switch', other);
+  const seenStance = new Set<string>(), seenWeapon = new Set<string>();
+  for (let i = 0; i < 30; i++) { m.frame(); seenStance.add(me.stance ?? 'stand'); seenWeapon.add(me.weapon); }
+  assert.deepEqual([...seenStance], ['crouch'], `stances seen: ${[...seenStance].join(', ')}`);
+  assert.deepEqual([...seenWeapon], [other], `weapons seen: ${[...seenWeapon].join(', ')}`);
+  assert.equal(m.hostSim.actorById('p1')!.stance, 'crouch');
+  assert.equal(m.hostSim.actorById('p1')!.weapon, other);
+  m.hostSession.close();
+});
+
+test('sliding along a wall on a laggy connection stays smooth: no stutter or pull-back, and the host agrees', () => {
+  const m = startMatch({ latency: 150, jitter: 40 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  for (const sim of [m.hostSim, a.sim, b.sim]) {
+    sim.actorById('p0')!.position = { x: -70, y: 0, z: -55 }; sim.actorById('p1')!.position = { x: -60, y: 0, z: -22 }; sim.actorById('p2')!.position = { x: 30, y: 0, z: 30 };
+    sim.world.obstacles.push({ id: 'shared-wall', x: -50, z: -22, width: 2, depth: 40, height: 4, kind: 'wall' });
+  }
+  m.run(1);
+  a.input = { ...idle, moveX: 1, moveZ: 1 };
+  m.run(1);
+  let last = { ...a.sim.player.position }, first = true, biggest = 0, smallest = Infinity;
+  m.run(3.5, () => {
+    const now = a.sim.player.position, step = Math.hypot(now.x - last.x, now.z - last.z);
+    last = { ...now };
+    if (first) { first = false; return; }
+    biggest = Math.max(biggest, step); smallest = Math.min(smallest, step);
+  });
+  assert.ok(biggest < 0.3, `largest per-frame step ${biggest.toFixed(2)} m`);
+  assert.ok(smallest > 0.04, `smallest per-frame step ${smallest.toFixed(2)} m: the view stuttered or was pulled back`);
+  const host = m.hostSim.actorById('p1')!.position;
+  assert.ok(Math.hypot(host.x - a.sim.player.position.x, host.z - a.sim.player.position.z) < 2.2, 'the host agrees');
+  m.hostSession.close();
+});
+
+test('driving on a laggy connection: the car answers the wheel at once, runs smoothly, and the host agrees', () => {
+  const m = startMatch({ latency: 100, jitter: 20 }, { map: 'valley', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  const car = m.hostSim.state.vehicles[0];
+  assert.ok(car, 'the map has a car');
+  for (const sim of [m.hostSim, a.sim, b.sim]) {
+    sim.actorById('p0')!.position = { x: car.position.x + 200, y: 0, z: car.position.z + 200 };
+    sim.actorById('p2')!.position = { x: car.position.x - 200, y: 0, z: car.position.z - 200 };
+    const p1 = sim.actorById('p1')!;
+    p1.air = null;
+    p1.position = { x: car.position.x + 1.5, y: car.position.y, z: car.position.z };
+  }
+  m.run(1);
+  a.session.queueCommand('vehicle');
+  for (let i = 0; i < 90 && !(a.sim.player.vehicleId && m.hostSim.actorById('p1')!.vehicleId); i++) m.frame();
+  assert.ok(a.sim.player.vehicleId, 'the client got into the car');
+  const mine = a.sim.state.vehicles.find(v => v.id === a.sim.player.vehicleId)!;
+  const hostCar = m.hostSim.state.vehicles.find(v => v.id === mine.id)!;
+  // Wheel: accelerate straight, then steer.
+  a.input = { ...idle, throttle: 1, steer: 0 };
+  for (let i = 0; i < 15; i++) m.frame();
+  assert.ok(mine.speed > 3.5, `the client car already moves at ${mine.speed.toFixed(1)} m/s half a second after pressing the pedal`);
+  assert.ok(hostCar.speed < mine.speed, 'the host is still catching up');
+  let last = { ...mine.position }, lastStep = -1, wobble = 0, frames = 0;
+  const yawBefore = mine.yaw;
+  a.input = { ...idle, throttle: 1, steer: 0.5 };
+  for (let i = 0; i < 3; i++) m.frame();
+  assert.ok(Math.abs(mine.yaw - yawBefore) > 0.005, 'the car turns within three frames of turning the wheel');
+  for (let i = 0; i < 30 * 3; i++) {
+    m.frame();
+    const step = Math.hypot(mine.position.x - last.x, mine.position.z - last.z);
+    last = { ...mine.position };
+    if (lastStep >= 0 && Math.abs(step - lastStep) > 0.4) wobble++;
+    lastStep = step; frames++;
+  }
+  assert.ok(wobble / frames < 0.05, `${wobble} of ${frames} frames lurched`);
+  assert.ok(Math.hypot(hostCar.position.x - mine.position.x, hostCar.position.z - mine.position.z) < 12, 'the host is not far behind');
   m.hostSession.close();
 });

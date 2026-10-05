@@ -327,8 +327,18 @@ export class GameSimulation {
       // The jump from the plane is predicted too, so the door opens the instant the key goes down; the host confirms it.
       if (me.air) this.flyPlayer(me, dt, input, pressed);
       else if (!me.vehicleId) this.walkPlayer(me, dt, input, pressed);
+      else this.predictDrive(me, dt, input);
     }
     this.events.length = kept;
+  }
+
+  /** Mirror only: the car the local player drives is steered by their own input right away; the host's word corrects it. */
+  private predictDrive(me: Actor, dt: number, input: PlayerInput): void {
+    const car = this.state.vehicles.find(v => v.id === me.vehicleId);
+    if (!car || car.driverId !== me.id || car.health <= 0) return;
+    this.driveVehicle(car, clamp(finite(input.throttle ?? 0), -1, 1), clamp(finite(input.steer ?? 0), -1, 1), input.jump, dt, true);
+    me.position = { x: car.position.x, y: car.position.y + 0.3, z: car.position.z };
+    me.yaw = car.yaw;
   }
 
   /** Mirror only: a shot is checked against ammunition and cadence here; the host decides what it hits. */
@@ -1140,7 +1150,8 @@ export class GameSimulation {
     }
   }
 
-  private driveVehicle(v: Vehicle, throttle: number, steer: number, brake: boolean, dt: number): void {
+  /** `predicted`: a mirror's guess at the local player's car; a bump stops it but only the host decides the damage. */
+  private driveVehicle(v: Vehicle, throttle: number, steer: number, brake: boolean, dt: number, predicted = false): void {
     const maxForward = 30, maxReverse = 9;
     if (Math.abs(throttle) > 0.02) {
       const target = throttle > 0 ? maxForward * throttle : maxReverse * throttle;
@@ -1159,7 +1170,7 @@ export class GameSimulation {
     const pieces = Math.max(1, Math.ceil(Math.abs(distance) / 0.8));
     for (let i = 0; i < pieces; i++) {
       const next = { x: v.position.x + Math.sin(v.yaw) * distance / pieces, z: v.position.z + Math.cos(v.yaw) * distance / pieces };
-      if (!this.walkable(next, VEHICLE_RADIUS, v.position.y)) { this.crash(v); break; }
+      if (!this.walkable(next, VEHICLE_RADIUS, v.position.y)) { if (predicted) v.speed = -v.speed * 0.2; else this.crash(v); break; }
       v.position.x = next.x;
       v.position.z = next.z;
       v.position.y = this.heightAt(next.x, next.z);

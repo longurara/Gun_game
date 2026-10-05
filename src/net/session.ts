@@ -3,8 +3,9 @@
  * runs a mirror, predicts its own movement so controls feel immediate, and draws everybody else a moment in the past,
  * blended between snapshots. Neither knows about Supabase: they talk through a `Transport`.
  */
-import type { GameEvent, LootKind, PlayerInput, Stance, Vec3, WeaponType } from '../types';
+import type { Actor, GameEvent, LootKind, PlayerInput, Stance, Vec3, WeaponType } from '../types';
 import type { GameSimulation } from '../game/simulation';
+import { WEAPON_ORDER } from '../game/weapons';
 import { applySnapshot, netRates, PROTOCOL_VERSION, SnapshotBuilder } from './protocol';
 import { placePlane } from '../game/drop';
 import type { PoseRow, Snapshot } from './protocol';
@@ -28,11 +29,19 @@ export function matchOptions(setup: MatchSetup, localClientId: string, remote: b
   };
 }
 
+const STANCE_NAMES = ['stand', 'crouch', 'prone'];
 const num = (value: unknown, fallback = 0): number => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Host
 // ---------------------------------------------------------------------------------------------------------------------
+
+/** Where everybody and every car was at one moment of the match, so a shot can be judged against what the shooter saw. */
+interface PoseFrame { t: number; actors: Float32Array; cars: Float32Array }
+/** The farthest back (seconds) a shot is judged: a long ping plus the interpolation delay, but not a free pass for cheats. */
+const MAX_REWIND = 0.8;
+/** A client's own idea of where it stood when firing is trusted this far (metres) from where the host has it. */
+const SHOOTER_TRUST = 6;
 
 interface Remote { clientId: string; actorId: string; name: string; lastSeen: number; lastSeq: number; lastCt: number; lastJumpId: number }
 
@@ -44,6 +53,7 @@ export class HostSession {
   private readonly interval: number;
   private remotes = new Map<string, Remote>();
   private finalSends = 6;
+  private history: PoseFrame[] = [];
   /** Players who left or timed out (reported to the UI once). */
   private gone: string[] = [];
 
@@ -93,9 +103,69 @@ export class HostSession {
     for (const cmd of Array.isArray(message.cmds) ? message.cmds.slice(0, 64) : []) {
       if (Array.isArray(cmd) && typeof cmd[0] === 'string') this.command(actor.id, cmd[0], cmd[1]);
     }
-    for (const fire of Array.isArray(message.fires) ? message.fires as number[][] : []) {
+    for (const fire of Array.isArray(message.fires) ? (message.fires as number[][]).slice(0, 16) : []) {
+      if (!Array.isArray(fire)) continue;
       const target = { x: num(fire[0]), y: num(fire[1]), z: num(fire[2]) };
-      if (Math.hypot(target.x - actor.position.x, target.z - actor.position.z) < 1200) sim.shootPlayer(target, fire[3] === 1, actor);
+      if (Math.hypot(target.x - actor.position.x, target.z - actor.position.z) < 1200) this.shoot(actor, target, fire[3] === 1, fire);
+    }
+  }
+
+  /** Remember where everything is, once per frame, for the last second. */
+  private record(): void {
+    const state = this.sim.state, t = state.elapsed;
+    const last = this.history[this.history.length - 1];
+    if (last && t - last.t < 1 / 120) return;
+    if (last && t < last.t) this.history.length = 0;
+    const actors = new Float32Array(state.actors.length * 3);
+    state.actors.forEach((actor, i) => { actors[i * 3] = actor.position.x; actors[i * 3 + 1] = actor.position.y; actors[i * 3 + 2] = actor.position.z; });
+    const cars = new Float32Array(state.vehicles.length * 4);
+    state.vehicles.forEach((car, i) => { cars[i * 4] = car.position.x; cars[i * 4 + 1] = car.position.y; cars[i * 4 + 2] = car.position.z; cars[i * 4 + 3] = car.yaw; });
+    this.history.push({ t, actors, cars });
+    while (this.history.length > 2 && t - this.history[0].t > 1) this.history.shift();
+  }
+
+  /**
+   * A shot from a client, judged the way the shooter saw it: everybody else is put back where they were on the
+   * shooter's screen (fire[4], the host time it was drawing) and the shooter where they stood (fire[5..7]), then
+   * the shot is taken and everything is returned. Without this a moving target is always hit "behind" by the
+   * network delay and the interpolation delay.
+   */
+  private shoot(actor: Actor, target: Vec3, aimed: boolean, fire: number[]): boolean {
+    const sim = this.sim, state = sim.state;
+    const viewT = fire[4];
+    const back = typeof viewT === 'number' && Number.isFinite(viewT) ? Math.min(MAX_REWIND, Math.max(0, state.elapsed - viewT)) : 0;
+    const restoreActors: Array<[number, number, number, number]> = [];
+    const restoreCars: Array<[number, number, number, number, number]> = [];
+    if (back > 0.004 && this.history.length >= 2) {
+      const at = state.elapsed - back;
+      let i = this.history.length - 1;
+      while (i > 0 && this.history[i].t > at) i--;
+      const from = this.history[i], to = this.history[Math.min(i + 1, this.history.length - 1)];
+      const span = to.t - from.t, k = span > 1e-6 ? Math.min(1, Math.max(0, (at - from.t) / span)) : 0;
+      const lerp = (a: Float32Array, b: Float32Array, j: number) => a[j] + (b[j] - a[j]) * k;
+      state.actors.forEach((other, index) => {
+        if (other === actor || index * 3 + 2 >= from.actors.length) return;
+        restoreActors.push([index, other.position.x, other.position.y, other.position.z]);
+        other.position.x = lerp(from.actors, to.actors, index * 3); other.position.y = lerp(from.actors, to.actors, index * 3 + 1); other.position.z = lerp(from.actors, to.actors, index * 3 + 2);
+      });
+      state.vehicles.forEach((car, index) => {
+        if (index * 4 + 3 >= from.cars.length) return;
+        restoreCars.push([index, car.position.x, car.position.y, car.position.z, car.yaw]);
+        car.position.x = lerp(from.cars, to.cars, index * 4); car.position.y = lerp(from.cars, to.cars, index * 4 + 1); car.position.z = lerp(from.cars, to.cars, index * 4 + 2);
+        car.yaw = from.cars[index * 4 + 3] + Math.atan2(Math.sin(to.cars[index * 4 + 3] - from.cars[index * 4 + 3]), Math.cos(to.cars[index * 4 + 3] - from.cars[index * 4 + 3])) * k;
+      });
+    }
+    const home = { ...actor.position };
+    const claimed = { x: num(fire[5], NaN), y: num(fire[6], NaN), z: num(fire[7], NaN) };
+    if (Number.isFinite(claimed.x + claimed.y + claimed.z) && Math.hypot(claimed.x - home.x, claimed.z - home.z) <= SHOOTER_TRUST && Math.abs(claimed.y - home.y) <= 3) {
+      actor.position.x = claimed.x; actor.position.y = claimed.y; actor.position.z = claimed.z;
+    }
+    try {
+      return sim.shootPlayer(target, aimed, actor);
+    } finally {
+      actor.position.x = home.x; actor.position.y = home.y; actor.position.z = home.z;
+      for (const [index, x, y, z] of restoreActors) { const other = state.actors[index]; other.position.x = x; other.position.y = y; other.position.z = z; }
+      for (const [index, x, y, z, yaw] of restoreCars) { const car = state.vehicles[index]; car.position.x = x; car.position.y = y; car.position.z = z; car.yaw = yaw; }
     }
   }
 
@@ -133,6 +203,7 @@ export class HostSession {
 
   /** Call once per frame after `sim.update`. */
   tick(dt: number): void {
+    this.record();
     const now = this.clock();
     for (const remote of [...this.remotes.values()]) if (now - remote.lastSeen > this.timeoutMs) this.drop(remote, 'mất kết nối');
     // Keep the remainder so the stream holds its rate whatever the frame rate is (resetting to 0 sent ~8 Hz at 60 fps).
@@ -156,7 +227,7 @@ export class HostSession {
 // ---------------------------------------------------------------------------------------------------------------------
 
 interface Buffered { at: number; t: number; poses: Map<number, PoseRow>; cars: Map<number, PoseRow> }
-interface Trail { at: number; x: number; y: number; z: number }
+interface Trail { at: number; x: number; y: number; z: number; /** The car's heading while driving. */ cy: number }
 
 /** Bounds, in seconds, of how far in the past a client draws other players (adapts to the network inside this range). */
 const MIN_DELAY = 0.06, MAX_DELAY = 0.4;
@@ -188,10 +259,14 @@ export class ClientSession {
   private excessPeak = 0;
   private delay = 0.1;
   private lastFrameAt = 0;
+  /** The host time the screen was showing at the last frame: what the player was looking at when they pulled the trigger. */
+  private viewT = NaN;
   private lastTickAt = 0;
   /** Part of a reconciliation correction not yet applied to the view. */
   private pending = { x: 0, y: 0, z: 0 };
+  private pendingYaw = 0;
   private lastFireAt = -Infinity;
+  private intent: { stance?: { value: string; at: number }; switch?: { value: string; at: number } } = {};
   private fires: number[][] = [];
   private cmds: unknown[][] = [];
   private jumpDown = false;
@@ -225,10 +300,17 @@ export class ClientSession {
 
   /** A shot fired by the local player: the host decides what it hits. */
   queueFire(target: Vec3, aimed: boolean): void {
-    this.fires.push([Math.round(target.x * 100) / 100, Math.round(target.y * 100) / 100, Math.round(target.z * 100) / 100, aimed ? 1 : 0]);
+    const fire = [Math.round(target.x * 100) / 100, Math.round(target.y * 100) / 100, Math.round(target.z * 100) / 100, aimed ? 1 : 0];
+    // Tell the host what this player was looking at and where they stood, so it can judge the shot as they saw it.
+    if (Number.isFinite(this.viewT)) { const me = this.sim.player; fire.push(Math.round(this.viewT * 1000) / 1000, Math.round(me.position.x * 100) / 100, Math.round(me.position.y * 100) / 100, Math.round(me.position.z * 100) / 100); }
+    this.fires.push(fire);
     this.lastFireAt = this.clock();
   }
-  queueCommand(command: string, argument?: unknown): void { this.cmds.push(argument === undefined ? [command] : [command, argument]); }
+  queueCommand(command: string, argument?: unknown): void {
+    this.cmds.push(argument === undefined ? [command] : [command, argument]);
+    // The player's own choice shows at once; snapshots sent before the host heard of it must not undo it.
+    if (command === 'stance' || command === 'switch') this.intent[command] = { value: String(argument), at: this.clock() };
+  }
 
   /** Call once per frame after `sim.update(dt, input)` (which predicted the local movement). */
   tick(nowMs: number, input: PlayerInput, yaw: number): void {
@@ -237,7 +319,8 @@ export class ClientSession {
     this.lastTickAt = nowMs;
     this.bleedCorrection(dt);
     // The trail holds where prediction says the player is, corrections included, even those still being eased in.
-    this.trail.push({ at: nowMs, x: me.position.x + this.pending.x, y: me.position.y + this.pending.y, z: me.position.z + this.pending.z });
+    const car = me.vehicleId ? this.sim.state.vehicles.find(v => v.id === me.vehicleId) : undefined;
+    this.trail.push({ at: nowMs, x: me.position.x + this.pending.x, y: me.position.y + this.pending.y, z: me.position.z + this.pending.z, cy: (car?.yaw ?? 0) + this.pendingYaw });
     while (this.trail.length > 90) this.trail.shift();
     if (input.jump && !this.jumpDown) { this.edge = true; this.jumpId++; }
     this.jumpDown = input.jump;
@@ -267,7 +350,15 @@ export class ClientSession {
     this.lastSnapshotAt = now;
     this.trackClock(now, snap.t);
     if (echoCt) this.rttMs = this.rttMs ? this.rttMs * 0.8 + Math.max(0, now - echoCt) * 0.2 : Math.max(0, now - echoCt);
-    const result = applySnapshot(this.sim, snap, { writePositions: false, protectAmmo: now - this.lastFireAt < 350, keepFlight: this.regressStreak < 12 });
+    // Hold the player's own stance / weapon choice until the host reports the same (or a generous time has passed).
+    const grace = Math.max(800, this.rttMs * 2 + 400);
+    const holds = (key: 'stance' | 'switch') => { const item = this.intent[key]; if (item && now - item.at > grace) delete this.intent[key]; return !!this.intent[key]; };
+    const result = applySnapshot(this.sim, snap, { writePositions: false, protectAmmo: now - this.lastFireAt < 350, keepFlight: this.regressStreak < 12, keepStance: holds('stance'), keepWeapon: holds('switch'), predictDriving: true });
+    if (result.local) {
+      const [, , , , , , flags, weapon] = result.local.row;
+      if (this.intent.stance && STANCE_NAMES[(flags >> 5) & 3] === this.intent.stance.value) delete this.intent.stance;
+      if (this.intent.switch && WEAPON_ORDER[weapon] === this.intent.switch.value) delete this.intent.switch;
+    }
     this.regressStreak = result.flightRegress ? this.regressStreak + 1 : 0;
     this.events.push(...result.events.filter(event => !('for' in event) || (event as { for?: string }).for === undefined || (event as { for?: string }).for === this.sim.localId));
     // The plane in a snapshot is where it was a moment ago: move it on by the time the message took, riders with it.
@@ -283,6 +374,7 @@ export class ClientSession {
     this.buffer.push({ at: now, t: snap.t, poses, cars });
     while (this.buffer.length > 24) this.buffer.shift();
     if (result.local && !result.flightRegress) this.reconcile(result.local, echoCt);
+    if (result.ownCar) this.reconcileCar(result.ownCar, echoCt);
     if (result.over !== undefined) this.over = true;
   }
 
@@ -309,16 +401,19 @@ export class ClientSession {
   /** Move the view towards the corrected position without a visible jump. */
   private bleedCorrection(dt: number): void {
     const p = this.pending;
-    if (Math.abs(p.x) + Math.abs(p.y) + Math.abs(p.z) < 1e-4) { p.x = p.y = p.z = 0; return; }
+    if (Math.abs(p.x) + Math.abs(p.y) + Math.abs(p.z) + Math.abs(this.pendingYaw) < 1e-4) { p.x = p.y = p.z = 0; this.pendingYaw = 0; return; }
     const me = this.sim.player;
-    if (me.vehicleId || !me.alive) { p.x = p.y = p.z = 0; return; }
+    if (!me.alive) { p.x = p.y = p.z = 0; this.pendingYaw = 0; return; }
+    const car = me.vehicleId ? this.sim.state.vehicles.find(v => v.id === me.vehicleId) : undefined;
+    if (me.vehicleId && !car) { p.x = p.y = p.z = 0; this.pendingYaw = 0; return; }
     const share = 1 - Math.exp(-dt * CORRECTION_RATE);
     me.position.x += p.x * share; me.position.y += p.y * share; me.position.z += p.z * share;
-    p.x -= p.x * share; p.y -= p.y * share; p.z -= p.z * share;
+    if (car) { car.position.x += p.x * share; car.position.y += p.y * share; car.position.z += p.z * share; car.yaw += this.pendingYaw * share; }
+    p.x -= p.x * share; p.y -= p.y * share; p.z -= p.z * share; this.pendingYaw -= this.pendingYaw * share;
   }
 
   /** Where the prediction trail says the local player was at a client time. */
-  private trailAt(at: number): { x: number; y: number; z: number } | undefined {
+  private trailAt(at: number): { x: number; y: number; z: number; cy: number } | undefined {
     const trail = this.trail;
     if (trail.length === 0) return undefined;
     if (at <= trail[0].at) return trail[0];
@@ -326,7 +421,7 @@ export class ClientSession {
       if (trail[i - 1].at <= at) {
         const from = trail[i - 1], to = trail[i], span = to.at - from.at;
         const k = span > 1e-6 ? Math.min(1, (at - from.at) / span) : 1;
-        return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k };
+        return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k, z: from.z + (to.z - from.z) * k, cy: from.cy + Math.atan2(Math.sin(to.cy - from.cy), Math.cos(to.cy - from.cy)) * k };
       }
     }
     return trail[trail.length - 1];
@@ -359,6 +454,33 @@ export class ClientSession {
     for (const item of this.trail) { item.x += dx * share; item.y += dy * share; item.z += dz * share; }
   }
 
+  /** The same idea for the car the local player drives: the host's car against where prediction had it, eased in. */
+  private reconcileCar(truth: { x: number; y: number; z: number; yaw: number; speed: number }, echoCt: number | undefined): void {
+    const me = this.sim.player;
+    const car = this.sim.state.vehicles.find(v => v.id === me.vehicleId);
+    if (!car || !me.alive) return;
+    const then = echoCt ? this.trailAt(echoCt + this.inputInterval / 2) : undefined;
+    const ref = then ? { x: then.x, y: then.y - 0.3, z: then.z, yaw: then.cy } : { x: car.position.x + this.pending.x, y: car.position.y + this.pending.y, z: car.position.z + this.pending.z, yaw: car.yaw + this.pendingYaw };
+    const dx = truth.x - ref.x, dy = truth.y - ref.y, dz = truth.z - ref.z;
+    const dyaw = Math.atan2(Math.sin(truth.yaw - ref.yaw), Math.cos(truth.yaw - ref.yaw));
+    const horizontal = Math.hypot(dx, dz);
+    const tolerance = 0.5 + Math.abs(car.speed) * this.inputInterval / 2000;
+    if (horizontal < tolerance && Math.abs(dyaw) < 0.06 && Math.abs(dy) < 1) return;
+    if (horizontal > 12) {
+      car.position.x += dx + this.pending.x; car.position.y += dy + this.pending.y; car.position.z += dz + this.pending.z;
+      car.yaw += dyaw + this.pendingYaw; car.speed = truth.speed;
+      me.position = { x: car.position.x, y: car.position.y + 0.3, z: car.position.z };
+      this.pending = { x: 0, y: 0, z: 0 }; this.pendingYaw = 0;
+      for (const item of this.trail) { item.x += dx; item.y += dy; item.z += dz; item.cy += dyaw; }
+      return;
+    }
+    const share = 0.5;
+    this.pending.x += dx * share; this.pending.y += dy * share; this.pending.z += dz * share; this.pendingYaw += dyaw * share;
+    // A real disagreement (a bump the client did not feel) also means the speed was wrong.
+    if (horizontal > tolerance * 2) car.speed += (truth.speed - car.speed) * 0.3;
+    for (const item of this.trail) { item.x += dx * share; item.y += dy * share; item.z += dz * share; item.cy += dyaw * share; }
+  }
+
   /** Call every frame before drawing: place everybody else where they were a moment ago, blended between snapshots. */
   frame(nowMs: number): void {
     const latest = this.buffer[this.buffer.length - 1];
@@ -369,6 +491,7 @@ export class ClientSession {
     const target = this.targetDelay();
     this.delay = target > this.delay ? Math.min(target, this.delay + 0.25 * dt) : Math.max(target, this.delay - 0.05 * dt);
     const renderT = (nowMs - this.clockOffset) / 1000 - this.delay;
+    this.viewT = renderT;
     // The newest snapshot at or before the render time, and the one after it. Past the newest, carry on its last velocity.
     let i = this.buffer.length - 1;
     while (i > 0 && this.buffer[i].t > renderT) i--;
@@ -392,12 +515,15 @@ export class ClientSession {
       if (!actor) continue;
       place(actor, from, newer.poses.get(index) ?? from);
     }
+    const driver = this.sim.player;
     this.sim.state.vehicles.forEach((car, index) => {
+      // The car the local player drives is predicted, not drawn from the past.
+      if (driver.vehicleId === car.id && car.driverId === driver.id) return;
       const from = older.cars.get(index);
       if (!from) return;
       place(car, from, newer.cars.get(index) ?? from);
     });
-    // Driving: the local player rides the host's car (not predicted).
+    // Driving: the local player sits in the car.
     const me = this.sim.player;
     const ride = me.vehicleId ? this.sim.state.vehicles.find(car => car.id === me.vehicleId) : undefined;
     if (ride) { me.position = { x: ride.position.x, y: ride.position.y + 0.3, z: ride.position.z }; me.yaw = ride.yaw; }

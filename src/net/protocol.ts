@@ -166,6 +166,11 @@ export interface ApplyOptions {
   protectAmmo?: boolean;
   /** Do not take the local player back to an earlier stage of the drop (a snapshot sent before the host saw their jump). */
   keepFlight?: boolean;
+  /** The local player changed stance / weapon a moment ago and the host has not heard yet: keep their choice. */
+  keepStance?: boolean;
+  keepWeapon?: boolean;
+  /** The local player drives a car on their own screen: do not overwrite it with the host's (older) state. */
+  predictDriving?: boolean;
 }
 
 export interface ApplyResult {
@@ -175,6 +180,8 @@ export interface ApplyResult {
   /** Rows by actor index, for the interpolation buffer. */
   poses: Map<number, PoseRow>;
   over?: string;
+  /** Where the host says the car the local player was already driving is (it is predicted, not overwritten). */
+  ownCar?: { x: number; y: number; z: number; yaw: number; speed: number };
   /** The snapshot said the local player was at an earlier stage of the drop than prediction, and was overruled. */
   flightRegress?: boolean;
 }
@@ -188,6 +195,7 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   const poses = new Map<number, PoseRow>();
   const result: ApplyResult = { events: snap.ev, poses };
   const localId = sim.localId;
+  const drivenBefore = options.predictDriving ? sim.actorById(localId)?.vehicleId ?? null : null;
   for (const row of snap.a) {
     const [index, x, y, z, yaw, health, flags, weapon, car, gear] = row;
     const actor = state.actors[index];
@@ -202,8 +210,9 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
     if (options.keepFlight && actor.id === localId && airMode && actor.air && (FLIGHT_ORDER[actor.air.mode] ?? 0) > (FLIGHT_ORDER[airMode] ?? 0)) result.flightRegress = true;
     else if (airMode) { if (!actor.air || actor.air.mode !== airMode) actor.air = { mode: airMode, vx: 0, vy: 0, vz: 0, time: actor.air?.time ?? 0 }; }
     else actor.air = null;
-    actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
-    actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;
+    const own = actor.id === localId;
+    if (!(own && options.keepStance)) actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
+    if (!(own && options.keepWeapon)) actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;
     actor.vehicleId = car ? state.vehicles[car - 1]?.id ?? null : null;
     actor.helmet = gear >> 2; actor.vest = gear & 3;
     if (actor.id === localId) result.local = { x, y, z, yaw, row };
@@ -212,8 +221,10 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   for (const [index, x, y, z, yaw, speed, health, driver] of snap.c) {
     const car = state.vehicles[index];
     if (!car) continue;
-    car.position.x = x; car.position.y = y; car.position.z = z; car.yaw = yaw; car.speed = speed; car.health = health;
+    car.health = health;
     car.driverId = driver ? state.actors[driver - 1]?.id ?? null : null;
+    if (drivenBefore && car.id === drivenBefore && car.driverId === localId) { result.ownCar = { x, y, z, yaw, speed }; continue; }
+    car.position.x = x; car.position.y = y; car.position.z = z; car.yaw = yaw; car.speed = speed;
   }
   // Loot: items the host added since (dropped gear, crate contents), and items it says were picked up.
   let changedLoot = false;
@@ -251,7 +262,7 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   for (const row of snap.priv) {
     const actor = sim.actorById(row.id);
     if (!actor) continue;
-    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true, result.flightRegress === true);
+    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true, result.flightRegress === true, options.keepWeapon === true);
     else { actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]); }
   }
   for (const [index, kills, rank] of snap.humans) {
@@ -268,9 +279,9 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   return result;
 }
 
-function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean, keepFlight: boolean): void {
+function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean, keepFlight: boolean, keepWeapon: boolean): void {
   const previous = actor.ammo;
-  actor.weapon = WEAPON_ORDER[row.weapon] ?? actor.weapon;
+  if (!keepWeapon) actor.weapon = WEAPON_ORDER[row.weapon] ?? actor.weapon;
   actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]);
   const ammo = emptyAmmo();
   for (const [index, n] of row.ammo) ammo[WEAPON_ORDER[index]] = n;
@@ -286,5 +297,7 @@ function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protec
   actor.reloading = row.reload; actor.healing = row.heal;
   // The stage and its velocity/time must agree: a pre-jump plane payload would otherwise stop a predicted fall.
   if (!keepFlight && row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }
-  if (!keepFlight) sim.setMotion(actor, { vy: row.vy, speed: row.speed });
+  // On foot the client predicts its own jump and the host's vertical speed is a round trip old: taking it would stretch
+  // every jump. Only a flight (free fall, canopy) needs the host's velocity to stay in step.
+  if (!keepFlight && actor.air) sim.setMotion(actor, { vy: row.vy, speed: row.speed });
 }
