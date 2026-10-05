@@ -115,6 +115,8 @@ export interface WeaponConfig {
   id: WeaponType; kind: WeaponClass; ammoType: AmmoType; tier: 1 | 2 | 3; sidearm: boolean;
   /** How far a shot carries (metres) and how much a bot values the gun. */
   loudness: number; value: number;
+  /** Muzzle velocity in m/s: how flat the bullet flies (see ballistics.ts). */
+  velocity: number;
   /** Part tokens for the 3D model, and the core gun whose gunshot sound it borrows. */
   look: string; voice: WeaponType;
 }

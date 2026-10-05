@@ -99,7 +99,9 @@ HUD điện thoại dùng nút tròn trong suốt và nút bắn ở cả hai b�
 
 ## Ngắm bắn: giật, tán đạn, tư thế
 
-Mô hình ngắm lấy PUBG PC làm chuẩn cho cảm giác (đạn vẫn bay tức thì, chưa có độ rơi):
+Mô hình ngắm lấy PUBG PC làm chuẩn cho cảm giác (đạn bay tức thì nhưng **rơi theo đường cong** trên đảo và đấu trường, xem bên dưới):
+
+- **Đạn rơi.** Mỗi lớp súng có vận tốc đầu nòng (súng lục 360 m/s, tiểu liên và shotgun 400, súng trường 740–800, súng thiện xạ 830, súng ngắm 920, AMR 960) và **điểm 0**: khoảng cách mà đường đạn cắt đường ngắm (súng có ống ngắm 100 m, súng trường 60–70 m, súng lục 40 m). Gần hơn điểm 0 đạn cao hơn tâm vài cm, xa hơn thì thấp hơn: súng ngắm SR-98 ở tầm tối đa 210 m trúng thấp khoảng nửa mét, nên ngắm cao hơn đầu một chút nếu muốn bắn đầu từ xa. Điểm 0 hiện ở nhãn ống ngắm (ví dụ "6× · 100 M"). Dưới 45 m đạn bay thẳng. Bot tự tính bù. Sân tập 200 m vẫn bắn thẳng. Trọng lực được phóng đại để hiệu ứng có ý nghĩa ở tầm bắn của game; chưa có thời gian bay của đạn (không cần ngắm đón đầu).
 
 - **Giật theo mẫu từng súng.** Phát đầu của loạt bắn không bị lệch (đạn đi trước khi tâm giật); các phát sau tâm **leo lên mạnh dần** (tối đa khoảng 16° sau 14 phát súng trường) và **lắc ngang theo một mẫu riêng của mỗi súng**, thiên dần về một bên. Hạ chuột xuống để bù: phần bạn đã kéo xuống không bị tâm trả lại. Ngừng bắn thì tâm **tự trở về** chỗ cũ (trừ phần bạn đã bù) trong chưa đến một giây; trong lúc xả liên tục gần như không tự hồi nên giật dồn lại. Ngắm qua ống giảm 30%, ngồi giảm 20%, nằm giảm 40%; vừa chạy vừa bắn giật thêm. Thiết lập có thanh **Độ giật súng** (1× là đầy đủ; điện thoại mặc định 0,75×).
 - **Tán đạn khi di chuyển.** Đi bộ, chạy nước rút và nhảy làm đạn tán rộng hơn (nhảy tệ nhất), ngắm qua ống giảm bớt. **Tâm ngắm giãn ra theo độ tán** hiện tại, nên nhìn là biết lúc nào bắn chuẩn.

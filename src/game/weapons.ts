@@ -1,5 +1,6 @@
 import type { AmmoKind, AmmoType, ArmorKind, ArmorSlot, LootKind, WeaponClass, WeaponConfig, WeaponType } from '../types';
 import { AMMO_LABEL, AMMO_ORDER, AMMO_PICKUP, ARSENAL, CLASS_BASE } from './arsenal';
+import { MUZZLE_VELOCITY } from './ballistics';
 
 export { AMMO_LABEL, AMMO_ORDER, AMMO_PICKUP, ARSENAL, CLASS_BASE };
 
@@ -37,6 +38,7 @@ export const WEAPONS: Record<WeaponType, WeaponConfig> = Object.fromEntries(ARSE
     color: accentFor(entry.look), ammoPickup: AMMO_PICKUP[entry.ammo],
     loudness: Math.round(base.loudness * (m.loud ?? 1)),
     value: round(base.value + (entry.tier - 1) * 0.8, 2),
+    velocity: MUZZLE_VELOCITY[entry.cls],
     look: entry.look, voice: VOICE[entry.cls],
   };
   return [entry.id, config];

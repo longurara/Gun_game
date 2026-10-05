@@ -5,6 +5,7 @@ import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
 import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
 import { movementSpread, NECK, STANCE, stanceOf } from './stance';
+import { holdover, pathOffset, SEGMENT, STRAIGHT_RANGE, ZERO_DISTANCE } from './ballistics';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
 
 interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean }
@@ -30,7 +31,9 @@ interface Runtime {
   /** Current speed in m/s, kept for the accuracy penalty of shooting on the move. */
   speedNow: number;
 }
-interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle }
+interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle; /** Where a bullet that followed an arc ended up. */ point?: Vec3 }
+/** A bullet's flight: how fast it leaves the muzzle and the distance its sights are zeroed at. */
+interface Arc { velocity: number; zero: number }
 
 /** How often each class turns up at a loot spot of tier 1 (houses), 2 (big houses) and 3 (cities, military). */
 const CLASS_SPAWN: Record<1 | 2 | 3, Partial<Record<WeaponClass, number>>> = {
@@ -1166,9 +1169,11 @@ export class GameSimulation {
     this.obstacles().queryCircle(chest.x, chest.z, 1, obstacle => {
       if (obstacleHit(chest, muzzleDirection, obstacle, 0.45) !== null) { muzzleBlocked = true; return true; }
     });
+    // Bullets fall over distance in open worlds; the small arena keeps flat shots.
+    const arc: Arc | undefined = this.openWorld ? { velocity: weapon.velocity, zero: ZERO_DISTANCE[weapon.kind] } : undefined;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread + extraSpread);
-      const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id);
+      const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id, arc);
       if (pellet === 0 || (!visualHit.actor && hit.actor)) { visualHit = hit; visualDirection = ray; }
       if (hit.vehicle) this.damageVehicle(hit.vehicle, weapon.damage, actor.id);
       if (hit.actor) {
@@ -1179,7 +1184,7 @@ export class GameSimulation {
         damageByActor.set(hit.actor, (damageByActor.get(hit.actor) ?? 0) + this.absorb(hit.actor, raw, !!hit.head));
       }
     }
-    const to = { x: from.x + visualDirection.x * visualHit.distance, y: from.y + visualDirection.y * visualHit.distance, z: from.z + visualDirection.z * visualHit.distance };
+    const to = visualHit.point ?? { x: from.x + visualDirection.x * visualHit.distance, y: from.y + visualDirection.y * visualHit.distance, z: from.z + visualDirection.z * visualHit.distance };
     this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to, ...(visualHit.actor ? { hitId: visualHit.actor.id } : {}) });
     // On the cramped arena everyone would hear everything; halve the range there.
     this.alertNearby(actor, gunshotLoudness(actor.weapon) * (this.openWorld ? 1 : 0.45));
@@ -1230,7 +1235,30 @@ export class GameSimulation {
     }
   }
 
-  private raycast(origin: Vec3, direction: Vec3, range: number, ignoreId: string): Hit {
+  /**
+   * A shot: straight when short or in the arena, otherwise along the bullet's arc, traced in pieces of SEGMENT metres.
+   * `distance` in the result is the distance along the aim line, `point` where the bullet ended up.
+   */
+  private raycast(origin: Vec3, direction: Vec3, range: number, ignoreId: string, arc?: Arc): Hit {
+    if (!arc || range <= STRAIGHT_RANGE) return this.raycastStraight(origin, direction, range, ignoreId);
+    const pointAt = (d: number): Vec3 => ({ x: origin.x + direction.x * d, y: origin.y + direction.y * d + pathOffset(d, arc.velocity, arc.zero), z: origin.z + direction.z * d });
+    let from = pointAt(0);
+    let travelled = 0;
+    while (travelled < range - 1e-6) {
+      const next = Math.min(range, travelled === 0 ? STRAIGHT_RANGE : travelled + SEGMENT);
+      const to = pointAt(next);
+      const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, length = Math.hypot(dx, dy, dz);
+      const hit = this.raycastStraight(from, { x: dx / length, y: dy / length, z: dz / length }, length, ignoreId);
+      if (hit.distance < length - 1e-7 || hit.actor || hit.vehicle) {
+        const along = travelled + hit.distance * (next - travelled) / length;
+        return { ...hit, distance: along, point: { x: from.x + dx / length * hit.distance, y: from.y + dy / length * hit.distance, z: from.z + dz / length * hit.distance } };
+      }
+      from = to; travelled = next;
+    }
+    return { distance: range, point: from };
+  }
+
+  private raycastStraight(origin: Vec3, direction: Vec3, range: number, ignoreId: string): Hit {
     let closest: Hit = { distance: range };
     this.obstacles().querySegment(origin.x, origin.z, origin.x + direction.x * range, origin.z + direction.z * range, obstacle => {
       const hit = obstacleHit(origin, direction, obstacle, closest.distance);
@@ -1519,6 +1547,8 @@ export class GameSimulation {
     // Bullets are instant, so a bot does not lead: it lags behind a moving target, which strafing exploits.
     const lag = (easy ? 0.28 : 0.16) * (1 - 0.6 * runtime.focus);
     const aim = { x: enemy.position.x - runtime.enemyVel.x * lag, y: enemy.position.y + stanceOf(enemy).aimY, z: enemy.position.z - runtime.enemyVel.z * lag };
+    // Bots hold over for bullet drop (they still miss through spread and lag).
+    if (this.openWorld) aim.y += holdover(Math.hypot(aim.x - actor.position.x, aim.z - actor.position.z), weapon.velocity, ZERO_DISTANCE[weapon.kind]);
     const base = (easy ? 0.08 : 0.05) * (weapon.fireMode === 'bolt' ? 0.7 : 1);
     const spread = base * (1 - 0.6 * runtime.focus) * (1 + Math.min(1, speed / 6) * 0.6) * (runtime.stillTime < 0.2 ? 1.25 : 1) * (retreating ? 1.4 : 1);
     if (!this.fire(actor, aim, spread, true)) return;

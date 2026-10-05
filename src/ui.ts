@@ -1,6 +1,7 @@
 import type { AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
 import { remainingGlide } from './game/drop';
+import { ZERO_DISTANCE } from './game/ballistics';
 import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
 
@@ -476,7 +477,8 @@ export class GameUI {
     this.root.dataset.aim = scoped ? 'scope' : active ? 'ads' : 'hip';
     if (scoped) {
       this.text('scope-weapon-name', config.label);
-      this.text('scope-zoom', `${config.zoom}×`);
+      // The sights are zeroed at a set distance; beyond it the bullet drops, so aim a little higher.
+      this.text('scope-zoom', `${config.zoom}× · ${ZERO_DISTANCE[config.kind]} M`);
       this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${config.zoom} lần`);
     }
   }

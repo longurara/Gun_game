@@ -74,6 +74,11 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - Trình duyệt: xả 14 phát súng trường liên tục làm tâm leo 0,276 rad (15,8°), lắc ngang ±0,03 rad, rồi tự về gần 0 sau khoảng 1,5 giây khi thả nút; ba bot đứng/ngồi/nằm cạnh nhau hiển thị đúng ba tư thế; nút Ngồi/Nằm trên khung 740 × 360 đặt cạnh nút bắn bên trái và đổi tư thế đúng (badge "ĐANG NẰM", nút sáng); với hỗ trợ ngắm Mạnh, có địch ngay trước tâm thì hệ số làm chậm camera là 0,56, địch cách 24° thì 1.
 - **Chưa kiểm tra:** giật súng và hỗ trợ ngắm với tay người thật (cảm giác, độ nặng; thông số KICK_SCALE = 2,3 và các nhóm hệ số trong stance.ts là ước lượng của tôi, không đo từ PUBG); hoạt ảnh ngồi/nằm khi di chuyển (bò, đi lom khom) mới chỉ nhìn tĩnh; bot chỉ ngồi, chưa biết nằm; chưa có đạn rơi hay thời gian bay.
 
+## Đạn rơi — 05/10/2026
+
+- `npm test`: **390/390 đạt** (5 bài mới trong tests/ballistics.test.ts: đường đạn cắt đường ngắm đúng ở điểm 0, rơi nhanh dần, mọi súng mang vận tốc của lớp của nó, ngắm vào đầu ở 200 m trúng thân và ngắm cao hơn đúng lượng bù thì lại trúng đầu, bắn thật bằng SR-98 ở 190 m trên đảo thấp hơn điểm ngắm hơn 15 cm còn ở sân tập thì thẳng).
+- Chưa chơi thử cảm giác: hệ số trọng lực 36 m/s² và các điểm 0 là ước lượng của tôi.
+
 ## Chưa kiểm tra / giới hạn
 
 - Chưa nghe thử âm thanh stereo và tiếng báo hộp tiếp tế; chưa có chỉ hướng tiếng súng trên HUD (chỉ có âm thanh).
