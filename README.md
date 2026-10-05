@@ -43,7 +43,7 @@ Thiết bị cảm ứng mặc định **chất lượng thấp** khi chưa có 
 | Địa hình | Đồi núi, bờ biển và bãi cát, 7 hồ sâu, 3 con sông cạn lội được, ruộng, rừng, đường nối 16 thị trấn | Mặt phẳng, vài khối nhà đặc |
 | Nhà | **Vào được**: có cửa, cửa sổ, mái dốc; ~390 ngôi nhà | Khối đặc, không vào được |
 | Xe | ~47 chiếc dọc đường và trong thị trấn | Không có |
-| Khởi đầu | Mọi người xuất hiện rải rác trên đất liền, chỉ có súng lục P-9 | Có sẵn súng và đồ quanh điểm xuất phát |
+| Khởi đầu | **Nhảy dù từ máy bay** (xem mục Nhảy dù), chỉ có súng lục P-9 | Có sẵn súng và đồ quanh điểm xuất phát |
 | Thời lượng | Khoảng 9–10 phút (vòng bo thu qua 7 giai đoạn) | Khoảng 7 phút |
 
 Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; biển và hồ đủ sâu để chặn đường. Vòng bo luôn thu về đất liền, không về mặt nước. Bản đồ đảo được sinh từ một hạt giống cố định nên mọi trận đều chơi trên cùng một hòn đảo (vị trí xuất hiện và đồ thay đổi theo trận).
@@ -55,12 +55,12 @@ Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; bi�
 | W A S D | Di chuyển theo hướng camera |
 | Chuột | Xoay camera |
 | Shift | Chạy nhanh |
-| Space | Nhảy (khi lái xe: phanh tay) |
+| Space | Nhảy (khi lái xe: phanh tay). Trên máy bay: nhảy dù; khi rơi tự do: mở dù |
 | Chuột trái | Giữ để bắn súng tự động; mỗi nhấp một phát với súng bán tự động / lên đạn từng phát |
 | Giữ chuột phải | Ngắm qua vai; DMR-14 / SR-98 / AMR-50 mở ống ngắm 4× / 6× / 8× |
 | R | Nạp đạn |
 | E | Nhặt vật phẩm gần nhất (nếu không có gì để nhặt thì lên/xuống xe) |
-| F | Lên / xuống xe |
+| F | Lên / xuống xe. Trên không: giống Space (nhảy / mở dù) |
 | 1 · 2 · 3 | Chọn súng ở ô 1 và 2 (súng thường), ô 3 (súng lục) |
 | Q / cuộn chuột | Đổi tuần tự giữa các súng đang mang |
 | H | Dùng túi cứu thương; đứng yên để hoàn tất |
@@ -77,7 +77,7 @@ Di chuyển, nhảy hoặc bắn sẽ hủy hồi máu. Khi chuyển sang cửa 
 | Vuốt vùng trống bên phải | Xoay camera |
 | Nút Bắn | Giữ và kéo để vừa bắn vừa xoay camera; chạm lại cho mỗi phát với súng bán tự động / súng ngắm |
 | Nút Ngắm | Bật / tắt ngắm qua vai hoặc ống ngắm |
-| Nút Nhảy | Nhảy (khi lái xe: phanh tay) |
+| Nút Nhảy | Nhảy (khi lái xe: phanh tay). Trên máy bay: nhảy dù; khi rơi tự do: mở dù (nút sáng viền vàng) |
 | Nút Nạp, Nhặt, Hồi máu | Các hành động tương ứng; khi có xe gần, nút Nhặt dùng để lên/xuống xe |
 | Kho súng / Đổi súng | Chọn một trong các súng đang mang, hoặc đổi tuần tự |
 | Chạm minimap | Mở bản đồ lớn |
@@ -86,6 +86,20 @@ Di chuyển, nhảy hoặc bắn sẽ hủy hồi máu. Khi chuyển sang cửa 
 Có thể dùng hai ngón: ngón trái di chuyển, ngón phải giữ và kéo nút Bắn để vừa bắn vừa ngắm. Độ nhạy vuốt được điều chỉnh theo kích thước màn hình; chỉnh thêm trong Thiết lập. Khi mở bản đồ/kho súng, tạm dừng hoặc chuyển tab, thao tác đang giữ được giải phóng. Cảm ứng không cần khóa chuột.
 
 HUD điện thoại dùng nút tròn trong suốt và nút bắn ở cả hai bên, bản đồ nhỏ phía trên phải, thanh máu và các ô súng có biểu tượng gọn dưới giữa. Chạm trực tiếp ô súng để chọn; nút mũi tên mở bảng chọn khi cần trên màn hình rộng. HUD PC dùng la bàn trên giữa, máu/đạn dưới giữa, các ô súng và minimap bên phải; vùng nhìn giữa màn hình được giữ thoáng.
+
+## Nhảy dù
+
+Mỗi trận trên **đảo** và **đấu trường** bắt đầu trong một **máy bay vận tải** bay thẳng qua bản đồ (hướng và đường bay ngẫu nhiên theo từng trận, luôn cắt ngang bản đồ). Đường bay và biểu tượng máy bay hiện trên minimap / bản đồ lớn (phím M) cùng một **vòng tròn tầm lượn**: đáp trong vòng này là tới được. Sân tập 200 m không có máy bay.
+
+| Giai đoạn | Điều khiển | Số liệu |
+| --- | --- | --- |
+| Trên máy bay | Xoay camera nhìn quanh; **Space / F / nút Nhảy** để nhảy (cửa mở sau 1,5 giây). Không nhảy thì bị đẩy ra khi máy bay hết đảo | Cao 800 m trên đảo (300 m ở đấu trường), bay ~74 m/s |
+| Rơi tự do | W A S D lái theo hướng camera; **Shift** lao nhanh; Space / F mở dù (không mở được trong 1 giây đầu) | Lượn: 28 m/s ngang, rơi 45 m/s. Lao: 45 m/s ngang, rơi 78 m/s |
+| Dù | W A S D lái; Shift bay nhanh hơn. Dù **tự mở ở độ cao 100 m** | Thường: 16 m/s ngang, rơi 6,5 m/s. Nhanh: 22 m/s ngang, rơi 9 m/s |
+
+Lượn thường đi xa hơn, lao xuống thì tới đất sớm hơn để giành súng trước. Dù luôn mở trước khi chạm đất nên hạ cánh không mất máu. Rơi xuống nước thì tự bơi vào bờ gần nhất; dù không hạ xuống xuyên mái nhà mà vào sân bên cạnh. Khi còn ở trên không bạn và bot không bắn, không bị bắn và không chịu vòng bo; vòng bo đầu tiên được hoãn thêm thời gian bay.
+
+Bot cũng nhảy: mỗi bot chọn điểm đáp trong tầm lượn của đường bay (khoảng 1/3 là thị trấn, còn lại là các điểm rải rác trên đất liền, ưu tiên chỗ chưa bot nào chọn), rồi nhảy đúng lúc để lượn tới đó; một số bot lao nhanh, một số mở dù cao. Logic nằm ở [src/game/drop.ts](src/game/drop.ts) (thông số, đường bay, vận tốc) và phần "The drop" trong [src/game/simulation.ts](src/game/simulation.ts).
 
 ## Trang bị: tối đa 3 súng và một bộ giáp
 

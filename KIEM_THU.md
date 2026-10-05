@@ -53,7 +53,17 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - Production preview: `foliage-atlas-v2.png` và `bark-v1.png` trả HTTP 200. Đã nhìn trực tiếp ảnh PC, điện thoại và cây thông gần; bỏ normal bị lật xuống ở mặt sau cỏ để loại mảng đen.
 - Asset là albedo ImageGen, prompt được lưu trong `src/assets/textures/foliage-imagegen-prompts.json`; chưa có bộ PBR bark/foliage đầy đủ. Đây là kiểm tra trình duyệt giả lập, chưa xác nhận FPS hay bộ nhớ trên điện thoại thật.
 
+## Nhảy dù — 05/10/2026
+
+- `npm test`: **333/333 đạt** (11 bài mới trong `tests/drop.test.ts`); `tsc --noEmit` và `vite build` đạt.
+- Bài kiểm tra mô phỏng: mọi người bắt đầu trong máy bay; nhảy giữ đà của máy bay; lái được khi rơi; lao rơi nhanh hơn; mở dù thủ công (sau 1 giây) và tự mở ở 100 m; chạm đất không mất máu khi dù đã mở; không nhảy thì bị đẩy ra khi hết đảo; lái về một điểm cách đường bay ~330 m thì đáp cách đích dưới 80 m; 100 bot đều nhảy, không ai chết trên không, đáp rải ít nhất 6 ô 400 m và có ít nhất 25 bot đáp trong thị trấn; rơi xuống biển được đưa vào bờ; sân tập không có máy bay.
+- Một lần thử 300 giây bằng mô phỏng: với 100 bot, số còn sống sau 120 giây là 72 khi có nhảy dù (bot chọn điểm đáp cách xa nhau) so với 76 khi không. Khi dồn bot vào các thị trấn trước khi thêm cơ chế "chọn chỗ thoáng", số còn sống chỉ 39, nên mới thêm cơ chế đó.
+- Trình duyệt (Chromium PC và giả lập 740 × 360 cảm ứng): đã nhìn trực tiếp cảnh trên máy bay (biển, bờ đảo, mây, minimap có đường bay và vòng tầm lượn), rơi tự do (nhân vật nằm sấp, FOV rộng ra), dù mở (mái dù, dây), và hạ cánh (camera trở về bình thường, sương mù và bầu trời trở lại như dưới đất). Nút Nhảy trên điện thoại sáng viền vàng khi cần.
+- Đã sửa một lỗi hình ảnh: mái vòm bầu trời bán kính 750 m che mặt đất khi nhìn từ 800 m; nay phóng to khi ở trên không.
+
 ## Chưa kiểm tra / giới hạn
+
+- Nhảy dù: chưa nghe thử âm gió/dù, chưa đo FPS khi nhìn từ 800 m xuống (tầm nhìn chunk địa hình vẫn ~750 m quanh người chơi, phần xa hơn bị sương che), chưa thử cảm giác lái trên điện thoại thật; tổng số bot chết sớm sau khi đáp cần chơi thử để cân bằng.
 
 - **Chưa chạy trên điện thoại thật.** Chỉ giả lập khung nhìn và cảm ứng trong Chrome; chưa đo FPS, nhiệt, pin hay bộ nhớ với 100 bot.
 - Chưa đo FPS thực (khung xem không gửi khung hình), chưa thử Edge, Firefox, Safari.

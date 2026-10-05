@@ -416,6 +416,12 @@ export class IslandDecor {
     this.grassAt = { x: cx, z: cz };
   }
 
+  /**
+   * The sky dome is a 750 m sphere around the camera. From a plane the ground is farther than that, so the dome
+   * would hide it; a high view blows the dome up past everything that is drawn.
+   */
+  setHighView(high: boolean): void { this.sky.scaling.setAll(high ? 3.4 : 1); }
+
   /** Move the camera-relative pieces and animate water and clouds. */
   update(dt: number, x: number, z: number): void {
     this.sea.position.x = Math.round(x / 50) * 50;

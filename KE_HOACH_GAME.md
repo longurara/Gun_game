@@ -41,8 +41,9 @@ src/
     config.ts          # bản đồ nhỏ và hằng số
     spatial.ts         # lưới không gian (vật cản, actor, vật phẩm)
     bot-logic.ts       # chọn súng, giá trị vật phẩm, sức mạnh giao tranh xa
-    simulation.ts      # di chuyển, chiến đấu, loot, giáp, xe, AI, bo, pause/reset
-tests/                 # 87 bài: mô phỏng, súng, trang bị, đảo, xe, lưới không gian, thiết bị
+    drop.ts            # nhảy dù: đường bay máy bay, tốc độ rơi/lượn, tầm lượn
+    simulation.ts      # di chuyển, chiến đấu, loot, giáp, xe, AI, bo, nhảy dù, pause/reset
+tests/                 # 333 bài: mô phỏng, súng, trang bị, đảo, xe, nhảy dù, lưới không gian, thiết bị
 ```
 
 Mô phỏng tách khỏi DOM/render, chia bước tối đa 1/30 giây, có hạt giống ngẫu nhiên nên lặp lại được. Nguyên tắc để 100 bot chạy nhẹ: lưới không gian cho mọi truy vấn; AI ba tầng (gần: đầy đủ mỗi bước; tầm trung: vài lần/giây; xa: một thói quen nhẹ với giao tranh bằng xác suất); độ cao địa hình lấy từ bộ đệm theo ô; tìm đường A\* cục bộ có ngân sách mỗi bước. Phía vẽ: địa hình và vật thể gộp thành mesh theo ô, vật phẩm dùng instance, cỏ dùng thin instance, bot và xe chỉ dựng khi ở gần.
@@ -58,7 +59,8 @@ Mô phỏng tách khỏi DOM/render, chia bước tối đa 1/30 giây, có hạ
 | Trang bị 3 súng + giáp, HUD mới | Hoàn thành |
 | Xe và bot lái xe | Hoàn thành; cần chơi thử cảm giác lái |
 | Menu/HUD thiết kế lại, bản đồ lớn | Hoàn thành |
-| Kiểm thử logic (87 bài) và build | Đạt |
+| Nhảy dù từ máy bay: người chơi và 100 bot chọn điểm đáp | Hoàn thành; cần cân bằng bằng chơi thử |
+| Kiểm thử logic (333 bài) và build | Đạt |
 | Chơi thử trên trình duyệt | Đã kiểm tra các luồng chính (xem KIEM_THU.md) |
 | Đo FPS và thử trên điện thoại thật | **Chưa thực hiện** |
 | Hosting công khai | Chưa thực hiện |

@@ -15,6 +15,7 @@ export class GameAudio {
   private lastReload = -Infinity;
   private lastHeal = -Infinity;
   private lastEngine = -Infinity;
+  private lastWind = -Infinity;
   private stepSide = false;
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
@@ -92,6 +93,12 @@ export class GameAudio {
         this.tone(620, 0.09, 0.07, 'sine');
         this.tone(event.kind === 'medkit' ? 930 : 1240, 0.12, 0.05, 'sine', 0.075);
         break;
+      case 'drop':
+        if (event.actorId !== 'player') break;
+        if (event.stage === 'jump') { this.noise(0.9, 0.3, 'lowpass', 1500); this.noise(0.5, 0.12, 'highpass', 2600, 0.05); }
+        else if (event.stage === 'chute') { this.noise(0.12, 0.34, 'bandpass', 700); this.noise(0.5, 0.2, 'lowpass', 520, 0.08); this.tone(90, 0.25, 0.1, 'sine', 0.05, 50); }
+        else { this.noise(0.1, 0.22, 'lowpass', 380); this.tone(68, 0.12, 0.12, 'sine', 0, 40); }
+        break;
       case 'kill':
         if (event.killerId === 'player') {
           this.tone(780, 0.09, 0.055, 'triangle');
@@ -152,6 +159,16 @@ export class GameAudio {
     const pitch = 46 + Math.abs(speed) * 3.6;
     this.tone(pitch, 0.11, 0.05 + Math.abs(throttle) * 0.03, 'sawtooth', 0, pitch * 1.04);
     this.tone(pitch * 2.01, 0.09, 0.012, 'triangle');
+  }
+
+  /** Rushing air while falling: overlapping noise puffs that get brighter and louder with speed (m/s). */
+  wind(speed: number): void {
+    if (!this.ready()) return;
+    const now = this.context!.currentTime;
+    if (now - this.lastWind < 0.1) return;
+    this.lastWind = now;
+    const strength = Math.min(1, speed / 70);
+    this.noise(0.22, 0.05 + strength * 0.16, 'bandpass', 500 + strength * 1900);
   }
 
   reload(): void {

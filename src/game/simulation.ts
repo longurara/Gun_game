@@ -4,8 +4,11 @@ import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DUR
 import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
 import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
+import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
 
-interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId }
+interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean }
+/** A bot's plan for the drop: where to land, when to jump, how low to open the canopy. */
+interface BotDrop { jumpAt: number; target: Vec2; openAgl: number; dive: boolean }
 interface Runtime {
   cooldown: number; weaponCooldowns: Record<WeaponType, number>; velocityY: number; reloadWeapon: WeaponType | null;
   targetId: string | null; reaction: number; memory: number; sightTimer: number;
@@ -20,6 +23,7 @@ interface Runtime {
   lodAcc: number; lodTier: number; duelUntil: number; detour: number;
   /** Car the bot is walking to, the destination it will drive on to, and a cooldown between searches. */
   carTarget: string | null; destination: Vec2 | null; carCooldown: number;
+  drop: BotDrop | null;
 }
 interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle }
 
@@ -104,12 +108,14 @@ export class GameSimulation {
   private actorIndex = new Map<string, Actor>();
   /** Route searches allowed this step; the rest wait a few frames so a crowd of bots cannot stall one frame. */
   private pathBudget = 0;
+  /** Landing spots already claimed by bots in this drop. */
+  private dropTargets: Vec2[] = [];
   private lootGrid = new SpatialGrid<Loot>(16);
   private lootSource: Loot[] | null = null;
   private lootCount = -1;
 
   constructor(options: Options = {}) {
-    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena' };
+    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false };
     this.world = this.makeWorld();
     this.state = this.makeState('menu');
   }
@@ -169,7 +175,7 @@ export class GameSimulation {
   }
 
   get lootInReach(): Loot | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId) return null;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air) return null;
     return this.nearestLoot(this.player.position, INTERACTION_RANGE);
   }
 
@@ -178,7 +184,8 @@ export class GameSimulation {
     this.world = this.makeWorld();
     this.events = [];
     this.state = this.makeState('playing');
-    this.events.push({ type: 'message', text: this.options.map === 'island' ? 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!' : this.options.map === 'valley' ? 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!' : 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
+    if (this.state.plane) this.events.push({ type: 'message', text: 'Máy bay đang bay qua đảo. Nhảy khi bạn đã chọn được điểm đáp!' });
+    else this.events.push({ type: 'message', text: this.options.map === 'island' ? 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!' : this.options.map === 'valley' ? 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!' : 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
   }
 
   returnToMenu(options: Options = {}): void {
@@ -212,7 +219,7 @@ export class GameSimulation {
   }
 
   shootPlayer(target: Vec3, aimed = false): boolean {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
     return this.fire(this.player, target, 0, aimed);
   }
 
@@ -337,6 +344,7 @@ export class GameSimulation {
     this.runtimes.clear();
     this.jumpHeld = false;
     this.shrinkStart = null;
+    this.dropTargets = [];
     const island = this.openWorld;
     const count = this.options.botCount + 1;
     let spawns = this.world.spawns;
@@ -382,7 +390,17 @@ export class GameSimulation {
       id: `car-${index}`, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: spawn.yaw, speed: 0,
       health: VEHICLE_HEALTH, driverId: null, colorIndex: index % 5, hitTimer: 0,
     }));
-    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0 };
+    const plane = this.options.drop && island && phase === 'playing' ? makePlane(this.world.halfSize, () => this.random()) : null;
+    if (plane) {
+      zone.timeRemaining += plane.length / plane.speed + DROP.zoneGrace;
+      for (const actor of actors) {
+        actor.position = { x: plane.x, y: plane.y, z: plane.z };
+        actor.yaw = plane.yaw;
+        actor.air = { mode: 'plane', vx: 0, vy: 0, vz: 0, time: 0 };
+        if (!actor.isPlayer) this.runtime(actor).drop = this.planDrop(plane);
+      }
+    }
+    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane };
   }
 
   /** Weighted gear tables: later tiers (cities, big houses) hold the heavy weapons. */
@@ -452,7 +470,7 @@ export class GameSimulation {
         heard: null, heardTimer: 0,
         lootRef: null, lootTimer: 0, ignored: new Map(), coverGoal: null, coverTimer: 0, weaponTimer: 0,
         visited: new Set(), townGoal: null,
-        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0,
+        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null,
       };
       this.runtimes.set(actor.id, runtime);
     }
@@ -462,6 +480,7 @@ export class GameSimulation {
   private step(dt: number, input: PlayerInput, jumpPressed: boolean): void {
     this.state.elapsed += dt;
     this.advanceZone(dt);
+    this.stepPlane(dt);
     if (jumpPressed || Math.hypot(input.moveX, input.moveZ) > 0.05) this.cancelHeal(this.player);
     for (const actor of this.state.actors) {
       if (!actor.alive) continue;
@@ -494,7 +513,8 @@ export class GameSimulation {
       }
     }
     const player = this.player;
-    if (!player.vehicleId) this.walkPlayer(dt, input, jumpPressed);
+    if (player.air) this.flyPlayer(dt, input, jumpPressed);
+    else if (!player.vehicleId) this.walkPlayer(dt, input, jumpPressed);
     this.rebuildActorGrid();
     this.pathBudget = 3;
     this.updateBots(dt);
@@ -524,13 +544,190 @@ export class GameSimulation {
 
   private applyZone(dt: number): void {
     for (const actor of this.state.actors) {
-      if (!actor.alive || this.state.phase !== 'playing') continue;
+      if (!actor.alive || actor.air || this.state.phase !== 'playing') continue;
       if (distance2(actor.position, this.state.zone.center) > this.state.zone.radius) {
         const damage = 1.5 + this.state.zone.stage * 2 + (this.state.zone.radius <= 0.01 ? 20 : 0);
         this.damage(actor, damage * dt);
       }
     }
     this.checkEnd();
+  }
+
+  // -------------------------------------------------------------------------------------------------------------
+  // The drop: everybody starts in a plane that crosses the map. Jump when you like, steer in free fall (Shift dives),
+  // open the canopy by hand or let it open at DROP.autoOpen, then glide to the spot you picked. Bots plan a landing
+  // spot near a town within reach of the route and jump at the point from which they can just make it.
+  // -------------------------------------------------------------------------------------------------------------
+
+  /** True while the player is still in the plane, falling or under the canopy. */
+  get airborne(): boolean { return !!this.player.air; }
+
+  /** Height of an actor above the ground under it, in metres. */
+  heightAboveGround(actor: Actor): number { return actor.position.y - this.heightAt(actor.position.x, actor.position.z); }
+
+  private stepPlane(dt: number): void {
+    const plane = this.state.plane;
+    if (!plane?.active) return;
+    plane.travelled = Math.min(plane.length, plane.travelled + plane.speed * dt);
+    placePlane(plane);
+    for (const actor of this.state.actors) {
+      if (actor.air?.mode !== 'plane') continue;
+      actor.position.x = plane.x; actor.position.y = plane.y; actor.position.z = plane.z; actor.yaw = plane.yaw;
+    }
+    if (plane.travelled < plane.length) return;
+    // Out of island: whoever is still aboard is pushed out the door.
+    plane.active = false;
+    for (const actor of this.state.actors) {
+      if (!actor.alive || actor.air?.mode !== 'plane') continue;
+      this.jumpFromPlane(actor);
+      if (actor.isPlayer) this.events.push({ type: 'message', text: 'Máy bay đã bay hết đảo, bạn bị đẩy ra khỏi cửa!' });
+    }
+  }
+
+  private jumpFromPlane(actor: Actor): void {
+    const plane = this.state.plane;
+    if (!plane || actor.air?.mode !== 'plane') return;
+    const momentum = plane.speed * 0.9;
+    actor.air = { mode: 'freefall', vx: Math.sin(plane.yaw) * momentum, vz: Math.cos(plane.yaw) * momentum, vy: -3, time: 0 };
+    // The door is wide: jumpers leave a few metres apart rather than on one point.
+    const spread = actor.isPlayer ? 0 : 8;
+    actor.position = { x: plane.x + (this.random() - 0.5) * spread, y: plane.y - 2, z: plane.z + (this.random() - 0.5) * spread };
+    this.cancelHeal(actor);
+    this.events.push({ type: 'drop', actorId: actor.id, stage: 'jump' });
+    if (actor.isPlayer) this.events.push({ type: 'message', text: `Rơi tự do! Lái để chọn điểm đáp, nhảy lần nữa để mở dù (tự mở ở độ cao ${DROP.autoOpen} m).` });
+  }
+
+  private openChute(actor: Actor): void {
+    if (actor.air?.mode !== 'freefall') return;
+    actor.air.mode = 'chute';
+    this.events.push({ type: 'drop', actorId: actor.id, stage: 'chute' });
+  }
+
+  private flyPlayer(dt: number, input: PlayerInput, jumpPressed: boolean): void {
+    const player = this.player;
+    const air = player.air!;
+    if (air.mode === 'plane') {
+      if (jumpPressed && this.state.elapsed > DROP.doorDelay) this.jumpFromPlane(player);
+      return;
+    }
+    // A second press opens the canopy, but not in the first instant of the fall, so a double tap cannot waste the altitude.
+    if (jumpPressed && air.mode === 'freefall' && air.time > 1) this.openChute(player);
+    this.moveInAir(player, { x: input.moveX, z: input.moveZ, dive: input.sprint }, dt);
+  }
+
+  private moveInAir(actor: Actor, control: { x: number; z: number; dive: boolean }, dt: number): void {
+    const air = actor.air!;
+    steerAir(air, control, dt);
+    const p = actor.position;
+    const edge = this.world.halfSize - ACTOR_RADIUS;
+    p.x = clamp(p.x + air.vx * dt, -edge, edge);
+    p.z = clamp(p.z + air.vz * dt, -edge, edge);
+    p.y += air.vy * dt;
+    if (!actor.isPlayer && Math.hypot(air.vx, air.vz) > 1) actor.yaw = Math.atan2(air.vx, air.vz);
+    const ground = this.heightAt(p.x, p.z);
+    const openAt = actor.isPlayer ? DROP.autoOpen : this.runtime(actor).drop?.openAgl ?? DROP.autoOpen;
+    if (air.mode === 'freefall' && p.y - ground <= openAt) this.openChute(actor);
+    if (p.y <= ground) this.land(actor, ground);
+  }
+
+  /** Is this a spot someone can stand: dry, clear of walls and not under a roof (the canopy cannot drop through one). */
+  private canLandAt(point: Vec2): boolean {
+    if (!this.walkable(point, ACTOR_RADIUS)) return false;
+    let covered = false;
+    this.obstacles().queryBox(point.x - 0.5, point.z - 0.5, point.x + 0.5, point.z + 0.5, obstacle => {
+      if (obstacle.kind === 'roof' && Math.abs(point.x - obstacle.x) < obstacle.width / 2 + 0.5 && Math.abs(point.z - obstacle.z) < obstacle.depth / 2 + 0.5) { covered = true; return true; }
+    });
+    return !covered;
+  }
+
+  /** Nearest standable point to where the canopy came down: shore for a splashdown, the yard beside a roof. */
+  private nearestLanding(point: Vec2): Vec2 | null {
+    if (this.canLandAt(point)) return point;
+    for (let radius = 3; radius <= 400; radius += 3) {
+      const steps = Math.max(8, Math.round(radius * 0.9));
+      for (let i = 0; i < steps; i++) {
+        const angle = i / steps * Math.PI * 2;
+        const candidate = { x: point.x + Math.cos(angle) * radius, z: point.z + Math.sin(angle) * radius };
+        if (this.canLandAt(candidate)) return candidate;
+      }
+    }
+    return null;
+  }
+
+  private land(actor: Actor, ground: number): void {
+    const air = actor.air!;
+    const impact = -air.vy;
+    actor.air = null;
+    const runtime = this.runtime(actor);
+    runtime.velocityY = 0;
+    runtime.drop = null;
+    runtime.goal = null; runtime.path = []; runtime.pathTimer = 0;
+    const p = actor.position;
+    const splash = !!this.world.water && this.deepWater(p.x, p.z, ground);
+    const spot = this.nearestLanding(p);
+    if (spot) { p.x = spot.x; p.z = spot.z; }
+    p.y = this.heightAt(p.x, p.z);
+    this.resolvePenetration(actor);
+    this.events.push({ type: 'drop', actorId: actor.id, stage: 'land' });
+    if (actor.isPlayer && splash) this.events.push({ type: 'message', text: 'Bạn rơi xuống nước và bơi vào bờ.' });
+    else if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã tiếp đất. Tìm vũ khí trong nhà gần nhất!' });
+    if (impact > DROP.safeLanding) this.damage(actor, (impact - DROP.safeLanding) * 3);
+  }
+
+  /** Pick a town (or a loose spot) the route passes within glide range of, and the moment to jump so the glide ends there. */
+  private planDrop(plane: NonNullable<GameState['plane']>): BotDrop {
+    const reach = glideReach(plane.y);
+    const reachable = (point: Vec2) => alongLine(plane, point).side <= reach * 0.9;
+    const weight = (town: Town) => town.tier === 'city' ? 1.6 : town.tier === 'town' ? 1.2 : 1;
+    const towns = this.world.towns.filter(reachable);
+    const spawns = this.world.spawns;
+    // Sample a few candidate spots (a third of them in towns) and take the one farthest from the spots already
+    // chosen, so a hundred bots spread across the band under the route instead of piling into the same city.
+    const sample = (): Vec2 | null => {
+      if (towns.length && this.random() < 0.3) {
+        let roll = this.random() * towns.reduce((sum, town) => sum + weight(town), 0);
+        let pick = towns[0];
+        for (const town of towns) { pick = town; roll -= weight(town); if (roll < 0) break; }
+        return { x: pick.x + (this.random() - 0.5) * pick.radius * 0.9, z: pick.z + (this.random() - 0.5) * pick.radius * 0.9 };
+      }
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const spot = spawns[Math.floor(this.random() * spawns.length)];
+        if (spot && reachable(spot)) return { x: spot.x, z: spot.z };
+      }
+      return null;
+    };
+    let target: Vec2 | null = null;
+    let roomiest = -1;
+    for (let i = 0; i < 6; i++) {
+      const candidate = sample();
+      if (!candidate) continue;
+      const room = this.dropTargets.reduce((least, other) => Math.min(least, distance2(candidate, other)), Infinity);
+      if (room > roomiest) { roomiest = room; target = candidate; }
+    }
+    target ??= spawns.reduce<Vec2>((best, spot) => alongLine(plane, spot).side < alongLine(plane, best).side ? spot : best, spawns[0] ?? { x: 0, z: 0 });
+    this.dropTargets.push(target);
+    const { along, side } = alongLine(plane, target);
+    const glide = Math.max(side + 5, reach * (0.55 + this.random() * 0.35));
+    const jumpAt = clamp(along - Math.sqrt(Math.max(0, glide * glide - side * side)), 2 + this.random() * 20, plane.length - 5);
+    return { jumpAt, target, openAgl: this.random() < 0.4 ? DROP.autoOpen + this.random() * 120 : DROP.autoOpen, dive: this.random() < 0.3 };
+  }
+
+  private updateBotAir(actor: Actor, dt: number): void {
+    const air = actor.air!;
+    const plan = this.runtime(actor).drop;
+    if (air.mode === 'plane') {
+      const plane = this.state.plane;
+      if (!plan || (plane && plane.travelled >= plan.jumpAt)) this.jumpFromPlane(actor);
+      return;
+    }
+    const target = plan?.target ?? actor.position;
+    const dx = target.x - actor.position.x, dz = target.z - actor.position.z;
+    const distance = Math.hypot(dx, dz);
+    const dive = !!plan?.dive && air.mode === 'freefall' && distance < 150;
+    const cap = (air.mode === 'chute' ? DROP.chute : dive ? DROP.dive : DROP.freefall).h;
+    // Ease off near the spot so the canopy comes down on it instead of swinging past.
+    const throttle = clamp(distance / (cap * 1.2), 0, 1);
+    this.moveInAir(actor, { x: distance > 0.5 ? dx / distance * throttle : 0, z: distance > 0.5 ? dz / distance * throttle : 0, dive }, dt);
   }
 
   // -------------------------------------------------------------------------------------------------------------
@@ -548,7 +745,7 @@ export class GameSimulation {
 
   /** The nearest empty, working car within arm's reach of the player. */
   get vehicleInReach(): Vehicle | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId) return null;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air) return null;
     let best = null as Vehicle | null;
     let nearest = VEHICLE_REACH;
     for (const v of this.state.vehicles) {
@@ -561,7 +758,7 @@ export class GameSimulation {
 
   /** Get into the nearest car, or out of the one being driven. */
   useVehicle(): boolean {
-    if (this.state.phase !== 'playing') return false;
+    if (this.state.phase !== 'playing' || this.player.air) return false;
     if (this.player.vehicleId) { this.exitVehicle(this.player); return true; }
     const car = this.vehicleInReach;
     return car ? this.enterVehicle(this.player, car) : false;
@@ -668,7 +865,7 @@ export class GameSimulation {
     v.driverId = null;
     this.events.push({ type: 'explosion', position: { ...v.position } });
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.vehicleId) continue;
+      if (!actor.alive || actor.vehicleId || actor.air) continue;
       const d = distance2(actor.position, v.position);
       if (d < 7) this.damage(actor, 70 * (1 - d / 7));
     }
@@ -777,6 +974,7 @@ export class GameSimulation {
     const player = this.player.position;
     for (const actor of this.state.actors) {
       if (actor.isPlayer || !actor.alive || this.state.phase !== 'playing') continue;
+      if (actor.air) { this.updateBotAir(actor, dt); continue; }
       if (!lod) { this.updateBot(actor, dt); continue; }
       const runtime = this.runtime(actor);
       const d = distance2(actor.position, player);
@@ -926,7 +1124,7 @@ export class GameSimulation {
       if (hit !== null && hit < closest.distance) closest = { distance: hit, vehicle: car };
     }
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.id === ignoreId || actor.vehicleId) continue;
+      if (!actor.alive || actor.id === ignoreId || actor.vehicleId || actor.air) continue;
       const p = actor.position;
       const body = rayBox(origin, direction, { x: p.x - 0.37, y: p.y + 0.12, z: p.z - 0.37 }, { x: p.x + 0.37, y: p.y + 1.42, z: p.z + 0.37 }, closest.distance);
       const head = rayBox(origin, direction, { x: p.x - 0.24, y: p.y + 1.42, z: p.z - 0.24 }, { x: p.x + 0.24, y: p.y + ACTOR_HEIGHT, z: p.z + 0.24 }, closest.distance);
@@ -1122,7 +1320,7 @@ export class GameSimulation {
     this.actorIndex.clear();
     for (const actor of this.state.actors) {
       this.actorIndex.set(actor.id, actor);
-      if (actor.alive) this.actorGrid.insertPoint(actor, actor.position.x, actor.position.z);
+      if (actor.alive && !actor.air) this.actorGrid.insertPoint(actor, actor.position.x, actor.position.z);
     }
   }
 

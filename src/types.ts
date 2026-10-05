@@ -50,6 +50,14 @@ export interface Vehicle {
   id: string; position: Vec3; yaw: number; /** Signed forward speed in m/s. */ speed: number;
   health: number; driverId: string | null; colorIndex: number; hitTimer: number;
 }
+/** Where an actor is in the drop: riding the plane, in free fall, or under a canopy. */
+export type AirMode = 'plane' | 'freefall' | 'chute';
+export interface AirState { mode: AirMode; vx: number; vy: number; vz: number; /** Seconds since leaving the plane. */ time: number }
+/** The transport plane that flies over the map at the start of a match; everyone jumps from it. */
+export interface Plane {
+  x: number; y: number; z: number; yaw: number; speed: number;
+  from: Vec2; to: Vec2; length: number; travelled: number; active: boolean;
+}
 export interface Actor {
   id: string; name: string; isPlayer: boolean; position: Vec3; yaw: number;
   health: number; alive: boolean; weapon: WeaponType; ownedWeapons: WeaponType[];
@@ -60,6 +68,8 @@ export interface Actor {
   helmet: number; vest: number; helmetHp: number; vestHp: number;
   /** Id of the car being driven, if any. */
   vehicleId?: string | null;
+  /** Set while the actor is in the plane, falling or under a parachute; absent once on the ground. */
+  air?: AirState | null;
 }
 export interface Loot { id: string; kind: LootKind; position: Vec3; active: boolean }
 export interface ZoneState {
@@ -69,6 +79,8 @@ export interface ZoneState {
 export interface GameState {
   phase: GamePhase; elapsed: number; actors: Actor[]; loot: Loot[]; vehicles: Vehicle[];
   zone: ZoneState; kills: number; shots: number; hits: number;
+  /** Present only in a match that starts with a drop from the sky. */
+  plane?: Plane | null;
 }
 /** While driving, throttle (-1 reverse to 1 forward) and steer (-1 left to 1 right) replace the move vector; jump is the handbrake. */
 export interface PlayerInput { moveX: number; moveZ: number; sprint: boolean; jump: boolean; throttle?: number; steer?: number }
@@ -91,4 +103,5 @@ export type GameEvent =
   | { type: 'message'; text: string }
   | { type: 'crash'; vehicleId: string; strength: number; position: Vec3 }
   | { type: 'explosion'; position: Vec3 }
+  | { type: 'drop'; actorId: string; stage: 'jump' | 'chute' | 'land' }
   | { type: 'end'; won: boolean };

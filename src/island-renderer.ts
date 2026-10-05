@@ -653,6 +653,9 @@ export class IslandRenderer {
    * Bring the chunk set in line with the focus. Pass a large `budget` to build everything at once (match start);
    * during play a small budget spreads the work over frames.
    */
+  /** Switch the sky for a view from high above the island (the parachute drop). */
+  setHighView(high: boolean): void { this.decor.setHighView(high); }
+
   update(x: number, z: number, budget = 3, dt = 0): void {
     this.decor.update(dt, x, z);
     const ccx = Math.floor((x + this.world.halfSize) / CHUNK), ccz = Math.floor((z + this.world.halfSize) / CHUNK);

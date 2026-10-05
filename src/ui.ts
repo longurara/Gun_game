@@ -1,5 +1,6 @@
-import type { AmmoType, ArmorSlot, GameSettings, GameState, MapId, WeaponType, WorldConfig } from './types';
+import type { AirMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
+import { remainingGlide } from './game/drop';
 import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
 
@@ -138,8 +139,8 @@ export class GameUI {
           </aside>
         </div>
         <footer class="lobby-foot">
-          <div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>F</kbd>Lên / xuống xe</span><span><kbd>1 – 3</kbd>Chọn súng</span><span><kbd>M</kbd>Bản đồ lớn</span><span><kbd>ESC</kbd>Tạm dừng</span></div>
-          <div class="touch-guide"><span><b>NGÓN TRÁI</b>Kéo cần để di chuyển</span><span><b>NGÓN PHẢI</b>Vuốt để xoay camera</span><span><b>NÚT NGẮM</b>Bật / tắt ống ngắm</span></div>
+          <div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển / lái dù</span><span><kbd>SPACE</kbd>Nhảy dù · mở dù</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>F</kbd>Lên / xuống xe</span><span><kbd>1 – 3</kbd>Chọn súng</span><span><kbd>M</kbd>Bản đồ lớn</span><span><kbd>ESC</kbd>Tạm dừng</span></div>
+          <div class="touch-guide"><span><b>NGÓN TRÁI</b>Kéo cần để di chuyển</span><span><b>NGÓN PHẢI</b>Vuốt để xoay camera</span><span><b>NÚT NGẮM</b>Bật / tắt ống ngắm</span><span><b>NÚT NHẢY</b>Nhảy khỏi máy bay · mở dù</span></div>
           <div class="touch-orientation-note">Xoay điện thoại ngang để chơi thoải mái.</div>
         </footer>
       </section>
@@ -163,6 +164,7 @@ export class GameUI {
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
         <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
+        <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
         <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
         <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="Vũ khí đang mang"></div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1 · 2 · 3 CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
@@ -358,7 +360,7 @@ export class GameUI {
     this.hide('interaction-hint', !hint);
     this.hide('action-progress', player.reloading <= 0 && player.healing <= 0);
     this.text('action-progress', player.healing > 0 ? `HỒI MÁU · ${player.healing.toFixed(1)}s` : `NẠP ĐẠN · ${player.reloading.toFixed(1)}s`);
-    const outside = Math.hypot(player.position.x - state.zone.center.x, player.position.z - state.zone.center.z) > state.zone.radius;
+    const outside = !player.air && Math.hypot(player.position.x - state.zone.center.x, player.position.z - state.zone.center.z) > state.zone.radius;
     this.el('zone-banner').classList.toggle('danger', outside);
     this.text('zone-title', outside ? 'BẠN ĐANG NGOÀI VÙNG AN TOÀN' : state.zone.isShrinking ? 'VÒNG BO ĐANG THU HẸP' : 'VÙNG AN TOÀN');
     this.text('zone-description', outside ? 'Di chuyển vào vòng bo để tránh mất máu' : `Vòng ${state.zone.stage + 1} · ${state.zone.isShrinking ? 'Hãy di chuyển vào vùng mới' : 'Chuẩn bị cho vòng bo tiếp theo'}`);
@@ -493,6 +495,31 @@ export class GameUI {
     bar.classList.toggle('low', info.health < 0.3);
   }
 
+  /** Flight readout while in the plane, in free fall or under the canopy; null once on the ground. */
+  public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number } | null): void {
+    this.hide('air-hud', !info);
+    const mode = info?.mode ?? '';
+    if (this.root.dataset.air !== mode) {
+      this.root.dataset.air = mode;
+      if (mode) document.documentElement.dataset.air = mode; else delete document.documentElement.dataset.air;
+    }
+    if (!info) return;
+    const touch = this.touchMode;
+    const stage = { plane: 'TRÊN MÁY BAY', freefall: 'RƠI TỰ DO', chute: 'DÙ ĐÃ MỞ' }[info.mode];
+    const label = { plane: 'GIÂY TRÊN ĐẢO', freefall: 'GIÂY TỚI KHI DÙ TỰ MỞ', chute: 'GIÂY TỚI ĐẤT' }[info.mode];
+    const prompt = {
+      plane: touch ? 'CHẠM NÚT NHẢY ĐỂ NHẢY DÙ · CHỌN ĐIỂM ĐÁP TRÊN BẢN ĐỒ' : '[SPACE] NHẢY DÙ · [M] BẢN ĐỒ · NHÌN XUỐNG ĐỂ CHỌN ĐIỂM ĐÁP',
+      freefall: touch ? 'NÚT NHẢY: MỞ DÙ · ĐẨY CẦN HẾT CỠ: LAO NHANH' : '[SPACE] MỞ DÙ · [SHIFT] LAO NHANH · W A S D LÁI',
+      chute: touch ? 'ĐẨY CẦN HẾT CỠ: BAY NHANH HƠN' : '[SHIFT] BAY NHANH HƠN · W A S D LÁI',
+    }[info.mode];
+    this.text('air-stage', stage);
+    this.text('air-alt', `${Math.max(0, Math.round(info.altitude))}`);
+    this.text('air-speed', `${Math.round(info.speed * 3.6)}`);
+    this.text('air-left', `${Math.max(0, Math.round(info.seconds))}`);
+    this.text('air-left-label', label);
+    this.text('air-prompt', prompt);
+  }
+
   public toggleMap(show?: boolean): void {
     const open = show ?? this.el('map-screen').hidden;
     if (open && this.phase !== 'playing') return;
@@ -616,7 +643,24 @@ export class GameUI {
       for (const town of world.towns) { const x = mapX(town.x), y = mapY(town.z) - (town.tier === 'city' ? 12 : 9); ctx.strokeText(town.name, x, y); ctx.fillText(town.name, x, y); }
     }
     const player = state.actors.find(actor => actor.isPlayer);
-    if (player) {
+    const plane = state.plane;
+    if (plane?.active) {
+      // The plane's route, so the jump point can be chosen against the towns on the map.
+      ctx.strokeStyle = '#8fd4ff'; ctx.lineWidth = big ? 2 : 1.4; ctx.setLineDash([7, 5]);
+      ctx.beginPath(); ctx.moveTo(mapX(plane.from.x), mapY(plane.from.z)); ctx.lineTo(mapX(plane.to.x), mapY(plane.to.z)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.save(); ctx.translate(mapX(plane.x), mapY(plane.z)); ctx.rotate(plane.yaw); ctx.scale(big ? 1.6 : 1, big ? 1.6 : 1);
+      ctx.fillStyle = '#e8f6ff'; ctx.strokeStyle = '#15303f'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(1.6, -2); ctx.lineTo(8, 2); ctx.lineTo(8, 4); ctx.lineTo(1.6, 2.6); ctx.lineTo(1.2, 6); ctx.lineTo(3.4, 7.5); ctx.lineTo(3.4, 8.5); ctx.lineTo(0, 7.6); ctx.lineTo(-3.4, 8.5); ctx.lineTo(-3.4, 7.5); ctx.lineTo(-1.2, 6); ctx.lineTo(-1.6, 2.6); ctx.lineTo(-8, 4); ctx.lineTo(-8, 2); ctx.lineTo(-1.6, -2); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    }
+    if (player?.air) {
+      // How far this jumper could still glide from where they are: land inside the ring.
+      const ground = world.terrain ? world.terrain(player.position.x, player.position.z) : 0;
+      const radius = remainingGlide(player.air.mode, player.position.y - ground) * scale;
+      ctx.strokeStyle = '#8fd4ffcc'; ctx.fillStyle = '#8fd4ff18'; ctx.lineWidth = big ? 2 : 1.2; ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.arc(mapX(player.position.x), mapY(player.position.z), radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (player && !(plane?.active && player.air?.mode === 'plane')) {
       const k = big ? 1.9 : 1;
       ctx.save(); ctx.translate(mapX(player.position.x), mapY(player.position.z)); ctx.rotate(player.yaw); ctx.scale(k, k);
       ctx.fillStyle = '#ffc233'; ctx.strokeStyle = '#151b17'; ctx.lineWidth = 1.5;
