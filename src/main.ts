@@ -8,6 +8,7 @@ import './lobby.css';
 import './social.css';
 import './inventory.css';
 import './settings.css';
+import './lobby-polish.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
