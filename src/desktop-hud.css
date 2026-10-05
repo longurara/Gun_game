@@ -59,8 +59,9 @@ html[data-input="mouse"] .kill-feed { left: 18px; right: auto; top: auto; bottom
 html[data-input="mouse"] .kill-feed > div { padding: 2px 0; background: none; border: 0; }
 html[data-input="mouse"] .pause-tip { left: 18px; bottom: 10px; font-size: 8px; letter-spacing: .3px; opacity: .6; }
 html[data-input="mouse"] .toast { top: 58px; font-size: 11px; padding: 5px 8px; border: 0; background: #15252d55; }
-html[data-input="mouse"] .interaction-hint { bottom: 118px; font-size: 12px; padding: 5px 8px; border: 0; background: #15252d55; }
-html[data-input="mouse"] .action-progress { bottom: 100px; font-size: 11px; padding: 4px 8px; border: 0; background: #15252d55; }
+/* The theme positions these from the top; without top: auto they stretch from the middle of the screen down to bottom. */
+html[data-input="mouse"] .interaction-hint { top: auto; bottom: 170px; max-width: 420px; font-size: 14px; padding: 8px 16px; background: var(--panel-strong); border: 1px solid var(--stroke); border-left: 4px solid var(--amber); border-radius: 3px; }
+html[data-input="mouse"] .action-progress { top: auto; bottom: 138px; font-size: 12px; padding: 5px 12px; background: var(--panel-strong); }
 html[data-input="mouse"] .vehicle-hud { right: auto; left: 50%; bottom: 105px; transform: translateX(-50%); width: 130px; padding: 5px 8px; background: #15252d55; }
 html[data-input="mouse"] .vehicle-speed strong { font-size: 24px; }
 html[data-input="mouse"] .vehicle-hud small { font-size: 7px; }

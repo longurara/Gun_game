@@ -196,3 +196,6 @@ html[data-input="mouse"] .touch-only { display: none !important; }
 .setting-check input { width: 26px; height: 26px; min-height: 0; margin: 0; flex: none; accent-color: #e9a24b; }
 .perf-meter { position: absolute; left: 14px; top: 64px; padding: 4px 8px; font: 10px/1.5 ui-monospace, Consolas, monospace; white-space: pre; color: #d8f5c4; background: #0009; pointer-events: none; }
 html[data-input="touch"] .perf-meter { left: calc(8px + var(--safe-left, 0px)); top: calc(66px + var(--safe-top, 0px)); font-size: 9px; }
+
+/* The pickup hint doubles as the "next item" button when several are in reach. */
+html[data-input="touch"] .interaction-hint { pointer-events: auto; touch-action: manipulation; }

@@ -50,6 +50,14 @@ const icons = {
   medkit: '<path d="M9 5V3h6v2M3 7h18v14H3zM9 14h6m-3-3v6"/>',
   shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/>',
   sound: '<path d="m11 4-5 5H3v6h3l5 5zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
+  mouse: '<rect x="7" y="3" width="10" height="18" rx="5"/><path d="M12 7v4"/>',
+  recoil: '<path d="M13 3 5 14h6l-1 7 8-11h-6z"/>',
+  image: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/>',
+  gauge: '<path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/>',
+  bulb: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  radar: '<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 0 0 0 10M17 7a7 7 0 0 1 0 10M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/>',
 };
 function icon(name: keyof typeof icons): string {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
@@ -63,9 +71,13 @@ function saveJson(key: string, value: unknown): void {
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
-function readSettings(): GameSettings {
+/** Defaults that depend on the device: phones start with a lighter picture, gyro aiming, aim help and the gunfire indicator. */
+function deviceDefaults(): GameSettings {
   const touch = document.documentElement.dataset.input === 'touch';
-  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: 1, soundIndicator: touch };
+  return { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: 1, soundIndicator: touch };
+}
+function readSettings(): GameSettings {
+  const defaults = deviceDefaults();
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
@@ -162,24 +174,32 @@ export class GameUI {
             <div id="settings-panel" class="settings-panel" hidden>
               <div class="panel-title"><span>CHUẨN BỊ TRƯỚC KHI VÀO TRẬN</span><em>THIẾT LẬP</em></div>
               <p class="settings-copy">Điều chỉnh để chơi thoải mái trên máy của bạn.</p>
-              <label class="setting-row"><span>${icon('sound')}<span>Âm lượng<small>Tiếng súng và âm thanh trong trận</small></span></span><output id="volume-value">60%</output><input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Âm lượng"></label>
-              <label class="setting-row"><span>${icon('target')}<span>Độ nhạy chuột<small>Giá trị thấp giúp ngắm chính xác hơn</small></span></span><output id="sensitivity-value">1.00×</output><input id="sensitivity" type="range" min="0.35" max="2" step="0.05" aria-label="Độ nhạy chuột"></label>
-              <div class="setting-gyro touch-only">
-                <div class="setting-gyro-head"><span>${icon('target')}<span>Con quay hồi chuyển<small id="gyro-status"></small></span></span></div>
-                <div id="gyro-choice" class="seg seg-compact" role="radiogroup" aria-label="Chế độ con quay hồi chuyển"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="aim"><b>Khi ngắm</b><small>ngắm hoặc đang bắn</small></button><button type="button" role="radio" data-value="always"><b>Luôn bật</b></button></div>
-                <label class="setting-row"><span>${icon('target')}<span>Độ nhạy cảm biến<small>1× = camera quay đúng bằng góc bạn xoay điện thoại</small></span></span><output id="gyro-sensitivity-value">1.00×</output><input id="gyro-sensitivity" type="range" min="0.3" max="3" step="0.05" aria-label="Độ nhạy con quay hồi chuyển"></label>
-                <label class="setting-row gyro-invert"><span>${icon('target')}<span>Đảo chiều lên / xuống<small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span></span><input id="gyro-invert" type="checkbox" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
-              </div>
-              <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
-              <label class="setting-row"><span>${icon('target')}<span>Độ giật súng<small>1× = giật mặc định: mỗi phát hất nhẹ góc nhìn rồi tự hồi lại. Thấp hơn thì nhẹ hơn</small></span></span><output id="recoil-value">1.00×</output><input id="recoil-scale" type="range" min="0.3" max="1.5" step="0.05" aria-label="Độ giật súng"></label>
-              <div class="setting-gyro touch-only">
-                <div class="setting-gyro-head"><span>${icon('target')}<span>Hỗ trợ ngắm<small>Camera chậm lại khi tâm lướt qua địch và hút nhẹ về thân khi bạn bắn hoặc ngắm</small></span></span></div>
-                <div id="assist-choice" class="seg seg-compact" role="radiogroup" aria-label="Hỗ trợ ngắm"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="low"><b>Nhẹ</b></button><button type="button" role="radio" data-value="high"><b>Mạnh</b><small>như Free Fire</small></button></div>
-              </div>
-              <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện hướng tiếng súng<small>Vệt nhạt quanh tâm chỉ hướng người khác nổ súng gần bạn</small></span></span><input id="sound-indicator" type="checkbox" aria-label="Hiện hướng tiếng súng"></label>
-              <label class="setting-row setting-check"><span>${icon('target')}<span>Gợi ý cho người mới<small>Mẹo ngắn hiện một lần, lần đầu bạn gặp từng tình huống</small></span></span><input id="tips" type="checkbox" aria-label="Gợi ý cho người mới"></label>
-              <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện FPS<small>Số khung hình mỗi giây và số vật thể đang vẽ, để biết máy có chạy nổi không</small></span></span><input id="show-fps" type="checkbox" aria-label="Hiện FPS"></label>
-              <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
+              <section class="set-group"><h3 class="set-title">ÂM THANH</h3><div class="set-card">
+                <label class="set-row set-slider"><span class="set-ico">${icon('sound')}</span><span class="set-text"><b>Âm lượng</b><small>Tiếng súng, nhạc và âm thanh trong trận</small></span><output id="volume-value">60%</output><input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Âm lượng"></label>
+              </div></section>
+              <section class="set-group"><h3 class="set-title">ĐIỀU KHIỂN</h3><div class="set-card">
+                <label class="set-row set-slider"><span class="set-ico">${icon('mouse')}</span><span class="set-text"><b>Độ nhạy chuột</b><small>Giá trị thấp giúp ngắm chính xác hơn</small></span><output id="sensitivity-value">1.00×</output><input id="sensitivity" type="range" min="0.35" max="2" step="0.05" aria-label="Độ nhạy chuột"></label>
+                <label class="set-row set-slider"><span class="set-ico">${icon('recoil')}</span><span class="set-text"><b>Độ giật súng</b><small>1× là mặc định: mỗi phát hất nhẹ góc nhìn rồi tự hồi lại. Thấp hơn thì nhẹ hơn</small></span><output id="recoil-value">1.00×</output><input id="recoil-scale" type="range" min="0.3" max="1.5" step="0.05" aria-label="Độ giật súng"></label>
+                <div class="set-block setting-gyro touch-only">
+                  <div class="set-row set-head"><span class="set-ico">${icon('phone')}</span><span class="set-text"><b>Con quay hồi chuyển</b><small id="gyro-status"></small></span></div>
+                  <div id="gyro-choice" class="seg seg-compact" role="radiogroup" aria-label="Chế độ con quay hồi chuyển"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="aim"><b>Khi ngắm</b><small>ngắm hoặc đang bắn</small></button><button type="button" role="radio" data-value="always"><b>Luôn bật</b></button></div>
+                  <label class="set-row set-slider"><span class="set-ico">${icon('phone')}</span><span class="set-text"><b>Độ nhạy cảm biến</b><small>1× = camera quay đúng bằng góc bạn xoay điện thoại</small></span><output id="gyro-sensitivity-value">1.00×</output><input id="gyro-sensitivity" type="range" min="0.3" max="3" step="0.05" aria-label="Độ nhạy con quay hồi chuyển"></label>
+                  <label class="set-row set-toggle"><span class="set-ico">${icon('phone')}</span><span class="set-text"><b>Đảo chiều lên / xuống</b><small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span><input id="gyro-invert" class="switch" type="checkbox" role="switch" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
+                </div>
+                <div class="set-block setting-gyro touch-only">
+                  <div class="set-row set-head"><span class="set-ico">${icon('target')}</span><span class="set-text"><b>Hỗ trợ ngắm</b><small>Camera chậm lại khi tâm lướt qua địch và hút nhẹ về thân khi bạn bắn hoặc ngắm</small></span></div>
+                  <div id="assist-choice" class="seg seg-compact" role="radiogroup" aria-label="Hỗ trợ ngắm"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="low"><b>Nhẹ</b></button><button type="button" role="radio" data-value="high"><b>Mạnh</b><small>như Free Fire</small></button></div>
+                </div>
+              </div></section>
+              <section class="set-group"><h3 class="set-title">HÌNH ẢNH</h3><div class="set-card">
+                <label class="set-row set-select"><span class="set-ico">${icon('image')}</span><span class="set-text"><b>Chất lượng hình ảnh</b><small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
+                <label class="set-row set-toggle"><span class="set-ico">${icon('gauge')}</span><span class="set-text"><b>Hiện FPS và thông số mạng</b><small>Số khung hình mỗi giây, số vật thể đang vẽ, ping và độ ổn định mạng</small></span><input id="show-fps" class="switch" type="checkbox" role="switch" aria-label="Hiện FPS"></label>
+              </div></section>
+              <section class="set-group"><h3 class="set-title">TRỢ GIÚP</h3><div class="set-card">
+                <label class="set-row set-toggle"><span class="set-ico">${icon('radar')}</span><span class="set-text"><b>Hiện hướng tiếng súng</b><small>Vệt nhạt quanh tâm chỉ hướng người khác nổ súng gần bạn</small></span><input id="sound-indicator" class="switch" type="checkbox" role="switch" aria-label="Hiện hướng tiếng súng"></label>
+                <label class="set-row set-toggle"><span class="set-ico">${icon('bulb')}</span><span class="set-text"><b>Gợi ý cho người mới</b><small>Mẹo ngắn hiện một lần, lần đầu bạn gặp từng tình huống</small></span><input id="tips" class="switch" type="checkbox" role="switch" aria-label="Gợi ý cho người mới"></label>
+              </div></section>
+              <div class="set-foot"><span class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</span><button id="reset-settings" class="set-reset" type="button">${icon('reset')}Khôi phục mặc định</button></div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
             </div>
           </aside>
         </div>
@@ -258,6 +278,7 @@ export class GameUI {
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
     this.el('volume').addEventListener('input', () => this.changeSettings({ volume: Number((this.el('volume') as HTMLInputElement).value) }));
     this.el('sensitivity').addEventListener('input', () => this.changeSettings({ sensitivity: Number((this.el('sensitivity') as HTMLInputElement).value) }));
+    this.el('reset-settings').addEventListener('click', () => { const { difficulty, map, botCount, ...rest } = deviceDefaults(); void difficulty; void map; void botCount; this.changeSettings(rest); });
     this.el('tab-play').addEventListener('click', () => this.showSettings(false));
     this.el('tab-settings').addEventListener('click', () => this.showSettings(true));
     this.el('back-play').addEventListener('click', () => this.showSettings(false));
@@ -399,6 +420,11 @@ export class GameUI {
     this.text('volume-value', `${Math.round(this.settings.volume * 100)}%`);
     this.text('sensitivity-value', `${this.settings.sensitivity.toFixed(2)}×`);
     this.text('brief-bots', `${this.settings.botCount}`);
+    // Sliders show how far they are filled.
+    this.el('settings-panel').querySelectorAll<HTMLInputElement>('input[type=range]').forEach(range => {
+      const min = Number(range.min), max = Number(range.max);
+      range.style.setProperty('--fill', `${max > min ? Math.round((Number(range.value) - min) / (max - min) * 100) : 0}%`);
+    });
   }
   private showSettings(show: boolean): void {
     this.hide('play-panel', show);

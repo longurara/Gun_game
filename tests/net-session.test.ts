@@ -533,3 +533,17 @@ test('driving on a laggy connection: the car answers the wheel at once, runs smo
   assert.ok(Math.hypot(hostCar.position.x - mine.position.x, hostCar.position.z - mine.position.z) < 12, 'the host is not far behind');
   m.hostSession.close();
 });
+
+test('turning while moving: the host path follows the client path closely, so the view is hardly ever corrected', () => {
+  const m = startMatch({ latency: 80, jitter: 30 }, { map: 'arena', botCount: 1, difficulty: 'normal' });
+  const [a, b] = m.peers;
+  m.hostSim.botsFrozen = true;
+  for (const sim of [m.hostSim, a.sim, b.sim]) { sim.actorById('p0')!.position = { x: -70, y: 0, z: -55 }; sim.actorById('p1')!.position = { x: -60, y: 0, z: -22 }; sim.actorById('p2')!.position = { x: 30, y: 0, z: 30 }; }
+  m.run(1);
+  const before = { ...a.session.corrections };
+  // Running forward while the camera turns about 70 degrees a second: the world-space direction changes every frame.
+  m.run(20, t => { const heading = t * 1.2; a.input = { ...idle, moveX: Math.sin(heading), moveZ: Math.cos(heading), sprint: true }; });
+  const count = a.session.corrections.count - before.count, metres = a.session.corrections.metres - before.metres;
+  assert.ok(count <= 4, `${count} corrections (${metres.toFixed(1)} m in total) in 20 s of turning`);
+  m.hostSession.close();
+});

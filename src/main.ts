@@ -7,6 +7,7 @@ import './stance-hud.css';
 import './lobby.css';
 import './social.css';
 import './inventory.css';
+import './settings.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -83,6 +84,7 @@ const keys = new Set<string>();
 const models = new Map<string, Character>();
 const lootMeshes = new Map<string, { node: InstancedMesh; loot: Loot }>();
 const lootTemplates = new Map<string, Mesh>();
+let lootSelector: Mesh | null = null;
 let arenaMeshes: Mesh[] = [];
 let islandRenderer: IslandRenderer | null = null;
 let sunlight: DirectionalLight;
@@ -240,6 +242,13 @@ function scanAssist(now: number) {
   }
 }
 
+/** Connection health for the FPS overlay: ping, how many snapshots arrive, how late they run, how far behind others are drawn, how often the host moved you. */
+function netReadout(client: ClientSession): string {
+  const s = client.netStats();
+  return ` · ping ${Math.round(s.rttMs)} ms
+mạng: ${s.snapshotsPerSecond.toFixed(0)} gói/s · giật ${Math.round(s.jitterMs)} ms · vẽ trễ ${Math.round(s.delayMs)} ms · kéo lại ${s.correctionsPer10s}/10 s`;
+}
+
 /** Flip between standing and a lower stance (pressing the same stance again stands up). */
 function toggleStance(stance: 'crouch' | 'prone') {
   if (sim.state.phase !== 'playing') return;
@@ -272,6 +281,28 @@ function doHeal(): boolean {
   if (ok) net?.client?.queueCommand('heal');
   return ok;
 }
+/**
+ * Which of the items in reach E will take. By default the nearest; ↑/↓ (Alt + wheel, a tap on the hint on a phone) pick
+ * another, and the choice sticks while that item stays in reach.
+ */
+let nearLoot: Loot[] = [];
+let lootChoiceId: string | null = null, lootChoiceManual = false;
+function refreshLootChoice(): Loot | null {
+  nearLoot = sim.nearbyLoot();
+  const kept = lootChoiceManual ? nearLoot.find(item => item.id === lootChoiceId) : undefined;
+  if (!kept) lootChoiceManual = false;
+  const choice = kept ?? nearLoot[0] ?? null;
+  lootChoiceId = choice?.id ?? null;
+  return choice;
+}
+function cycleLoot(step: number): void {
+  const current = refreshLootChoice();
+  if (!current || nearLoot.length < 2) return;
+  const index = nearLoot.indexOf(current);
+  lootChoiceId = nearLoot[(index + step + nearLoot.length) % nearLoot.length].id;
+  lootChoiceManual = true;
+  void audio.unlock();
+}
 function pickupInventory(id: string): void {
   if (!ui.inventoryOpen || !sim.nearbyLoot().some(item => item.id === id)) return;
   if (net?.client) net.client.queueCommand('inventory-pickup', id);
@@ -283,13 +314,14 @@ function dropInventory(kind: LootKind, amount: number): void {
   else sim.dropItem(kind, amount);
 }
 function doInteract(): boolean {
+  const choice = refreshLootChoice();
   if (net?.client) {
     // The host decides who gets the item; the pickup arrives in the next snapshot.
-    if (!sim.lootInReach) return false;
-    net.client.queueCommand('interact');
+    if (!choice) return false;
+    net.client.queueCommand('inventory-pickup', choice.id);
     return true;
   }
-  return sim.interact();
+  return choice ? sim.pickupLoot(choice.id) : false;
 }
 function doVehicle(): boolean {
   if (net?.client) {
@@ -927,9 +959,27 @@ function renderLoot(time: number) {
     }
     for (const [id, entry] of lootMeshes) if (!current.has(id)) { entry.node.dispose(); lootMeshes.delete(id); }
   }
+  const chosen = playing && sim.state.phase === 'playing' ? lootChoiceId : null;
+  let selected: Loot | null = null;
   for (const { node, loot } of lootMeshes.values()) {
     node.position.set(loot.position.x, loot.position.y + 0.45 + Math.sin(time * 2 + loot.position.x) * 0.07, loot.position.z);
     node.rotation.y = time * 0.45;
+    const isChosen = chosen !== null && loot.id === chosen;
+    node.scaling.setAll(isChosen ? 1.3 : 1);
+    if (isChosen) selected = loot;
+  }
+  if (!lootSelector || lootSelector.isDisposed()) {
+    lootSelector = MeshBuilder.CreateTorus('loot-selector', { diameter: 1.5, thickness: 0.07, tessellation: 32 }, scene);
+    lootSelector.isPickable = false;
+    const glow = new StandardMaterial('loot-selector-material', scene);
+    glow.disableLighting = true; glow.emissiveColor = new Color3(1, 0.72, 0.1); glow.fogEnabled = false;
+    lootSelector.material = glow;
+  }
+  lootSelector.setEnabled(!!selected);
+  if (selected) {
+    lootSelector.position.set(selected.position.x, selected.position.y + 0.17, selected.position.z);
+    const pulse = 1 + Math.sin(time * 6) * 0.08;
+    lootSelector.scaling.set(pulse, pulse, pulse);
   }
 }
 
@@ -1368,6 +1418,7 @@ window.addEventListener('keydown', event => {
   if ((event.code === 'KeyE' || event.code === 'KeyF') && sim.airborne) pendingJump = true;
   else if (event.code === 'KeyE' && !doInteract()) useVehicle();
   else if (event.code === 'KeyF') useVehicle();
+  else if ((event.code === 'ArrowUp' || event.code === 'ArrowDown') && sim.state.phase === 'playing' && !gameplayInputBlocked()) { event.preventDefault(); cycleLoot(event.code === 'ArrowDown' ? 1 : -1); }
   // Slots 1 and 2 are the main guns in the order they were picked up; slot 3 is the sidearm.
   const slotKey = /^(?:Digit|Numpad)([1-3])$/.exec(event.code);
   if (slotKey) {
@@ -1381,6 +1432,8 @@ window.addEventListener('keydown', event => {
   if (event.code === 'KeyZ') toggleStance('prone');
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
+// On a phone, tapping the pickup hint moves on to the next item in reach.
+document.getElementById('interaction-hint')?.addEventListener('click', () => { if (touchDevice && nearLoot.length > 1) cycleLoot(1); });
 canvas.addEventListener('mousedown', event => {
   if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
   event.preventDefault(); void audio.unlock();
@@ -1392,7 +1445,8 @@ window.addEventListener('mouseup', event => { if (touchDevice) return; if (event
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 canvas.addEventListener('wheel', event => {
   if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
-  event.preventDefault(); cycleWeapon(event.deltaY >= 0 ? 1 : -1);
+  event.preventDefault();
+  if (event.altKey) cycleLoot(event.deltaY >= 0 ? 1 : -1); else cycleWeapon(event.deltaY >= 0 ? 1 : -1);
 }, { passive: false });
 window.addEventListener('mousemove', event => {
   if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked() || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
@@ -1567,12 +1621,12 @@ try {
       if (sim.state.phase === 'won' || sim.state.phase === 'lost') releaseInput();
       lastPhase = sim.state.phase;
     }
-    const loot = sim.lootInReach;
+    const loot = refreshLootChoice();
     const nearbyCar = sim.vehicleInReach;
-    if (loot) ui.tip('loot', touchDevice ? 'Chạm nút Nhặt để lấy đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.' : 'Nhấn E để nhặt đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.');
+    if (loot) ui.tip('loot', touchDevice ? 'Chạm nút Nhặt để lấy đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.' : 'Nhấn E để nhặt đồ; có nhiều món gần nhau thì ↑/↓ (hoặc Alt + lăn chuột) để chọn món. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.');
     if (nearbyCar) ui.tip('car', touchDevice ? 'Chạm nút Nhặt để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.' : 'Nhấn F để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.');
     if (sim.player.alive && sim.player.health < 50 && sim.player.medkits > 0) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
-    const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên xe` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
+    const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}${nearLoot.length > 1 ? ` (${nearLoot.indexOf(loot) + 1}/${nearLoot.length}) · ${touchDevice ? 'chạm để đổi món' : '↑↓ chọn món'}` : ''}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên xe` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
     if (!touchDevice || now - lastHudTime >= 90 || hudPhase !== sim.state.phase || hudWeapon !== sim.player.weapon) {
       ui.update(sim.state, sim.world, hint);
       ui.updateInventory(sim.player, ui.inventoryOpen ? sim.nearbyLoot() : [], !!net);
@@ -1590,7 +1644,7 @@ try {
       lastPerfAt = now;
       const average = frameTimes.reduce((sum, value) => sum + value, 0) / Math.max(1, frameTimes.length);
       ui.setPerf(`${Math.round(engine.getFps())} FPS · khung TB ${average.toFixed(1)} ms · tệ nhất ${Math.max(...frameTimes).toFixed(0)} ms
-${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không${net?.client ? ` · ping ${Math.round(net.client.rttMs)} ms` : net?.host ? ' · chủ phòng' : ''}`);
+${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không${net?.client ? netReadout(net.client) : net?.host ? ' · chủ phòng' : ''}`);
     }
     ui.setSpectate(spectating() && sim.state.phase === 'playing' ? spectateTarget()?.name ?? '—' : null);
     const air = sim.player.air;

@@ -1,0 +1,77 @@
+/*
+ * The Thiết lập tab: grouped cards, one row per option (icon, name and hint, control), sliders that show how far they are
+ * filled, and switches instead of tick boxes. Loaded after theme.css and the HUD sheets so it wins over their older rules.
+ */
+.lobby .settings-panel { gap: 20px; padding-bottom: 8px; }
+.lobby .settings-copy { font-size: 14px; color: var(--ink-2); }
+
+.set-group { display: grid; gap: 9px; }
+.set-title { margin: 0; display: flex; align-items: center; gap: 10px; font: 700 11px/1 var(--display); letter-spacing: 2.6px; color: var(--ink-3); }
+.set-title::before { content: ""; width: 14px; height: 2px; background: var(--amber); }
+.set-title::after { content: ""; flex: 1; height: 1px; background: var(--stroke); }
+
+.set-card { background: rgba(255, 255, 255, .035); border: 1px solid var(--stroke); border-radius: 6px; overflow: hidden; }
+.set-card > .set-row, .set-card > .set-block { border-top: 1px solid var(--stroke); }
+.set-card > :first-child { border-top: 0; }
+
+.set-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; grid-template-areas: "ico text control"; align-items: center; column-gap: 14px; row-gap: 12px; padding: 15px 18px; cursor: pointer; transition: background .15s; }
+.set-row:hover { background: rgba(255, 255, 255, .03); }
+.set-ico { grid-area: ico; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 8px; background: rgba(245, 181, 10, .1); color: var(--amber); }
+.set-ico svg { width: 20px; height: 20px; }
+.set-text { grid-area: text; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.set-text b { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: .2px; }
+.set-text small { font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+.set-text small:empty { display: none; }
+
+/* Sliders: value pill in the corner, the track below the text. */
+.set-slider { grid-template-areas: "ico text value" ". slider slider"; }
+.set-slider output { grid-area: value; align-self: start; min-width: 62px; text-align: center; padding: 4px 10px; border-radius: 999px; background: rgba(245, 181, 10, .14); color: var(--amber); font: 700 13px/1.3 var(--display); letter-spacing: .6px; font-variant-numeric: tabular-nums; }
+.set-slider input[type=range] { grid-area: slider; width: 100%; margin: 0; height: 22px; background: none; -webkit-appearance: none; appearance: none; cursor: pointer; --fill: 50%; }
+.set-slider input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--amber) var(--fill), rgba(255, 255, 255, .14) var(--fill)); }
+.set-slider input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .14); }
+.set-slider input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--amber); }
+.set-slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; background: #fff; border: 3px solid var(--amber); box-shadow: 0 1px 6px rgba(0, 0, 0, .5); transition: transform .12s; }
+.set-slider input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--amber); box-shadow: 0 1px 6px rgba(0, 0, 0, .5); }
+.set-slider input[type=range]:hover::-webkit-slider-thumb, .set-slider input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
+.set-slider input[type=range]:focus-visible { outline: 2px solid var(--amber); outline-offset: 4px; border-radius: 3px; }
+
+/* Switches. */
+.set-toggle .switch { grid-area: control; -webkit-appearance: none; appearance: none; position: relative; width: 46px; height: 26px; margin: 0; border-radius: 999px; background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .12); cursor: pointer; transition: background .18s, border-color .18s; flex: none; }
+.set-toggle .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); transition: transform .18s; }
+.set-toggle .switch:checked { background: var(--amber); border-color: var(--amber); }
+.set-toggle .switch:checked::after { transform: translateX(20px); background: #17120a; }
+.set-toggle .switch:focus-visible, .set-select select:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+
+/* The quality drop-down. */
+.set-select select { grid-area: control; min-width: 150px; padding: 9px 34px 9px 14px; font-size: 14px; border-radius: 6px; background-color: rgba(255, 255, 255, .07); color: var(--ink); border: 1px solid var(--stroke); cursor: pointer; }
+.set-select select:hover { border-color: rgba(245, 181, 10, .5); }
+
+/* Phone-only blocks (gyroscope, aim assist) sit inside the card as sub-sections. */
+.set-block { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 12px; }
+.set-block .set-row { cursor: default; }
+.set-block .seg { margin: 4px 18px 6px 70px; }
+.set-head { padding-bottom: 6px; }
+.set-head:hover { background: none; }
+
+.set-foot { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding-top: 2px; }
+.lobby .set-foot .settings-saved { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.lobby .set-foot .settings-saved::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(148, 211, 107, .18); }
+.set-reset { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 12.5px; letter-spacing: .6px; color: var(--ink-2); background: transparent; border: 1px solid var(--stroke); border-radius: 5px; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.set-reset svg { width: 16px; height: 16px; }
+.set-reset:hover { color: var(--ink); border-color: rgba(245, 181, 10, .55); background: rgba(245, 181, 10, .08); }
+
+/* Phones: roomier touch targets, descriptions allowed to wrap fully. */
+html[data-input="touch"] .set-row { padding: 14px 14px; column-gap: 12px; }
+html[data-input="touch"] .set-text b { font-size: 15px; }
+html[data-input="touch"] .set-text small { font-size: 12px; }
+html[data-input="touch"] .set-slider input[type=range] { height: 34px; }
+html[data-input="touch"] .set-slider input[type=range]::-webkit-slider-thumb { width: 26px; height: 26px; margin-top: -10px; }
+html[data-input="touch"] .set-toggle .switch { width: 52px; height: 30px; }
+html[data-input="touch"] .set-toggle .switch::after { width: 24px; height: 24px; }
+html[data-input="touch"] .set-toggle .switch:checked::after { transform: translateX(22px); }
+html[data-input="touch"] .set-block .seg { margin-left: 14px; margin-right: 14px; }
+@media (max-width: 480px) {
+  .set-ico { width: 32px; height: 32px; }
+  .set-row { grid-template-columns: 32px minmax(0, 1fr) auto; column-gap: 10px; }
+  .set-select select { min-width: 120px; }
+}

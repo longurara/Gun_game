@@ -243,6 +243,10 @@ const CORRECTION_RATE = 12;
 
 export class ClientSession {
   rttMs = 0;
+  /** How often and how far the host has had to move the local player (for the debug line and tests). */
+  corrections = { count: 0, metres: 0 };
+  private arrivals: number[] = [];
+  private correctionTimes: number[] = [];
   lastSnapshotAt: number;
   private readonly clock: () => number;
   private buffer: Buffered[] = [];
@@ -348,6 +352,8 @@ export class ClientSession {
     this.lastSnapshotSeq = snap.seq;
     const now = this.clock();
     this.lastSnapshotAt = now;
+    this.arrivals.push(now);
+    while (this.arrivals.length > 0 && now - this.arrivals[0] > 3000) this.arrivals.shift();
     this.trackClock(now, snap.t);
     if (echoCt) this.rttMs = this.rttMs ? this.rttMs * 0.8 + Math.max(0, now - echoCt) * 0.2 : Math.max(0, now - echoCt);
     // Hold the player's own stance / weapon choice until the host reports the same (or a generous time has passed).
@@ -450,6 +456,9 @@ export class ClientSession {
       return;
     }
     const share = 0.7;
+    this.corrections.count++; this.corrections.metres += horizontal * share;
+    this.correctionTimes.push(this.clock());
+    while (this.correctionTimes.length > 0 && this.clock() - this.correctionTimes[0] > 10000) this.correctionTimes.shift();
     this.pending.x += dx * share; this.pending.y += dy * share; this.pending.z += dz * share;
     for (const item of this.trail) { item.x += dx * share; item.y += dy * share; item.z += dz * share; }
   }
@@ -527,6 +536,16 @@ export class ClientSession {
     const me = this.sim.player;
     const ride = me.vehicleId ? this.sim.state.vehicles.find(car => car.id === me.vehicleId) : undefined;
     if (ride) { me.position = { x: ride.position.x, y: ride.position.y + 0.3, z: ride.position.z }; me.yaw = ride.yaw; }
+  }
+
+  /** For the on-screen readout: what the connection is doing right now. */
+  netStats(): { rttMs: number; snapshotsPerSecond: number; jitterMs: number; delayMs: number; correctionsPer10s: number; silenceMs: number } {
+    const now = this.clock();
+    const recent = this.arrivals.filter(at => now - at <= 3000);
+    return {
+      rttMs: this.rttMs, snapshotsPerSecond: recent.length / 3, jitterMs: this.excessPeak, delayMs: this.delay * 1000,
+      correctionsPer10s: this.correctionTimes.filter(at => now - at <= 10000).length, silenceMs: now - this.lastSnapshotAt,
+    };
   }
 
   /** Seconds since the host last sent anything. */

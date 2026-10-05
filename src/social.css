@@ -66,3 +66,11 @@ html[data-input="touch"] .invite-banner { top: calc(8px + var(--safe-top, 0px));
 
 /* No invitation pop-ups over a running match. */
 #ui-root[data-phase="playing"] .invite-banner { display: none; }
+
+/* The account name is a title, not a poster: it must fit on one line, and the logout button sits at the far right. */
+.acc-head { align-items: center; padding-right: 44px; }
+.acc-head > div { flex: 1; min-width: 0; }
+.acc-head #acc-title { font-size: clamp(26px, 4vw, 32px); line-height: 1.1; letter-spacing: 1.5px; margin: 8px 0 6px; overflow-wrap: anywhere; }
+.acc-head small { display: block; font-size: 13px; opacity: .9; }
+.acc-head .text-button { flex: none; width: auto; min-height: 0; white-space: nowrap; align-self: flex-start; margin-top: 14px; padding: 8px 14px; border: 1px solid #ffffff2a; border-radius: 3px; letter-spacing: 1.6px; }
+.acc-head .text-button:hover { background: #ffffff12; color: #fff; }
