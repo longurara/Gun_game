@@ -1,9 +1,10 @@
-import type { Actor, Airdrop, AmmoType, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
+import type { Actor, Airdrop, AmmoType, Stance, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
 import { ACTOR_HEIGHT, ACTOR_RADIUS, createArenaWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
 import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DURABILITY, ARMOR_NAMES, ARMOR_REDUCTION, armorKind, CORE_WEAPONS, emptyAmmo, emptyReserve, GUNS_BY_CLASS, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPON_ORDER } from './weapons';
 import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
 import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
+import { movementSpread, NECK, STANCE, stanceOf } from './stance';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
 
 interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean }
@@ -26,6 +27,8 @@ interface Runtime {
   drop: BotDrop | null;
   /** Where a landed supply crate is, if this bot decided to go for it. */
   airdropGoal: Vec2 | null;
+  /** Current speed in m/s, kept for the accuracy penalty of shooting on the move. */
+  speedNow: number;
 }
 interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle }
 
@@ -200,6 +203,31 @@ export class GameSimulation {
     this.state = this.makeState('menu');
   }
 
+  /** Change the player's stance. Standing up from a lower stance needs room overhead; returns false if not allowed. */
+  setStance(stance: Stance): boolean {
+    const player = this.player;
+    if (this.state.phase !== 'playing' || !player.alive || player.air || player.vehicleId) return false;
+    const current = player.stance ?? 'stand';
+    if (stance === current) return true;
+    if (STANCE[stance].height > STANCE[current].height && !this.walkable(player.position, ACTOR_RADIUS, player.position.y, STANCE[stance].height)) return false;
+    player.stance = stance;
+    return true;
+  }
+
+  /** How fast the player is moving right now, m/s (drives recoil shake and the dynamic crosshair). */
+  get playerSpeed(): number { return this.runtime(this.player).speedNow; }
+
+  /** The half-angle (radians) of the cone a bullet from the player's gun lands in right now: for the dynamic crosshair. */
+  currentSpread(aimed: boolean): number {
+    const player = this.player;
+    const weapon = WEAPONS[player.weapon];
+    const grounded = player.position.y <= this.heightAt(player.position.x, player.position.z) + 0.05;
+    return (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(player).spread + movementSpread(this.runtime(player).speedNow, !grounded, aimed);
+  }
+
+  /** Can the player see this actor right now (nothing solid between them)? Used by touch aim assist. */
+  canPlayerSee(actor: Actor): boolean { return this.canSee(this.player, actor); }
+
   /** After dying, keep playing the match out as a spectator. Returns false when the match is over or nobody is left to watch. */
   continueAsSpectator(): boolean {
     if (this.state.phase !== 'lost' || this.player.alive || this.state.spectating) return false;
@@ -239,7 +267,8 @@ export class GameSimulation {
 
   shootPlayer(target: Vec3, aimed = false): boolean {
     if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
-    return this.fire(this.player, target, 0, aimed);
+    const grounded = this.player.position.y <= this.heightAt(this.player.position.x, this.player.position.z) + 0.05;
+    return this.fire(this.player, target, movementSpread(this.runtime(this.player).speedNow, !grounded, aimed), aimed);
   }
 
   reload(): boolean {
@@ -489,7 +518,7 @@ export class GameSimulation {
         heard: null, heardTimer: 0,
         lootRef: null, lootTimer: 0, ignored: new Map(), coverGoal: null, coverTimer: 0, weaponTimer: 0,
         visited: new Set(), townGoal: null,
-        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null, airdropGoal: null,
+        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null, airdropGoal: null, speedNow: 0,
       };
       this.runtimes.set(actor.id, runtime);
     }
@@ -545,11 +574,17 @@ export class GameSimulation {
 
   private walkPlayer(dt: number, input: PlayerInput, jumpPressed: boolean): void {
     const player = this.player;
-    if (jumpPressed && player.position.y <= this.heightAt(player.position.x, player.position.z) + 1e-6) {
+    // Jumping or sprinting from a crouch or lying down first gets you up (if there is room).
+    const wasLow = !!player.stance && player.stance !== 'stand';
+    if (wasLow && (jumpPressed || (input.sprint && Math.hypot(input.moveX, input.moveZ) > 0.2))) this.setStance('stand');
+    if (jumpPressed && !wasLow && player.position.y <= this.heightAt(player.position.x, player.position.z) + 1e-6) {
       this.runtime(player).velocityY = 6.7;
       this.cancelHeal(player);
     }
-    this.moveActor(player, input.moveX, input.moveZ, input.sprint ? 8.1 : 5.2, dt);
+    const stanceData = stanceOf(player);
+    const before = { x: player.position.x, z: player.position.z };
+    this.moveActor(player, input.moveX, input.moveZ, input.sprint ? stanceData.sprint : stanceData.speed, dt);
+    this.runtime(player).speedNow = Math.hypot(player.position.x - before.x, player.position.z - before.z) / Math.max(dt, 1e-6);
     const playerRuntime = this.runtime(player);
     const ground = this.heightAt(player.position.x, player.position.z);
     if (player.position.y > ground || playerRuntime.velocityY > 0) {
@@ -860,6 +895,7 @@ export class GameSimulation {
     actor.reloading = 0;
     this.runtime(actor).reloadWeapon = null;
     actor.vehicleId = v.id;
+    actor.stance = 'stand';
     v.driverId = actor.id;
     actor.position = { x: v.position.x, y: v.position.y + 0.3, z: v.position.z };
     if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đang lái xe. Nhấn F để xuống xe.' });
@@ -1108,7 +1144,7 @@ export class GameSimulation {
     const weapon = WEAPONS[actor.weapon];
     if (!actor.alive || actor.reloading > 0 || runtime.cooldown > 1e-7 || runtime.weaponCooldowns[actor.weapon] > 1e-7) return false;
     if (actor.ammo[actor.weapon] <= 0) { this.beginReload(actor); return false; }
-    const chest = { x: actor.position.x, y: actor.position.y + 1.35, z: actor.position.z };
+    const chest = { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z };
     let direction = { x: target.x - chest.x, y: target.y - chest.y, z: target.z - chest.z };
     let length = Math.hypot(direction.x, direction.y, direction.z);
     if (length < 0.001) return false;
@@ -1131,7 +1167,7 @@ export class GameSimulation {
       if (obstacleHit(chest, muzzleDirection, obstacle, 0.45) !== null) { muzzleBlocked = true; return true; }
     });
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
-      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) + extraSpread);
+      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread + extraSpread);
       const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id);
       if (pellet === 0 || (!visualHit.actor && hit.actor)) { visualHit = hit; visualDirection = ray; }
       if (hit.vehicle) this.damageVehicle(hit.vehicle, weapon.damage, actor.id);
@@ -1216,8 +1252,10 @@ export class GameSimulation {
     for (const actor of this.state.actors) {
       if (!actor.alive || actor.id === ignoreId || actor.vehicleId || actor.air) continue;
       const p = actor.position;
-      const body = rayBox(origin, direction, { x: p.x - 0.37, y: p.y + 0.12, z: p.z - 0.37 }, { x: p.x + 0.37, y: p.y + 1.42, z: p.z + 0.37 }, closest.distance);
-      const head = rayBox(origin, direction, { x: p.x - 0.24, y: p.y + 1.42, z: p.z - 0.24 }, { x: p.x + 0.24, y: p.y + ACTOR_HEIGHT, z: p.z + 0.24 }, closest.distance);
+      const shape = stanceOf(actor);
+      const neck = shape.height * NECK;
+      const body = rayBox(origin, direction, { x: p.x - shape.half, y: p.y + 0.05, z: p.z - shape.half }, { x: p.x + shape.half, y: p.y + neck, z: p.z + shape.half }, closest.distance);
+      const head = rayBox(origin, direction, { x: p.x - 0.24, y: p.y + neck, z: p.z - 0.24 }, { x: p.x + 0.24, y: p.y + shape.height, z: p.z + 0.24 }, closest.distance);
       const distance = head !== null && (body === null || head < body) ? head : body;
       if (distance !== null && distance < closest.distance - 1e-7) closest = { distance, actor, head: distance === head };
     }
@@ -1334,9 +1372,9 @@ export class GameSimulation {
     for (let piece = 0; piece < pieces; piece++) {
       const before = { x: actor.position.x, z: actor.position.z };
       actor.position.x = clamp(actor.position.x + moveX * scale / pieces, -edge, edge);
-      if (!this.walkable(actor.position, ACTOR_RADIUS, feet())) actor.position.x = before.x;
+      if (!this.walkable(actor.position, ACTOR_RADIUS, feet(), stanceOf(actor).height)) actor.position.x = before.x;
       actor.position.z = clamp(actor.position.z + moveZ * scale / pieces, -edge, edge);
-      if (!this.walkable(actor.position, ACTOR_RADIUS, feet())) actor.position.z = before.z;
+      if (!this.walkable(actor.position, ACTOR_RADIUS, feet(), stanceOf(actor).height)) actor.position.z = before.z;
     }
     if (!actor.isPlayer) {
       actor.yaw = Math.atan2(moveX, moveZ);
@@ -1358,7 +1396,7 @@ export class GameSimulation {
     return false;
   }
 
-  private walkable(point: Vec2, padding = ACTOR_RADIUS + 0.15, standing?: number): boolean {
+  private walkable(point: Vec2, padding = ACTOR_RADIUS + 0.15, standing?: number, height = ACTOR_HEIGHT): boolean {
     const edge = this.world.halfSize - padding;
     if (Math.abs(point.x) > edge || Math.abs(point.z) > edge) return false;
     const ground = this.heightAt(point.x, point.z);
@@ -1366,7 +1404,7 @@ export class GameSimulation {
     const feet = standing ?? ground;
     let free = true;
     this.obstacles().queryBox(point.x - padding, point.z - padding, point.x + padding, point.z + padding, obstacle => {
-      if (feet < obstacleTop(obstacle) && feet + ACTOR_HEIGHT > obstacleBottom(obstacle)
+      if (feet < obstacleTop(obstacle) && feet + height > obstacleBottom(obstacle)
         && point.x > obstacle.x - obstacle.width / 2 - padding && point.x < obstacle.x + obstacle.width / 2 + padding
         && point.z > obstacle.z - obstacle.depth / 2 - padding && point.z < obstacle.z + obstacle.depth / 2 + padding) { free = false; return true; }
     });
@@ -1405,8 +1443,8 @@ export class GameSimulation {
 
   private canSee(actor: Actor, enemy: Actor): boolean {
     return this.lineClear(
-      { x: actor.position.x, y: actor.position.y + 1.35, z: actor.position.z },
-      { x: enemy.position.x, y: enemy.position.y + 1.15, z: enemy.position.z });
+      { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z },
+      { x: enemy.position.x, y: enemy.position.y + stanceOf(enemy).aimY + 0.03, z: enemy.position.z });
   }
 
   private rebuildActorGrid(): void {
@@ -1437,7 +1475,8 @@ export class GameSimulation {
     let closestDistance = detection;
     this.actorGrid.queryCircle(actor.position.x, actor.position.z, detection, enemy => {
       if (!enemy.alive || enemy.id === actor.id) return;
-      const distance = distance2(actor.position, enemy.position);
+      // Crouching and lying down shrink the distance at which a bot notices you.
+      const distance = distance2(actor.position, enemy.position) / stanceOf(enemy).stealth;
       if (distance >= closestDistance) return;
       // Close enemies are heard; distant detection respects the bot's facing direction.
       const directionYaw = Math.atan2(enemy.position.x - actor.position.x, enemy.position.z - actor.position.z);
@@ -1479,7 +1518,7 @@ export class GameSimulation {
     const speed = Math.hypot(runtime.enemyVel.x, runtime.enemyVel.z);
     // Bullets are instant, so a bot does not lead: it lags behind a moving target, which strafing exploits.
     const lag = (easy ? 0.28 : 0.16) * (1 - 0.6 * runtime.focus);
-    const aim = { x: enemy.position.x - runtime.enemyVel.x * lag, y: enemy.position.y + 1.12, z: enemy.position.z - runtime.enemyVel.z * lag };
+    const aim = { x: enemy.position.x - runtime.enemyVel.x * lag, y: enemy.position.y + stanceOf(enemy).aimY, z: enemy.position.z - runtime.enemyVel.z * lag };
     const base = (easy ? 0.08 : 0.05) * (weapon.fireMode === 'bolt' ? 0.7 : 1);
     const spread = base * (1 - 0.6 * runtime.focus) * (1 + Math.min(1, speed / 6) * 0.6) * (runtime.stillTime < 0.2 ? 1.25 : 1) * (retreating ? 1.4 : 1);
     if (!this.fire(actor, aim, spread, true)) return;
@@ -1714,6 +1753,8 @@ export class GameSimulation {
       this.boardCheck(actor, runtime, dt);
     }
 
+    // A bot that stands its ground to shoot crouches: a smaller, steadier target.
+    actor.stance = hold ? 'crouch' : 'stand';
     let moved = 0;
     if (hold) moved = 0;
     else if (direct) {

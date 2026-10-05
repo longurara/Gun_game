@@ -60,6 +60,7 @@ Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; bi�
 | Space | Nhảy (khi lái xe: phanh tay). Trên máy bay: nhảy dù; khi rơi tự do: mở dù |
 | Chuột trái | Giữ để bắn súng tự động; mỗi nhấp một phát với súng bán tự động / lên đạn từng phát |
 | Giữ chuột phải | Ngắm qua vai; DMR-14 / SR-98 / AMR-50 mở ống ngắm 4× / 6× / 8× |
+| C / Z | Ngồi / nằm (bấm lại để đứng lên). Nhảy hoặc chạy cũng đứng lên |
 | R | Nạp đạn |
 | E | Nhặt vật phẩm gần nhất (nếu không có gì để nhặt thì lên/xuống xe) |
 | F | Lên / xuống xe. Trên không: giống Space (nhảy / mở dù) |
@@ -80,6 +81,7 @@ Di chuyển, nhảy hoặc bắn sẽ hủy hồi máu. Khi chuyển sang cửa 
 | Nút Bắn | Giữ và kéo để vừa bắn vừa xoay camera; chạm lại cho mỗi phát với súng bán tự động / súng ngắm |
 | Nút Ngắm | Bật / tắt ngắm qua vai hoặc ống ngắm |
 | Nút Nhảy | Nhảy (khi lái xe: phanh tay). Trên máy bay: nhảy dù; khi rơi tự do: mở dù (nút sáng viền vàng) |
+| Nút Ngồi, Nằm | Cạnh nút bắn bên trái; chạm lại để đứng lên |
 | Nút Nạp, Nhặt, Hồi máu | Các hành động tương ứng; khi có xe gần, nút Nhặt dùng để lên/xuống xe |
 | Kho súng / Đổi súng | Chọn một trong các súng đang mang, hoặc đổi tuần tự |
 | Chạm minimap | Mở bản đồ lớn |
@@ -94,6 +96,17 @@ Vào **Thiết lập** trước trận (chỉ hiện trên điện thoại): ch�
 Điều kiện: trình duyệt chỉ cho trang đọc cảm biến khi trang chạy qua **HTTPS hoặc localhost**, nên mở game bằng `http://192.168.x.x:5173` sẽ báo "Cần mở game bằng HTTPS". Chạy `npm run dev:https` trên máy tính (chứng chỉ tự ký) rồi mở địa chỉ **Network** `https://192.168.x.x:5173` trên điện thoại, chấp nhận cảnh báo chứng chỉ một lần. Nút con quay trong trận (cạnh nút tạm dừng) bật/tắt nhanh gyro. Trên iPhone, Safari hỏi quyền cảm biến khi bạn chạm **BẮT ĐẦU TRẬN** hoặc đổi chế độ. Mã nằm ở [src/gyro.ts](src/gyro.ts) (chuyển tốc độ quay thành góc camera theo trục trọng lực, có test trong tests/gyro.test.ts).
 
 HUD điện thoại dùng nút tròn trong suốt và nút bắn ở cả hai bên, bản đồ nhỏ phía trên phải, thanh máu và các ô súng có biểu tượng gọn dưới giữa. Chạm trực tiếp ô súng để chọn; nút mũi tên mở bảng chọn khi cần trên màn hình rộng. HUD PC dùng la bàn trên giữa, máu/đạn dưới giữa, các ô súng và minimap bên phải; vùng nhìn giữa màn hình được giữ thoáng.
+
+## Ngắm bắn: giật, tán đạn, tư thế
+
+Mô hình ngắm lấy PUBG PC làm chuẩn cho cảm giác (đạn vẫn bay tức thì, chưa có độ rơi):
+
+- **Giật theo mẫu từng súng.** Phát đầu của loạt bắn không bị lệch (đạn đi trước khi tâm giật); các phát sau tâm **leo lên mạnh dần** (tối đa khoảng 16° sau 14 phát súng trường) và **lắc ngang theo một mẫu riêng của mỗi súng**, thiên dần về một bên. Hạ chuột xuống để bù: phần bạn đã kéo xuống không bị tâm trả lại. Ngừng bắn thì tâm **tự trở về** chỗ cũ (trừ phần bạn đã bù) trong chưa đến một giây; trong lúc xả liên tục gần như không tự hồi nên giật dồn lại. Ngắm qua ống giảm 30%, ngồi giảm 20%, nằm giảm 40%; vừa chạy vừa bắn giật thêm. Thiết lập có thanh **Độ giật súng** (1× là đầy đủ; điện thoại mặc định 0,75×).
+- **Tán đạn khi di chuyển.** Đi bộ, chạy nước rút và nhảy làm đạn tán rộng hơn (nhảy tệ nhất), ngắm qua ống giảm bớt. **Tâm ngắm giãn ra theo độ tán** hiện tại, nên nhìn là biết lúc nào bắn chuẩn.
+- **Ngồi và nằm** (C, Z hoặc nút). Ngồi: chậm 2,9 m/s, nằm: 1,3 m/s (đứng 5,2 m/s, chạy 8,1 m/s). Thấp hơn thì **tán đạn nhỏ hơn** (×0,72 / ×0,5), **giật ít hơn**, **thân nhỏ hơn** (bạn nằm thì đạn bắn ngang tầm ngực bay qua lưng), **khó bị bot phát hiện** (tầm phát hiện ×0,78 / ×0,55) và núp được sau vật cản thấp. Ngồi hoặc nằm chui được dưới vật cao dưới 1,4 m / 0,6 m, nhưng không đứng lên được nếu trên đầu không đủ chỗ. Lên xe, nhảy dù thì tự đứng. Bot đứng bắn thì ngồi.
+- **Hỗ trợ ngắm (điện thoại).** Nhẹ hoặc Mạnh (như Free Fire): camera **chậm lại** khi tâm lướt qua một địch nhìn thấy được (còn khoảng 0,7× hoặc 0,5× ngay trên mục tiêu), và khi đang giữ nút bắn hoặc ngắm, tâm được **hút nhẹ về thân địch** rồi mờ dần ở mép vùng hỗ trợ (3,5° / 6°). Không hỗ trợ xuyên tường. Mặc định Nhẹ trên điện thoại, Tắt trên máy tính.
+
+Mã: [src/game/recoil.ts](src/game/recoil.ts), [src/game/stance.ts](src/game/stance.ts), [src/aim-assist.ts](src/aim-assist.ts).
 
 ## Nhảy dù
 

@@ -3,6 +3,7 @@ import './theme.css';
 import './mobile-hud.css';
 import './desktop-hud.css';
 import './air-hud.css';
+import './stance-hud.css';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -35,6 +36,10 @@ import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
 import { Gyro, GYRO_STATUS_TEXT, gyroSupport } from './gyro';
+import { counter, kick, newBank, recover } from './game/recoil';
+import { STANCE } from './game/stance';
+import { lookScale, pickAssist, pullStep } from './aim-assist';
+import type { AssistTarget } from './aim-assist';
 import { IslandRenderer } from './island-renderer';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
@@ -80,6 +85,10 @@ let lastAirMode: string | null = '', lastAirHud = -Infinity, shadowsAllowed = tr
 let planeModel: TransformNode | null = null;
 /** Steer the canopy toward the map flag by itself. */
 let autoGlide = false;
+/** Weapon recoil: the kick not yet recovered or pulled against, and the camera's eye height as the stance changes. */
+let bank = newBank();
+let eyeHeight = STANCE.stand.eye;
+let assistTargets: AssistTarget[] = [], lastAssistScan = -Infinity;
 const frameTimes: number[] = [];
 let lastPerfAt = -Infinity;
 /** After dying: the actor being watched, and whoever killed the player (watched first). */
@@ -111,9 +120,8 @@ if (touchDevice) {
     onLook: (dx, dy) => {
       if (sim.state.phase !== 'playing' || ui.touchOverlayOpen) return;
       const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? WEAPONS[sim.player.weapon].zoom : null);
-      lastLookAt = performance.now();
-      yaw += dx * sensitivity;
-      pitch = Math.max(pitchMin(), Math.min(0.8, pitch - dy * sensitivity));
+      const scale = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
+      lookBy(dx * sensitivity * scale, -dy * sensitivity * scale);
     },
     onFire: (pressed) => {
       shooting = pressed && sim.state.phase === 'playing' && !ui.touchOverlayOpen;
@@ -126,6 +134,8 @@ if (touchDevice) {
     onHeal: () => { if (sim.heal()) { void audio.unlock(); audio.heal(); } },
     onCycleWeapon: () => cycleWeapon(1),
     onPause: pause,
+    onCrouch: () => toggleStance('crouch'),
+    onProne: () => toggleStance('prone'),
     onGyroToggle: () => { void audio.unlock(); ui.setGyro(settings.gyro === 'off' ? gyroOnMode : 'off'); },
     onAutoGlide: toggleAutoGlide,
   });
@@ -138,6 +148,46 @@ function syncGyro() {
   else void gyro.enable();
 }
 
+/** Turn the camera by hand (mouse, swipe, gyro or aim assist). Pulling down against recoil counts as recovering it. */
+function lookBy(dYaw: number, dPitch: number) {
+  const before = pitch;
+  yaw += dYaw;
+  pitch = Math.max(pitchMin(), Math.min(0.8, pitch + dPitch));
+  counter(bank, pitch - before, dYaw);
+  lastLookAt = performance.now();
+}
+
+/** Aim assist applies on touch screens only. */
+const assistLevel = () => touchDevice ? settings.aimAssist : 'off';
+
+/** Enemies near the line of sight, as the angles from the camera to their bodies; refreshed a few times a second. */
+function scanAssist(now: number) {
+  if (now - lastAssistScan < 100) return;
+  lastAssistScan = now;
+  assistTargets = [];
+  const player = sim.player;
+  if (assistLevel() === 'off' || sim.state.phase !== 'playing' || !player.alive || player.air || player.vehicleId) return;
+  const from = camera.position;
+  for (const actor of sim.state.actors) {
+    if (actor.isPlayer || !actor.alive || actor.air || actor.vehicleId) continue;
+    const dx = actor.position.x - from.x, dz = actor.position.z - from.z, distance = Math.hypot(dx, dz);
+    if (distance > 150 || distance < 2) continue;
+    const targetYaw = Math.atan2(dx, dz);
+    if (Math.abs(Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw))) > 0.4) continue;
+    if (!sim.canPlayerSee(actor)) continue;
+    assistTargets.push({ id: actor.id, yaw: targetYaw, pitch: Math.atan2(actor.position.y + STANCE[actor.stance ?? 'stand'].aimY - from.y, distance), distance });
+  }
+}
+
+/** Flip between standing and a lower stance (pressing the same stance again stands up). */
+function toggleStance(stance: 'crouch' | 'prone') {
+  if (sim.state.phase !== 'playing') return;
+  const next = sim.player.stance === stance ? 'stand' : stance;
+  if (!sim.setStance(next)) { if (next === 'stand') ui.notify('Không đủ chỗ để đứng lên.'); return; }
+  aiming = false;
+  ui.tip('stance', touchDevice ? 'Nút Ngồi / Nằm: thấp hơn thì chậm hơn nhưng ngắm chính xác, giật ít và khó bị phát hiện. Nhảy hoặc chạy để đứng lên.' : 'Phím C ngồi, Z nằm (bấm lại để đứng). Thấp hơn thì chậm hơn nhưng ngắm chính xác, giật ít và khó bị phát hiện.');
+}
+
 /** Phone rotation (radians) becomes camera rotation, scaled down while zoomed so a scope stays steady. */
 function onGyroLook(dYaw: number, dPitch: number) {
   if (sim.state.phase !== 'playing' || ui.touchOverlayOpen || settings.gyro === 'off') return;
@@ -145,9 +195,8 @@ function onGyroLook(dYaw: number, dPitch: number) {
   if (settings.gyro === 'aim' && !aiming && !shooting) return;
   const zoom = aiming ? WEAPONS[sim.player.weapon].zoom : 1;
   const scale = settings.gyroSensitivity / Math.sqrt(zoom);
-  lastLookAt = performance.now();
-  yaw += dYaw * scale;
-  pitch = Math.max(pitchMin(), Math.min(0.8, pitch + dPitch * scale * (settings.gyroInvertY ? -1 : 1)));
+  const friction = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
+  lookBy(dYaw * scale * friction, dPitch * scale * friction * (settings.gyroInvertY ? -1 : 1));
 }
 
 function start() {
@@ -211,6 +260,7 @@ function lockPointer() {
 }
 
 function releaseInput() {
+  bank = newBank();
   keys.clear(); shooting = false; triggerPending = false; aiming = false;
   mobileJump = false; mobile?.reset();
   if (document.pointerLockElement === canvas) document.exitPointerLock();
@@ -367,7 +417,7 @@ function buildWorld() {
 }
 
 interface Character {
-  soldier: Soldier; root: TransformNode; last: Vector3; stride: number; moving: number; chute?: TransformNode; lastStep?: number;
+  soldier: Soldier; root: TransformNode; last: Vector3; stride: number; moving: number; chute?: TransformNode; lastStep?: number; crouch: number; prone: number;
 }
 
 /** A four-engined transport that crosses the island at the start of a match: round fuselage, high wing, blinking lights. */
@@ -448,7 +498,7 @@ function createChute(parent: TransformNode, id: string): TransformNode {
 function createCharacter(actor: Actor): Character {
   const soldier = new Soldier(scene, actor.id, actor.isPlayer, shadows);
   soldier.setWeapon(actor.weapon);
-  return { soldier, root: soldier.root, last: new Vector3(), stride: 0, moving: 0 };
+  return { soldier, root: soldier.root, last: new Vector3(), stride: 0, moving: 0, crouch: 0, prone: 0 };
 }
 
 function renderActors(dt: number) {
@@ -479,6 +529,17 @@ function renderActors(dt: number) {
     model.root.position.copyFrom(pos);
     model.root.rotation.set(0, actor.yaw, actor.alive ? 0 : Math.PI / 2);
     if (!actor.alive) model.root.position.y = actor.position.y + 0.32;
+    // Crouch lowers the body (the legs fold); lying down tips it forward onto the ground, head ahead.
+    const blendTo = (current: number, goal: number) => current + (goal - current) * Math.min(1, dt * 10);
+    model.crouch = blendTo(model.crouch, actor.alive && actor.stance === 'crouch' ? 1 : 0);
+    model.prone = blendTo(model.prone, actor.alive && actor.stance === 'prone' ? 1 : 0);
+    if (model.crouch > 0.001) model.root.position.y -= 0.477 * model.crouch;
+    if (model.prone > 0.001) {
+      model.root.rotation.x = (Math.PI / 2 - 0.12) * model.prone;
+      model.root.position.x -= Math.sin(actor.yaw) * 0.85 * model.prone;
+      model.root.position.z -= Math.cos(actor.yaw) * 0.85 * model.prone;
+      model.root.position.y += 0.14 * model.prone;
+    }
     if (actor.air?.mode === 'freefall') {
       // Belly down, arms and legs trailing: body laid flat about its middle.
       model.root.rotation.set(Math.PI / 2 - 0.15, actor.yaw, 0);
@@ -495,7 +556,7 @@ function renderActors(dt: number) {
       model.root.rotation.set(0, Math.PI + 0.55 + Math.sin(time * 0.5) * 0.1, 0);
       model.root.position.y = actor.position.y + Math.sin(time * 1.6) * 0.012;
     }
-    model.soldier.pose(dt, { moving: showcase ? 0 : model.moving, stride: model.stride, alive: actor.alive, reloading: actor.reloading > 0, healing: actor.healing > 0, time, showcase });
+    model.soldier.pose(dt, { moving: showcase ? 0 : model.moving, stride: model.stride, alive: actor.alive, reloading: actor.reloading > 0, healing: actor.healing > 0, time, showcase, crouch: model.crouch, prone: model.prone });
     model.soldier.endFlash();
     model.last.copyFrom(pos);
   }
@@ -728,7 +789,8 @@ function updateCamera(dt: number) {
   const viewPitch = Math.max(-0.7, Math.min(0.8, pitch + recoil));
   const forward = new Vector3(Math.sin(yaw) * Math.cos(viewPitch), Math.sin(viewPitch), Math.cos(yaw) * Math.cos(viewPitch));
   const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  const pivot = ridden ? new Vector3(ridden.position.x, ridden.position.y + 1.9, ridden.position.z) : new Vector3(actor.position.x, actor.position.y + 1.52, actor.position.z);
+  eyeHeight += (STANCE[actor.stance ?? 'stand'].eye - eyeHeight) * Math.min(1, dt * 10);
+  const pivot = ridden ? new Vector3(ridden.position.x, ridden.position.y + 1.9, ridden.position.z) : new Vector3(actor.position.x, actor.position.y + eyeHeight, actor.position.z);
   const weapon = WEAPONS[actor.weapon];
   if (aiming && weapon.zoom >= 4 && sim.state.phase === 'playing') {
     camera.position.copyFrom(pivot);
@@ -853,7 +915,12 @@ function shoot() {
     return !!mesh.metadata?.solid;
   });
   const target = pick?.hit && pick.pickedPoint ? pick.pickedPoint : ray.origin.add(ray.direction.scale(weapon.range));
-  if (sim.shootPlayer({ x: target.x, y: target.y, z: target.z }, aiming)) recoil = Math.min(0.13, recoil + weapon.recoil);
+  if (sim.shootPlayer({ x: target.x, y: target.y, z: target.z }, aiming)) {
+    const push = kick(bank, weapon, { aiming, stance: sim.player.stance ?? 'stand', moving: Math.min(1, sim.playerSpeed / 5.2), scale: settings.recoilScale });
+    yaw += push.yaw;
+    pitch = Math.max(pitchMin(), Math.min(0.8, pitch + push.pitch));
+    recoil = Math.min(0.13, recoil + 0.004);
+  }
 }
 
 /** Get in or out of a car and reset aim state so nothing carries over. */
@@ -866,6 +933,7 @@ function useVehicle() {
 function selectWeapon(weapon: WeaponType) {
   if (!sim.player.ownedWeapons.includes(weapon)) return;
   if (sim.switchWeapon(weapon)) {
+    bank = newBank();
     aiming = false; shooting = false; triggerPending = false; recoil = 0;
     mobile?.cancelFire();
     ui.notify(`${WEAPONS[weapon].label} · ${WEAPONS[weapon].category}`);
@@ -972,6 +1040,8 @@ window.addEventListener('keydown', event => {
   if (event.code === 'KeyG' && sim.airborne) toggleAutoGlide();
   if (event.code === 'KeyM') ui.toggleMap();
   if (event.code === 'KeyQ') cycleWeapon(1);
+  if (event.code === 'KeyC') toggleStance('crouch');
+  if (event.code === 'KeyZ') toggleStance('prone');
 });
 window.addEventListener('keyup', event => keys.delete(event.code));
 canvas.addEventListener('mousedown', event => {
@@ -990,9 +1060,7 @@ canvas.addEventListener('wheel', event => {
 window.addEventListener('mousemove', event => {
   if (touchDevice || sim.state.phase !== 'playing' || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
   const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(WEAPONS[sim.player.weapon].zoom) : 1);
-  lastLookAt = performance.now();
-  yaw += event.movementX * sensitivity;
-  pitch = Math.max(pitchMin(), Math.min(0.8, pitch - event.movementY * sensitivity));
+  lookBy(event.movementX * sensitivity, -event.movementY * sensitivity);
 });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
@@ -1080,7 +1148,8 @@ try {
       }
       if (wasDriving && !car) { snapCamera = true; pitch = -0.12; }
       wasDriving = !!car;
-      if (!car && !sim.player.air && (forward || side)) { footsteps += dt; if (footsteps > (sprint ? 0.30 : 0.43) && sim.player.position.y < 0.05) { audio.footstep(sprint); footsteps = 0; } }
+      const lowStance = sim.player.stance ?? 'stand';
+      if (!car && !sim.player.air && (forward || side) && lowStance !== 'prone') { footsteps += dt; if (footsteps > (sprint ? 0.30 : lowStance === 'crouch' ? 0.75 : 0.43) && sim.player.position.y < 0.05 && lowStance === 'stand') { audio.footstep(sprint); footsteps = 0; } else if (footsteps > 0.75) footsteps = 0; }
       else footsteps = 0;
     }
     renderActors(sim.state.phase === 'paused' ? 0 : dt);
@@ -1106,6 +1175,21 @@ try {
       const shadowsOn = shadowsAllowed && !(airMode && sim.heightAboveGround(sim.player) > 150);
       if (scene.shadowsEnabled !== shadowsOn) scene.shadowsEnabled = shadowsOn;
     }
+    if (sim.state.phase === 'playing' && sim.player.alive && !sim.player.air) {
+      // The aim drifts back by whatever recoil the player has not pulled against; assist slows and pulls toward enemies.
+      const back = recover(bank, WEAPONS[sim.player.weapon], dt);
+      yaw += back.yaw;
+      pitch = Math.max(pitchMin(), Math.min(0.8, pitch + back.pitch));
+      scanAssist(now);
+      const level = assistLevel();
+      if (level !== 'off' && (shooting || aiming)) {
+        const pull = pullStep(pickAssist(yaw, pitch, assistTargets, level), level, dt, true);
+        if (pull.yaw || pull.pitch) lookBy(pull.yaw, pull.pitch);
+      }
+    } else bank = newBank();
+    // The crosshair opens with the bullet spread (bigger when moving, jumping or standing; smaller aiming or crouched).
+    ui.setCrosshair(4 + Math.tan(sim.currentSpread(aiming)) / Math.tan(camera.fov / 2) * (canvas.clientHeight / 2));
+    ui.setStance(sim.player.air || sim.state.phase !== 'playing' ? 'stand' : sim.player.stance ?? 'stand');
     audio.setListenerYaw(yaw);
     renderZone(); updateCamera(dt);
     if (sim.state.phase === 'playing' && (triggerPending || shooting && WEAPONS[sim.player.weapon].fireMode === 'auto')) shoot();
@@ -1160,14 +1244,14 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
       }
     } else ui.setAir(null);
     mobile?.update({
-      aiming, canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0,
+      aiming, canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0, stance: sim.player.stance ?? 'stand',
       gyroAvailable: gyroSupport() === 'ok', gyroOn: settings.gyro !== 'off' && gyro.status !== 'denied',
       glideReady: !!ui.waypoint && !!sim.player.air && sim.player.air.mode !== 'plane', glideOn: autoGlide,
     });
     scene.render();
   });
   if (import.meta.env.DEV) {
-    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; } } });
+    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()), bank: { ...bank } }) } });
   }
 } catch (error) {
   console.error(error);

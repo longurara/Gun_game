@@ -68,6 +68,12 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - `npm run dev:https`: máy chủ khởi động, trả HTTP 200 qua https và in địa chỉ Network. Chưa thử mở từ điện thoại thật.
 - Đo độ dài trận bằng mô phỏng (người chơi bất tử và đứng yên, 4 hạt giống mỗi bản đồ): trên đảo với 100 bot, số bot còn sống ở phút 1/2/3/5/10 khoảng 95 / 70 / 52 / 39 / 6 và bot cuối cùng chết lúc khoảng 690 giây (11,5 phút) khi ân hạn vòng bo đầu là 45 giây; đã giảm ân hạn xuống 20 giây (còn khoảng 11 phút, chưa đo lại), vì độ dài chủ yếu do vòng bo (580 giây) cộng thời gian bay. Đấu trường 30 bot: bot cuối chết lúc khoảng 450 giây (7,5 phút). Đây là số của bot đánh bot; người chơi thật sẽ khác. Mục tiêu 6–10 phút trên đảo chưa đạt nếu không rút bo.
 
+## Giật súng, tư thế, hỗ trợ ngắm — 05/10/2026
+
+- `npm test`: **378/378 đạt**. Mới: giật súng (8, tests/recoil.test.ts), hỗ trợ ngắm (4), tư thế trong mô phỏng (7: tốc độ, nhảy/chạy để đứng lên, chui dưới xà thấp, hộp trúng của người nằm/ngồi, độ tán khi di chuyển, tầm phát hiện của bot, xe và nhảy dù), giao diện (2).
+- Trình duyệt: xả 14 phát súng trường liên tục làm tâm leo 0,276 rad (15,8°), lắc ngang ±0,03 rad, rồi tự về gần 0 sau khoảng 1,5 giây khi thả nút; ba bot đứng/ngồi/nằm cạnh nhau hiển thị đúng ba tư thế; nút Ngồi/Nằm trên khung 740 × 360 đặt cạnh nút bắn bên trái và đổi tư thế đúng (badge "ĐANG NẰM", nút sáng); với hỗ trợ ngắm Mạnh, có địch ngay trước tâm thì hệ số làm chậm camera là 0,56, địch cách 24° thì 1.
+- **Chưa kiểm tra:** giật súng và hỗ trợ ngắm với tay người thật (cảm giác, độ nặng; thông số KICK_SCALE = 2,3 và các nhóm hệ số trong stance.ts là ước lượng của tôi, không đo từ PUBG); hoạt ảnh ngồi/nằm khi di chuyển (bò, đi lom khom) mới chỉ nhìn tĩnh; bot chỉ ngồi, chưa biết nằm; chưa có đạn rơi hay thời gian bay.
+
 ## Chưa kiểm tra / giới hạn
 
 - Chưa nghe thử âm thanh stereo và tiếng báo hộp tiếp tế; chưa có chỉ hướng tiếng súng trên HUD (chỉ có âm thanh).

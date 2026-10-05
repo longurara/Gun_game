@@ -85,6 +85,8 @@ export interface Pose {
   moving: number; stride: number; alive: boolean; reloading: boolean; healing: boolean; time: number;
   /** Lobby display: relaxed, weapon held lower. */
   showcase?: boolean;
+  /** 0..1 blend toward a crouch and toward lying prone (both 0 = standing). */
+  crouch?: number; prone?: number;
 }
 
 const GUN_SCALE = 0.68;
@@ -186,14 +188,20 @@ export class Soldier {
   pose(dt: number, p: Pose): void {
     this.kick = Math.max(0, this.kick - dt * 9);
     const walk = Math.min(1, p.moving / 5);
+    const crouch = Math.max(0, Math.min(1, p.crouch ?? 0)), prone = Math.max(0, Math.min(1 - crouch, p.prone ?? 0));
+    // Crouched or lying down the stride shrinks; a crouch bends the hips and knees deeply (the caller lowers the body).
+    const amplitude = 1 - crouch * 0.75 - prone * 0.7;
     for (let i = 0; i < 2; i++) {
       const phase = i === 0 ? p.stride : p.stride + Math.PI;
-      this.hips[i].rotation.x = p.showcase ? (i === 0 ? -0.04 : 0.1) : -Math.sin(phase) * 0.62 * walk - 0.04;
-      this.knees[i].rotation.x = p.showcase ? (i === 0 ? 0.1 : 0.2) : 0.1 + Math.max(0, Math.cos(phase)) * 0.85 * walk;
+      const hip = p.showcase ? (i === 0 ? -0.04 : 0.1) : -Math.sin(phase) * 0.62 * walk * amplitude - 0.04;
+      const knee = p.showcase ? (i === 0 ? 0.1 : 0.2) : 0.1 + Math.max(0, Math.cos(phase)) * 0.85 * walk * amplitude;
+      this.hips[i].rotation.x = hip * (1 - crouch) - 1.45 * crouch;
+      this.knees[i].rotation.x = knee * (1 - crouch) + 2.05 * crouch;
     }
     const breathe = Math.sin(p.time * 1.6) * 0.006;
     const bob = Math.abs(Math.sin(p.stride)) * 0.016 * walk;
-    const pitch = p.showcase ? 0.35 : p.reloading ? 0.55 + Math.sin(p.time * 9) * 0.1 : p.healing ? 0.75 : 0;
+    // Lying down the whole body is tipped forward by the caller; turn the gun back to point along the ground.
+    const pitch = (p.showcase ? 0.35 : p.reloading ? 0.55 + Math.sin(p.time * 9) * 0.1 : p.healing ? 0.75 : 0) - prone * (Math.PI / 2 - 0.12);
     this.gun.rotation.x = pitch + breathe * 2;
     this.gun.position.set(0.1, 1.36 + breathe - bob * 0.6, 0.3 - this.kick * 0.045);
     this.solveArms(pitch + breathe * 2);

@@ -17,7 +17,7 @@ type Callbacks = {
   onTouchOverlayChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1 };
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
 const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
@@ -52,7 +52,7 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 }
 function readSettings(): GameSettings {
   const touch = document.documentElement.dataset.input === 'touch';
-  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off' };
+  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: touch ? 0.75 : 1 };
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
@@ -69,6 +69,8 @@ function readSettings(): GameSettings {
     gyroInvertY: raw.gyroInvertY === true,
     tips: raw.tips !== false,
     showFps: raw.showFps === true,
+    aimAssist: raw.aimAssist === 'off' || raw.aimAssist === 'low' || raw.aimAssist === 'high' ? raw.aimAssist : defaults.aimAssist,
+    recoilScale: clamp(raw.recoilScale, 0.3, 1.5, defaults.recoilScale),
   };
 }
 function readBest(): BestRecord {
@@ -152,6 +154,11 @@ export class GameUI {
                 <label class="setting-row gyro-invert"><span>${icon('target')}<span>Đảo chiều lên / xuống<small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span></span><input id="gyro-invert" type="checkbox" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
               </div>
               <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
+              <label class="setting-row"><span>${icon('target')}<span>Độ giật súng<small>1× = giật như PUBG PC: tâm leo lên theo mẫu riêng của từng súng, kéo chuột xuống để bù. Thấp hơn thì nhẹ hơn</small></span></span><output id="recoil-value">1.00×</output><input id="recoil-scale" type="range" min="0.3" max="1.5" step="0.05" aria-label="Độ giật súng"></label>
+              <div class="setting-gyro touch-only">
+                <div class="setting-gyro-head"><span>${icon('target')}<span>Hỗ trợ ngắm<small>Camera chậm lại khi tâm lướt qua địch và hút nhẹ về thân khi bạn bắn hoặc ngắm</small></span></span></div>
+                <div id="assist-choice" class="seg seg-compact" role="radiogroup" aria-label="Hỗ trợ ngắm"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="low"><b>Nhẹ</b></button><button type="button" role="radio" data-value="high"><b>Mạnh</b><small>như Free Fire</small></button></div>
+              </div>
               <label class="setting-row setting-check"><span>${icon('target')}<span>Gợi ý cho người mới<small>Mẹo ngắn hiện một lần, lần đầu bạn gặp từng tình huống</small></span></span><input id="tips" type="checkbox" aria-label="Gợi ý cho người mới"></label>
               <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện FPS<small>Số khung hình mỗi giây và số vật thể đang vẽ, để biết máy có chạy nổi không</small></span></span><input id="show-fps" type="checkbox" aria-label="Hiện FPS"></label>
               <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
@@ -185,7 +192,7 @@ export class GameUI {
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
         <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
-        <div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
+        <div id="stance-badge" class="stance-badge" hidden></div><div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
         <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
         <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="Vũ khí đang mang"></div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1 · 2 · 3 CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
@@ -206,6 +213,8 @@ export class GameUI {
     });
     choose('difficulty-choice', value => this.changeSettings({ difficulty: value === 'easy' ? 'easy' : 'normal' }));
     choose('bot-choice', value => this.changeSettings({ botCount: Number(value) }));
+    choose('assist-choice', value => this.changeSettings({ aimAssist: value === 'high' ? 'high' : value === 'low' ? 'low' : 'off' }));
+    this.el('recoil-scale').addEventListener('input', () => this.changeSettings({ recoilScale: Number((this.el('recoil-scale') as HTMLInputElement).value) }));
     choose('gyro-choice', value => this.changeSettings({ gyro: value === 'always' ? 'always' : value === 'aim' ? 'aim' : 'off' }));
     this.el('gyro-sensitivity').addEventListener('input', () => this.changeSettings({ gyroSensitivity: Number((this.el('gyro-sensitivity') as HTMLInputElement).value) }));
     this.el('tips').addEventListener('change', () => this.changeSettings({ tips: (this.el('tips') as HTMLInputElement).checked }));
@@ -328,6 +337,9 @@ export class GameUI {
     mark('bot-choice', `${this.settings.botCount}`);
     mark('difficulty-choice', this.settings.difficulty);
     mark('gyro-choice', this.settings.gyro);
+    mark('assist-choice', this.settings.aimAssist);
+    (this.el('recoil-scale') as HTMLInputElement).value = `${this.settings.recoilScale}`;
+    this.text('recoil-value', `${this.settings.recoilScale.toFixed(2)}×`);
     (this.el('gyro-sensitivity') as HTMLInputElement).value = `${this.settings.gyroSensitivity}`;
     this.text('gyro-sensitivity-value', `${this.settings.gyroSensitivity.toFixed(2)}×`);
     (this.el('gyro-invert') as HTMLInputElement).checked = this.settings.gyroInvertY;
@@ -815,6 +827,21 @@ export class GameUI {
     this.seenTips.add(id);
     saveJson(TIPS_KEY, [...this.seenTips]);
     this.notify(`GỢI Ý · ${message}`, 6000);
+  }
+
+  private crosshairGap = -1;
+  /** The crosshair opens with the bullet spread: `gap` is how far the four ticks sit from the centre, in pixels. */
+  public setCrosshair(gap: number): void {
+    const value = Math.round(Math.max(0, Math.min(60, gap)) * 2) / 2;
+    if (value === this.crosshairGap) return;
+    this.crosshairGap = value;
+    this.el('crosshair').style.setProperty('--gap', `${value}px`);
+  }
+
+  /** Small label while crouching or lying down. */
+  public setStance(stance: 'stand' | 'crouch' | 'prone'): void {
+    this.hide('stance-badge', stance === 'stand');
+    if (stance !== 'stand') this.text('stance-badge', stance === 'crouch' ? 'ĐANG NGỒI' : 'ĐANG NẰM');
   }
 
   /** The frame-rate readout (null hides it). */

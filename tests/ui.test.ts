@@ -158,3 +158,41 @@ test('the landing flag can be set and cleared, and big-map clicks place it in wo
   canvas.dispatchEvent(new dom.window.MouseEvent('click', { clientX: 221, clientY: 221, bubbles: true }));
   assert.equal(ui.waypoint, null);
 });
+
+test('the crosshair opens with the bullet spread and the stance badge shows only when not standing', () => {
+  freshDom();
+  const ui = new GameUI(callbacks());
+  ui.setCrosshair(4);
+  assert.equal(el('crosshair').style.getPropertyValue('--gap'), '4px');
+  ui.setCrosshair(17.26);
+  assert.equal(el('crosshair').style.getPropertyValue('--gap'), '17.5px');
+  ui.setCrosshair(500);
+  assert.equal(el('crosshair').style.getPropertyValue('--gap'), '60px', 'capped');
+  assert.equal(el('stance-badge').hidden, true);
+  ui.setStance('crouch');
+  assert.equal(el('stance-badge').hidden, false);
+  assert.equal(el('stance-badge').textContent, 'ĐANG NGỒI');
+  ui.setStance('prone');
+  assert.equal(el('stance-badge').textContent, 'ĐANG NẰM');
+  ui.setStance('stand');
+  assert.equal(el('stance-badge').hidden, true);
+});
+
+test('recoil strength and aim assist are settings that persist; phones default to gentle recoil and light assist', () => {
+  freshDom(true);
+  const first = new GameUI(callbacks());
+  assert.equal(first.settings.aimAssist, 'low');
+  assert.equal(first.settings.recoilScale, 0.75);
+  click(dom.window.document.querySelector('#assist-choice button[data-value="high"]')!);
+  const slider = el('recoil-scale') as HTMLInputElement;
+  slider.value = '1.25'; slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  el('ui-root').innerHTML = '';
+  const again = new GameUI(callbacks());
+  assert.equal(again.settings.aimAssist, 'high');
+  assert.equal(again.settings.recoilScale, 1.25);
+  assert.equal(el('recoil-value').textContent, '1.25×');
+  freshDom();
+  const desktop = new GameUI(callbacks());
+  assert.equal(desktop.settings.aimAssist, 'off', 'no aim assist on a mouse by default');
+  assert.equal(desktop.settings.recoilScale, 1, 'full PUBG-style recoil on a desktop');
+});

@@ -12,6 +12,9 @@ export interface MobileCallbacks {
   onGyroToggle?(): void;
   /** Turn the parachute's auto-steer toward the map flag on or off. */
   onAutoGlide?(): void;
+  /** Toggle crouching / lying down. */
+  onCrouch?(): void;
+  onProne?(): void;
 }
 
 export interface JoystickInput {
@@ -42,7 +45,7 @@ export function getJoystickInput(deltaX: number, deltaY: number, radius: number,
   };
 }
 
-type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'fullscreen' | 'gyro' | 'glide';
+type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'fullscreen' | 'gyro' | 'glide' | 'crouch' | 'prone';
 type PointerRole =
   | { kind: 'look'; target: HTMLElement; x: number; y: number }
   | { kind: 'joystick'; target: HTMLElement; centerX: number; centerY: number; radius: number }
@@ -61,6 +64,8 @@ const ICONS = {
   fullscreen: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/>',
   gyro: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 8c-1 2.5-1 5.500 0 8M20 8c1 2.500 1 5.500 0 8"/>',
   glide: '<path d="M6 21V4m0 0h11l-2.500 4L17 12H6"/>',
+  crouch: '<circle cx="12" cy="4" r="2"/><path d="M9 10l3-1.500 3 1.500v4l-3 1.500v5M9 14l-2.500 3h2.500M15 14l2 4"/>',
+  prone: '<circle cx="5" cy="14" r="2"/><path d="M8 15h12M10 15l-2 4m7-4v4m-4-4 3-3"/>',
 } as const;
 
 function icon(name: keyof typeof ICONS): string {
@@ -103,6 +108,8 @@ export class MobileControls {
         ${button('fire', 'Bắn', 'touch-fire')}
         ${button('aim', 'Ngắm', 'touch-aim')}
         ${button('jump', 'Nhảy', 'touch-jump')}
+        ${button('crouch', 'Ngồi', 'touch-crouch')}
+        ${button('prone', 'Nằm', 'touch-prone')}
       </div>
       <div class="touch-utility-actions touch-action-row">
         ${button('reload', 'Nạp đạn')}${button('interact', 'Nhặt đồ')}
@@ -184,7 +191,7 @@ export class MobileControls {
     this.clearJoystick();
     for (const button of this.buttons.values()) {
       button.classList.remove('is-pressed');
-      if (button.id !== 'touch-aim' && button.id !== 'touch-gyro' && button.id !== 'touch-glide') button.classList.remove('is-active');
+      if (button.id !== 'touch-aim' && button.id !== 'touch-gyro' && button.id !== 'touch-glide' && button.id !== 'touch-crouch' && button.id !== 'touch-prone') button.classList.remove('is-active');
     }
     this.buttons.get('touch-aim')?.classList.toggle('is-active', this.aimActive);
     for (const [id, role] of captured) this.releaseCapture(role.target, id);
@@ -192,12 +199,17 @@ export class MobileControls {
     this.callbacks.onJump(false);
   }
 
-  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean; gyroAvailable?: boolean; gyroOn?: boolean; glideReady?: boolean; glideOn?: boolean }): void {
+  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean; gyroAvailable?: boolean; gyroOn?: boolean; glideReady?: boolean; glideOn?: boolean; stance?: 'stand' | 'crouch' | 'prone' }): void {
     this.aimActive = state.aiming;
     const gyro = this.buttons.get('touch-gyro')!;
     gyro.hidden = !state.gyroAvailable;
     gyro.classList.toggle('is-active', !!state.gyroOn);
     gyro.setAttribute('aria-pressed', String(!!state.gyroOn));
+    for (const stance of ['crouch', 'prone'] as const) {
+      const button = this.buttons.get(`touch-${stance}`)!;
+      button.classList.toggle('is-active', state.stance === stance);
+      button.setAttribute('aria-pressed', String(state.stance === stance));
+    }
     const glide = this.buttons.get('touch-glide')!;
     glide.hidden = !state.glideReady;
     glide.classList.toggle('is-active', !!state.glideOn);
@@ -359,6 +371,8 @@ export class MobileControls {
       case 'weapon': this.callbacks.onCycleWeapon(); break;
       case 'pause': this.callbacks.onPause(); break;
       case 'gyro': this.callbacks.onGyroToggle?.(); break;
+      case 'crouch': this.callbacks.onCrouch?.(); break;
+      case 'prone': this.callbacks.onProne?.(); break;
       case 'glide': this.callbacks.onAutoGlide?.(); break;
       case 'fullscreen':
         // Unsupported or rejected fullscreen never interrupts touch controls.

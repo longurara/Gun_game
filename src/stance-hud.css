@@ -1,0 +1,17 @@
+/* Stance, dynamic crosshair and recoil-related touch buttons. */
+.stance-badge { position: absolute; left: 28px; bottom: 156px; padding: 4px 10px; font-size: 9px; letter-spacing: 2px; color: #17120a; background: #f2b43c; pointer-events: none; }
+html[data-input="touch"] .stance-badge { left: calc(14px + var(--safe-left, 0px)); bottom: calc(112px + var(--safe-bottom, 0px)); font-size: 8px; padding: 3px 8px; }
+
+/* The four crosshair ticks sit --gap pixels from the centre; the gap follows the bullet spread. */
+.crosshair { --gap: 0px; }
+.crosshair i:nth-child(1) { transform: translateY(calc(var(--gap) * -1)); }
+.crosshair i:nth-child(2) { transform: translateY(var(--gap)); }
+.crosshair i:nth-child(3) { transform: translateX(calc(var(--gap) * -1)); }
+.crosshair i:nth-child(4) { transform: translateX(var(--gap)); }
+
+/* Phone: crouch and prone sit beside the left fire button, clear of the stick and the crosshair. */
+html[data-input="touch"] .touch-crouch,
+html[data-input="touch"] .touch-prone { position: absolute; width: 46px; height: 46px; border-radius: 50%; top: calc(51% - 23px - var(--safe-bottom, 0px)); right: auto; bottom: auto; }
+html[data-input="touch"] .touch-crouch { left: calc(max(12px, 7% - 30px) + 74px + var(--safe-left, 0px)); }
+html[data-input="touch"] .touch-prone { left: calc(max(12px, 7% - 30px) + 126px + var(--safe-left, 0px)); }
+html[data-input="touch"] .touch-crouch > span, html[data-input="touch"] .touch-prone > span { display: none; }

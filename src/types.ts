@@ -29,6 +29,9 @@ export interface GameSettings {
   /** Short first-time hints, and the frame-rate readout. */
   tips: boolean;
   showFps: boolean;
+  /** Touch aim assist (slows the camera over enemies and pulls toward them while firing) and recoil strength (1 = full). */
+  aimAssist: 'off' | 'low' | 'high';
+  recoilScale: number;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */
@@ -59,6 +62,8 @@ export interface Vehicle {
   id: string; position: Vec3; yaw: number; /** Signed forward speed in m/s. */ speed: number;
   health: number; driverId: string | null; colorIndex: number; hitTimer: number;
 }
+/** Standing, crouching (slower, steadier, smaller) or lying prone (slowest, steadiest, smallest). */
+export type Stance = 'stand' | 'crouch' | 'prone';
 /** Where an actor is in the drop: riding the plane, in free fall, or under a canopy. */
 export type AirMode = 'plane' | 'freefall' | 'chute';
 export interface AirState { mode: AirMode; vx: number; vy: number; vz: number; /** Seconds since leaving the plane. */ time: number }
@@ -81,6 +86,8 @@ export interface Actor {
   vehicleId?: string | null;
   /** Set while the actor is in the plane, falling or under a parachute; absent once on the ground. */
   air?: AirState | null;
+  /** Absent means standing. */
+  stance?: Stance;
 }
 export interface Loot { id: string; kind: LootKind; position: Vec3; active: boolean }
 export interface ZoneState {
