@@ -1,0 +1,250 @@
+/**
+ * What goes over the wire. The host runs the real match and every ~100 ms sends a snapshot of what changed near the
+ * people playing; clients keep a mirror simulation (same seed, so the same island and loot) and apply the snapshots.
+ * Everything here is plain data (JSON-friendly arrays, positions rounded to a centimetre) so it can be tested without
+ * a network.
+ */
+import type { Actor, AirMode, GameEvent, LootKind, Stance } from '../types';
+import type { GameSimulation } from '../game/simulation';
+import { AMMO_ORDER, emptyAmmo, emptyReserve, WEAPON_ORDER } from '../game/weapons';
+import { placePlane } from '../game/drop';
+
+export const PROTOCOL_VERSION = 1;
+/** Seconds between snapshots (10 Hz keeps a room of friends well inside the free Realtime message limits). */
+export const SNAPSHOT_INTERVAL = 0.1;
+/** Actors, cars and shots farther than this from every human are not sent: nobody could see them. */
+export const NEAR_DISTANCE = 420;
+/** Largest room. */
+export const MAX_PLAYERS = 6;
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const AIR_CODES: Array<AirMode | null> = [null, 'plane', 'freefall', 'chute'];
+const STANCES: Stance[] = ['stand', 'crouch', 'prone'];
+const WEAPON_INDEX = new Map<string, number>(WEAPON_ORDER.map((id, index) => [id, index]));
+const AMMO_INDEX = new Map<string, number>(AMMO_ORDER.map((id, index) => [id, index]));
+
+/** [index, x, y, z, yaw, health, flags, weapon, car+1, gear] — flags: 1 alive, 2 reloading, 4 healing, bits 3-4 air mode, bits 5-6 stance. */
+export type ActorRow = [number, number, number, number, number, number, number, number, number, number];
+/** [index, x, y, z, yaw, speed, health, driver+1] */
+export type VehicleRow = [number, number, number, number, number, number, number, number];
+/** A new pickup: [index in the loot list, id, kind, x, y, z]. */
+export type LootRow = [number, string, string, number, number, number];
+
+/** Everything about one human that only they need to see precisely: their inventory and flight state. */
+export interface PrivateRow {
+  id: string; weapon: number; owned: number[]; ammo: Array<[number, number]>; reserve: Array<[number, number]>;
+  medkits: number; helmet: [number, number]; vest: [number, number]; reload: number; heal: number;
+  /** Free-fall / canopy velocity and time, and the jump velocity: what a client needs to predict its own movement. */
+  air?: [number, number, number, number]; vy: number; speed: number;
+}
+
+export interface Snapshot {
+  v: number; seq: number; t: number;
+  /** center x, z, radius, next center x, z, radius, stage, seconds left, shrinking. */
+  zone: [number, number, number, number, number, number, number, number, number];
+  plane?: [number, number];
+  a: ActorRow[]; c: VehicleRow[];
+  loot: { add: LootRow[]; off: number[]; all?: number[] };
+  drops: Array<[string, number, number, number, number, number]>;
+  priv: PrivateRow[];
+  /** Per human: [index, kills, rank (0 while alive)] for the scoreboard. */
+  humans: Array<[number, number, number]>;
+  ev: GameEvent[];
+  /** Set once the match is over: the winner's actor id, or '' when nobody won. */
+  over?: string;
+}
+
+const horizontal = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+
+/** Host side: turns the live simulation into snapshots, remembering what each client has already been told about loot. */
+export class SnapshotBuilder {
+  private seq = 0;
+  private lootSent: number;
+  private lootActive: boolean[];
+
+  constructor(private readonly sim: GameSimulation) {
+    this.lootSent = sim.state.loot.length;
+    this.lootActive = sim.state.loot.map(loot => loot.active);
+  }
+
+  build(events: readonly GameEvent[]): Snapshot {
+    const sim = this.sim, state = sim.state;
+    const humans = sim.humans;
+    const near = (p: { x: number; z: number }) => humans.some(human => horizontal(p, human.position) < NEAR_DISTANCE);
+    const a: ActorRow[] = [];
+    state.actors.forEach((actor, index) => { if (actor.isPlayer || near(actor.position)) a.push(actorRow(sim, actor, index)); });
+    const c: VehicleRow[] = [];
+    state.vehicles.forEach((v, index) => {
+      if (!near(v.position)) return;
+      const driver = v.driverId ? state.actors.findIndex(actor => actor.id === v.driverId) : -1;
+      c.push([index, r2(v.position.x), r2(v.position.y), r2(v.position.z), r2(v.yaw), r2(v.speed), Math.round(v.health), driver + 1]);
+    });
+    const add: LootRow[] = [];
+    for (let i = this.lootSent; i < state.loot.length; i++) {
+      const loot = state.loot[i];
+      add.push([i, loot.id, loot.kind, r2(loot.position.x), r2(loot.position.y), r2(loot.position.z)]);
+      this.lootActive[i] = loot.active;
+    }
+    this.lootSent = state.loot.length;
+    const off: number[] = [];
+    for (let i = 0; i < this.lootActive.length; i++) {
+      if (this.lootActive[i] && !state.loot[i].active) { off.push(i); this.lootActive[i] = false; }
+    }
+    const seq = ++this.seq;
+    const snapshot: Snapshot = {
+      v: PROTOCOL_VERSION, seq, t: r2(state.elapsed),
+      zone: [r2(state.zone.center.x), r2(state.zone.center.z), r2(state.zone.radius), r2(state.zone.nextCenter.x), r2(state.zone.nextCenter.z), r2(state.zone.nextRadius), state.zone.stage, r2(state.zone.timeRemaining), state.zone.isShrinking ? 1 : 0],
+      a, c, loot: { add, off },
+      drops: (state.airdrops ?? []).map(drop => [drop.id, r2(drop.x), r2(drop.y), r2(drop.z), drop.landed ? 1 : 0, drop.empty ? 1 : 0]),
+      priv: humans.map(human => privateRow(sim, human)),
+      humans: humans.map(human => [state.actors.indexOf(human), human.kills ?? 0, human.alive ? 0 : human.rank ?? 0]),
+      ev: events.filter(event => keepEvent(sim, event, near)),
+    };
+    if (state.plane) snapshot.plane = [r2(state.plane.travelled), state.plane.active ? 1 : 0];
+    // Now and then restate every picked-up item, so a client that missed a message heals itself.
+    if (seq % 50 === 0) snapshot.loot.all = this.lootActive.flatMap((active, index) => active ? [] : [index]);
+    if (state.phase === 'won' || state.phase === 'lost') snapshot.over = state.winnerId ?? '';
+    return snapshot;
+  }
+}
+
+function actorRow(sim: GameSimulation, actor: Actor, index: number): ActorRow {
+  const air = AIR_CODES.indexOf(actor.air?.mode ?? null);
+  const flags = (actor.alive ? 1 : 0) | (actor.reloading > 0 ? 2 : 0) | (actor.healing > 0 ? 4 : 0) | (air << 3) | (Math.max(0, STANCES.indexOf(actor.stance ?? 'stand')) << 5);
+  const car = actor.vehicleId ? sim.state.vehicles.findIndex(v => v.id === actor.vehicleId) + 1 : 0;
+  return [index, r2(actor.position.x), r2(actor.position.y), r2(actor.position.z), r2(actor.yaw), Math.round(actor.health), flags, WEAPON_INDEX.get(actor.weapon) ?? 0, car, actor.helmet * 4 + actor.vest];
+}
+
+function privateRow(sim: GameSimulation, actor: Actor): PrivateRow {
+  const motion = sim.motionOf(actor);
+  const row: PrivateRow = {
+    id: actor.id, weapon: WEAPON_INDEX.get(actor.weapon) ?? 0, owned: actor.ownedWeapons.map(id => WEAPON_INDEX.get(id) ?? 0),
+    ammo: Object.entries(actor.ammo).filter(([, n]) => n > 0).map(([id, n]) => [WEAPON_INDEX.get(id) ?? 0, n] as [number, number]),
+    reserve: Object.entries(actor.reserve).filter(([, n]) => n > 0).map(([id, n]) => [AMMO_INDEX.get(id) ?? 0, n] as [number, number]),
+    medkits: actor.medkits, helmet: [actor.helmet, Math.round(actor.helmetHp)], vest: [actor.vest, Math.round(actor.vestHp)],
+    reload: r2(actor.reloading), heal: r2(actor.healing), vy: r2(motion.vy), speed: r2(motion.speed),
+  };
+  if (actor.air) row.air = [r2(actor.air.vx), r2(actor.air.vy), r2(actor.air.vz), r2(actor.air.time)];
+  return row;
+}
+
+/** Which events a client needs: everything involving people, kills for the feed, and shots and blasts close to a human. */
+function keepEvent(sim: GameSimulation, event: GameEvent, near: (p: { x: number; z: number }) => boolean): boolean {
+  switch (event.type) {
+    case 'shot': return near(event.from);
+    case 'damage': return !!sim.actorById(event.actorId)?.isPlayer || !!(event.sourceId && sim.actorById(event.sourceId)?.isPlayer);
+    case 'crash': case 'explosion': return near(event.type === 'crash' ? event.position : event.position);
+    case 'drop': return !!sim.actorById(event.actorId)?.isPlayer;
+    default: return true;
+  }
+}
+
+/** The parts of a snapshot a client keeps to draw other soldiers smoothly between snapshots. */
+export interface PoseRow { x: number; y: number; z: number; yaw: number }
+
+export interface ApplyOptions {
+  /** Write positions of remote actors straight into the mirror (tests); a client interpolates them instead. */
+  writePositions?: boolean;
+  /** The local player has fired very recently: do not let a snapshot that predates those shots refill their magazine. */
+  protectAmmo?: boolean;
+}
+
+export interface ApplyResult {
+  events: GameEvent[];
+  /** Where the host says the local player is, if they are in the snapshot. */
+  local?: { x: number; y: number; z: number; yaw: number; row: ActorRow };
+  /** Rows by actor index, for the interpolation buffer. */
+  poses: Map<number, PoseRow>;
+  over?: string;
+}
+
+/** Client side: bring the mirror simulation in line with a snapshot. */
+export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: ApplyOptions = {}): ApplyResult {
+  const state = sim.state;
+  const poses = new Map<number, PoseRow>();
+  const result: ApplyResult = { events: snap.ev, poses };
+  const localId = sim.localId;
+  for (const row of snap.a) {
+    const [index, x, y, z, yaw, health, flags, weapon, car, gear] = row;
+    const actor = state.actors[index];
+    if (!actor) continue;
+    poses.set(index, { x, y, z, yaw });
+    const alive = (flags & 1) !== 0;
+    actor.alive = alive;
+    actor.health = alive ? health : 0;
+    actor.reloading = flags & 2 ? Math.max(actor.reloading, 0.01) : 0;
+    actor.healing = flags & 4 ? Math.max(actor.healing, 0.01) : 0;
+    const airMode = AIR_CODES[(flags >> 3) & 3];
+    if (airMode) { if (!actor.air || actor.air.mode !== airMode) actor.air = { mode: airMode, vx: 0, vy: 0, vz: 0, time: actor.air?.time ?? 0 }; }
+    else actor.air = null;
+    actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
+    actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;
+    actor.vehicleId = car ? state.vehicles[car - 1]?.id ?? null : null;
+    actor.helmet = gear >> 2; actor.vest = gear & 3;
+    if (actor.id === localId) result.local = { x, y, z, yaw, row };
+    else if (options.writePositions) { actor.position.x = x; actor.position.y = y; actor.position.z = z; actor.yaw = yaw; }
+  }
+  for (const [index, x, y, z, yaw, speed, health, driver] of snap.c) {
+    const car = state.vehicles[index];
+    if (!car) continue;
+    car.position.x = x; car.position.y = y; car.position.z = z; car.yaw = yaw; car.speed = speed; car.health = health;
+    car.driverId = driver ? state.actors[driver - 1]?.id ?? null : null;
+  }
+  // Loot: items the host added since (dropped gear, crate contents), and items it says were picked up.
+  for (const [index, id, kind, x, y, z] of snap.loot.add) {
+    if (!state.loot[index]) state.loot[index] = { id, kind: kind as LootKind, position: { x, y, z }, active: true };
+  }
+  for (const index of snap.loot.off) if (state.loot[index]) state.loot[index].active = false;
+  if (snap.loot.all) for (const index of snap.loot.all) if (state.loot[index]) state.loot[index].active = false;
+  state.airdrops = snap.drops.map(([id, x, y, z, landed, empty]) => {
+    const previous = state.airdrops?.find(drop => drop.id === id);
+    return { id, x, y, z, landed: landed === 1, empty: empty === 1, time: previous?.time ?? 0, loot: previous?.loot ?? [] };
+  });
+  const [cx, cz, radius, ncx, ncz, nradius, stage, timeRemaining, shrinking] = snap.zone;
+  state.zone.center = { x: cx, z: cz }; state.zone.radius = radius;
+  state.zone.nextCenter = { x: ncx, z: ncz }; state.zone.nextRadius = nradius;
+  state.zone.stage = stage; state.zone.timeRemaining = timeRemaining; state.zone.isShrinking = shrinking === 1;
+  if (snap.plane && state.plane) {
+    state.plane.travelled = snap.plane[0]; state.plane.active = snap.plane[1] === 1;
+    placePlane(state.plane);
+  }
+  state.elapsed = snap.t;
+  for (const row of snap.priv) {
+    const actor = sim.actorById(row.id);
+    if (!actor) continue;
+    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true);
+    else { actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]); }
+  }
+  for (const [index, kills, rank] of snap.humans) {
+    const actor = state.actors[index];
+    if (!actor) continue;
+    actor.kills = kills;
+    if (rank) { actor.rank = rank; if (actor.id === localId) state.playerRank = rank; }
+  }
+  if (snap.over !== undefined) {
+    result.over = snap.over;
+    state.winnerId = snap.over || undefined;
+    state.phase = snap.over === localId ? 'won' : 'lost';
+  }
+  return result;
+}
+
+function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean): void {
+  const previous = actor.ammo;
+  actor.weapon = WEAPON_ORDER[row.weapon] ?? actor.weapon;
+  actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]);
+  const ammo = emptyAmmo();
+  for (const [index, n] of row.ammo) ammo[WEAPON_ORDER[index]] = n;
+  // Shots fired in the last moment may not have reached the host yet: keep the lower count for the gun in hand.
+  if (protectAmmo) ammo[actor.weapon] = Math.min(ammo[actor.weapon], previous[actor.weapon] ?? 0);
+  actor.ammo = ammo;
+  const reserve = emptyReserve();
+  for (const [index, n] of row.reserve) reserve[AMMO_ORDER[index]] = n;
+  actor.reserve = reserve;
+  actor.medkits = row.medkits;
+  actor.helmet = row.helmet[0]; actor.helmetHp = row.helmet[1];
+  actor.vest = row.vest[0]; actor.vestHp = row.vest[1];
+  actor.reloading = row.reload; actor.healing = row.heal;
+  if (row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }
+  sim.setMotion(actor, { vy: row.vy, speed: row.speed });
+}

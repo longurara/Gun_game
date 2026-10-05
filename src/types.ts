@@ -90,6 +90,8 @@ export interface Actor {
   air?: AirState | null;
   /** Absent means standing. */
   stance?: Stance;
+  /** Opponents (and people) this actor has put down, and the place and time of its own death. */
+  kills?: number; rank?: number; diedAt?: number;
 }
 export interface Loot { id: string; kind: LootKind; position: Vec3; active: boolean }
 export interface ZoneState {
@@ -104,6 +106,8 @@ export interface GameState {
   airdrops?: Airdrop[];
   /** The player's place and time of death, kept while they watch the rest of the match. */
   playerRank?: number; diedAt?: number; spectating?: boolean;
+  /** Multiplayer: who won once the match is over. */
+  winnerId?: string;
 }
 /** While driving, throttle (-1 reverse to 1 forward) and steer (-1 left to 1 right) replace the move vector; jump is the handbrake. */
 export interface PlayerInput { moveX: number; moveZ: number; sprint: boolean; jump: boolean; throttle?: number; steer?: number }
@@ -124,8 +128,8 @@ export type GameEvent =
   | { type: 'shot'; actorId: string; weapon: WeaponType; from: Vec3; to: Vec3; hitId?: string }
   | { type: 'damage'; actorId: string; amount: number; sourceId?: string }
   | { type: 'kill'; actorId: string; killerId?: string }
-  | { type: 'pickup'; kind: LootKind }
-  | { type: 'message'; text: string }
+  | { type: 'pickup'; kind: LootKind; /** Set in multiplayer: only this human should see it. */ for?: string }
+  | { type: 'message'; text: string; /** Set in multiplayer: a private message for one human. */ for?: string }
   | { type: 'crash'; vehicleId: string; strength: number; position: Vec3 }
   | { type: 'explosion'; position: Vec3 }
   | { type: 'drop'; actorId: string; stage: 'jump' | 'chute' | 'land' }

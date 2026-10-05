@@ -8,7 +8,13 @@ import { movementSpread, NECK, STANCE, stanceOf } from './stance';
 import { holdover, pathOffset, SEGMENT, STRAIGHT_RANGE, ZERO_DISTANCE } from './ballistics';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
 
-interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean }
+interface Options {
+  seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean;
+  /** Multiplayer: how many of the first actors are people (default 1), which of them is on this machine, their names. */
+  humans?: number; localId?: string; names?: string[];
+  /** A mirror of someone else's match: it never steps the world itself, it is told what happened. */
+  remote?: boolean;
+}
 /** A bot's plan for the drop: where to land, when to jump, how low to open the canopy. */
 interface BotDrop { jumpAt: number; target: Vec2; openAgl: number; dive: boolean }
 interface Runtime {
@@ -62,6 +68,7 @@ for (const tier of [1, 2, 3] as const) {
 const COMMON_AMMO: AmmoType[] = ['9mm', '556', '12g', '45acp'];
 
 const ZERO_INPUT: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
+const NO_PRESSES: ReadonlySet<string> = new Set();
 /** Bots closer than this to the player run full AI every step; closer than LOD_NEAR run it a few times a second. */
 const LOD_FULL = 220;
 const LOD_NEAR = 650;
@@ -110,7 +117,12 @@ export class GameSimulation {
   private randomState = 1;
   private events: GameEvent[] = [];
   private runtimes = new Map<string, Runtime>();
-  private jumpHeld = false;
+  /** Per human: the last input, whether jump was held, and jump presses that arrived from the network. */
+  private inputs = new Map<string, PlayerInput>();
+  private jumpHeldBy = new Map<string, boolean>();
+  private pendingPresses = new Set<string>();
+  private humanList: Actor[] = [];
+  private localActor: Actor | null = null;
   private shrinkStart: { center: Vec2; radius: number } | null = null;
   private obstacleGrid = new SpatialGrid<Obstacle>(24);
   private gridSource: Obstacle[] | null = null;
@@ -126,7 +138,7 @@ export class GameSimulation {
   private lootCount = -1;
 
   constructor(options: Options = {}) {
-    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false };
+    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false, humans: Math.max(1, options.humans ?? 1), localId: options.localId ?? '', names: options.names ?? [], remote: options.remote ?? false };
     this.world = this.makeWorld();
     this.state = this.makeState('menu');
   }
@@ -144,7 +156,14 @@ export class GameSimulation {
     return this.world.id !== 'arena';
   }
 
-  get player(): Actor { return this.state.actors[0]; }
+  /** The person at this machine. */
+  get player(): Actor { return this.localActor ?? this.state.actors[0]; }
+  get localId(): string { return this.player.id; }
+  /** Every human actor, in join order. */
+  get humans(): readonly Actor[] { return this.humanList; }
+  /** True when more than one person is in the match. */
+  get multiplayer(): boolean { return this.options.humans > 1; }
+  actorById(id: string): Actor | undefined { return this.state.actors.find(actor => actor.id === id); }
 
   /** Ground height under a point; the arena is flat. */
   heightAt(x: number, z: number): number {
@@ -185,9 +204,11 @@ export class GameSimulation {
     return closest;
   }
 
-  get lootInReach(): Loot | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || !this.player.alive) return null;
-    return this.nearestLoot(this.player.position, INTERACTION_RANGE);
+  get lootInReach(): Loot | null { return this.lootNear(this.player); }
+
+  lootNear(actor: Actor): Loot | null {
+    if (this.state.phase !== 'playing' || actor.vehicleId || actor.air || !actor.alive) return null;
+    return this.nearestLoot(actor.position, INTERACTION_RANGE);
   }
 
   start(options: Options = {}): void {
@@ -207,8 +228,7 @@ export class GameSimulation {
   }
 
   /** Change the player's stance. Standing up from a lower stance needs room overhead; returns false if not allowed. */
-  setStance(stance: Stance): boolean {
-    const player = this.player;
+  setStance(stance: Stance, player: Actor = this.player): boolean {
     if (this.state.phase !== 'playing' || !player.alive || player.air || player.vehicleId) return false;
     const current = player.stance ?? 'stand';
     if (stance === current) return true;
@@ -252,35 +272,117 @@ export class GameSimulation {
   togglePause(): void { this.setPaused(this.state.phase === 'playing'); }
   drainEvents(): GameEvent[] { const pending = this.events; this.events = []; return pending; }
 
+  /** Multiplayer (host): take a player who left or lost their connection out of the match. */
+  eliminate(actorId: string): void {
+    const actor = this.actorById(actorId);
+    if (actor?.alive) this.damage(actor, 1e9);
+  }
+
+  /** Multiplayer: the hidden movement state of an actor that a client needs to predict its own movement. */
+  motionOf(actor: Actor): { vy: number; speed: number } {
+    const runtime = this.runtime(actor);
+    return { vy: runtime.velocityY, speed: runtime.speedNow };
+  }
+  setMotion(actor: Actor, motion: { vy: number; speed: number }): void {
+    const runtime = this.runtime(actor);
+    runtime.velocityY = motion.vy;
+    runtime.speedNow = motion.speed;
+  }
+
+  /**
+   * Mirror only: move the local player by their own input between snapshots (walking, falling, steering the parachute),
+   * ride the plane along, and tick the timers that gate shooting. Events from this are discarded: the host reports them.
+   */
+  private predictLocal(dt: number, input: PlayerInput): void {
+    const me = this.player;
+    const kept = this.events.length;
+    this.state.elapsed += dt;
+    const plane = this.state.plane;
+    if (plane?.active) {
+      plane.travelled = Math.min(plane.length, plane.travelled + plane.speed * dt);
+      placePlane(plane);
+      for (const actor of this.state.actors) {
+        if (actor.air?.mode !== 'plane') continue;
+        actor.position.x = plane.x; actor.position.y = plane.y; actor.position.z = plane.z; actor.yaw = plane.yaw;
+      }
+    }
+    if (me.alive) {
+      const runtime = this.runtime(me);
+      runtime.cooldown = Math.max(0, runtime.cooldown - dt);
+      for (const weapon of me.ownedWeapons) runtime.weaponCooldowns[weapon] = Math.max(0, runtime.weaponCooldowns[weapon] - dt);
+      me.reloading = Math.max(0, me.reloading - dt);
+      me.healing = Math.max(0, me.healing - dt);
+      const pressed = input.jump && !this.jumpHeldBy.get(me.id);
+      this.jumpHeldBy.set(me.id, input.jump);
+      if (me.air) this.flyPlayer(me, dt, input, pressed && me.air.mode !== 'plane');
+      else if (!me.vehicleId) this.walkPlayer(me, dt, input, pressed);
+    }
+    this.events.length = kept;
+  }
+
+  /** Mirror only: a shot is checked against ammunition and cadence here; the host decides what it hits. */
+  private predictFire(actor: Actor): boolean {
+    const runtime = this.runtime(actor);
+    const weapon = WEAPONS[actor.weapon];
+    if (!actor.alive || actor.reloading > 0 || runtime.cooldown > 1e-7 || runtime.weaponCooldowns[actor.weapon] > 1e-7 || actor.ammo[actor.weapon] <= 0) return false;
+    actor.ammo[actor.weapon]--;
+    runtime.weaponCooldowns[actor.weapon] = weapon.fireInterval;
+    if (actor === this.player) this.state.shots++;
+    return true;
+  }
+
+  /**
+   * Multiplayer (host): what another human is holding down right now. `jumpEdge` says the jump button went down since
+   * the last packet, so a quick tap between two packets still counts as a press.
+   */
+  setHumanInput(id: string, input: PlayerInput, jumpEdge = false): void {
+    if (id === this.localId) return;
+    this.inputs.set(id, { ...input, moveX: clamp(finite(input.moveX), -1, 1), moveZ: clamp(finite(input.moveZ), -1, 1) });
+    if (jumpEdge) this.pendingPresses.add(id);
+  }
+
   update(dt: number, input: PlayerInput = ZERO_INPUT): void {
     if (this.state.phase !== 'playing' || !Number.isFinite(dt) || dt <= 0) return;
     const safeInput = { ...input, moveX: clamp(finite(input.moveX), -1, 1), moveZ: clamp(finite(input.moveZ), -1, 1) };
-    const jumpPressed = safeInput.jump && !this.jumpHeld;
-    this.jumpHeld = safeInput.jump;
+    if (this.options.remote) {
+      // A mirror of someone else's match: only this player's own movement is predicted, the rest arrives in snapshots.
+      let left = Math.min(dt, 1);
+      while (left > 1e-8) { const slice = Math.min(left, 1 / 30); this.predictLocal(slice, safeInput); left -= slice; }
+      return;
+    }
+    this.inputs.set(this.player.id, safeInput);
+    // A press is a jump button that was up at the last step and is down now (or a press that arrived over the network).
+    const pressed = new Set<string>(this.pendingPresses);
+    this.pendingPresses.clear();
+    for (const human of this.humanList) {
+      const held = this.inputs.get(human.id)?.jump ?? false;
+      if (held && !this.jumpHeldBy.get(human.id)) pressed.add(human.id);
+      this.jumpHeldBy.set(human.id, held);
+    }
     // Substeps keep collision, AI, and weapon cadence stable during slow frames.
     let remaining = Math.min(dt, 600);
     let first = true;
     while (remaining > 1e-8 && this.state.phase === 'playing') {
       const step = Math.min(remaining, 1 / 30);
-      this.step(step, safeInput, first && jumpPressed);
+      this.step(step, first ? pressed : NO_PRESSES);
       remaining -= step;
       first = false;
     }
   }
 
-  shootPlayer(target: Vec3, aimed = false): boolean {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
-    const grounded = this.player.position.y <= this.heightAt(this.player.position.x, this.player.position.z) + 0.05;
-    return this.fire(this.player, target, movementSpread(this.runtime(this.player).speedNow, !grounded, aimed), aimed);
+  shootPlayer(target: Vec3, aimed = false, actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || actor.vehicleId || actor.air || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
+    if (this.options.remote) return this.predictFire(actor);
+    const grounded = actor.position.y <= this.heightAt(actor.position.x, actor.position.z) + 0.05;
+    return this.fire(actor, target, movementSpread(this.runtime(actor).speedNow, !grounded, aimed), aimed);
   }
 
-  reload(): boolean {
-    if (this.state.phase !== 'playing' || this.player.vehicleId) return false;
-    return this.beginReload(this.player);
+  reload(actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || actor.vehicleId) return false;
+    return this.beginReload(actor);
   }
 
-  switchWeapon(weapon: WeaponType): boolean {
-    const actor = this.player;
+  switchWeapon(weapon: WeaponType, actor: Actor = this.player): boolean {
     if (this.state.phase !== 'playing' || actor.vehicleId || !actor.ownedWeapons.includes(weapon) || actor.weapon === weapon) return false;
     actor.weapon = weapon;
     actor.reloading = 0;
@@ -290,15 +392,15 @@ export class GameSimulation {
     return true;
   }
 
-  heal(): boolean {
-    if (this.state.phase !== 'playing' || this.player.vehicleId) return false;
-    return this.beginHeal(this.player);
+  heal(actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || actor.vehicleId) return false;
+    return this.beginHeal(actor);
   }
 
-  interact(): boolean {
-    const loot = this.lootInReach;
-    if (!loot || !this.collectLoot(this.player, loot)) return false;
-    this.events.push({ type: 'pickup', kind: loot.kind });
+  interact(actor: Actor = this.player): boolean {
+    const loot = this.lootNear(actor);
+    if (!loot || !this.collectLoot(actor, loot)) return false;
+    this.events.push(this.options.humans > 1 ? { type: 'pickup', kind: loot.kind, for: actor.id } : { type: 'pickup', kind: loot.kind });
     return true;
   }
 
@@ -332,7 +434,7 @@ export class GameSimulation {
     } else if (isArmorKind(kind)) {
       const { slot, level } = parseArmor(kind);
       if (level <= actor[slot]) {
-        if (actor.isPlayer) this.events.push({ type: 'message', text: `Bạn đã có ${ARMOR_NAMES[slot].toLowerCase()} tốt hơn.` });
+        if (actor.isPlayer) this.tell(actor, `Bạn đã có ${ARMOR_NAMES[slot].toLowerCase()} tốt hơn.`);
         return false;
       }
       if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 0.9);
@@ -377,9 +479,14 @@ export class GameSimulation {
     if (victim[key] <= 1e-6) {
       victim[slot] = 0;
       victim[key] = 0;
-      if (victim.isPlayer) this.events.push({ type: 'message', text: `${ARMOR_NAMES[slot]} đã bị phá hỏng!` });
+      if (victim.isPlayer) this.tell(victim, `${ARMOR_NAMES[slot]} đã bị phá hỏng!`);
     }
     return amount - absorbed;
+  }
+
+  /** A message only that human should see (in single player it is just a message). */
+  private tell(actor: Actor, text: string): void {
+    this.events.push(this.options.humans > 1 ? { type: 'message', text, for: actor.id } : { type: 'message', text });
   }
 
   private random(): number {
@@ -393,11 +500,12 @@ export class GameSimulation {
   private makeState(phase: GamePhase): GameState {
     this.randomState = this.options.seed | 0;
     this.runtimes.clear();
-    this.jumpHeld = false;
+    this.inputs.clear(); this.jumpHeldBy.clear(); this.pendingPresses.clear();
     this.shrinkStart = null;
     this.dropTargets = [];
     const island = this.openWorld;
-    const count = this.options.botCount + 1;
+    const humanCount = this.options.humans;
+    const count = this.options.botCount + humanCount;
     let spawns = this.world.spawns;
     if (island) {
       // Scatter everyone across the map: a seeded shuffle of the candidate drop points.
@@ -412,21 +520,25 @@ export class GameSimulation {
         ? ['pistol']
         : ['rifle', 'smg', 'shotgun', 'dmr', this.options.seed % 2 === 0 ? 'heavySniper' : 'sniper', 'pistol', 'lmg'];
       // On the island everyone drops in with a sidearm and has to loot the rest.
-      const weapon: WeaponType = index === 0 ? (island ? 'pistol' : 'rifle') : botWeapons[(index - 1) % botWeapons.length];
+      const human = index < humanCount;
+      const weapon: WeaponType = human ? (island ? 'pistol' : 'rifle') : botWeapons[(index - humanCount) % botWeapons.length];
       const ammo = emptyAmmo();
       const reserve = emptyReserve();
       ammo[weapon] = WEAPONS[weapon].magazine;
-      reserve[WEAPONS[weapon].ammoType] = index === 0 ? (island ? WEAPONS.pistol.ammoPickup : 60) : WEAPONS[weapon].ammoPickup * (island ? 1 : 3);
+      reserve[WEAPONS[weapon].ammoType] = human ? (island ? WEAPONS.pistol.ammoPickup : 60) : WEAPONS[weapon].ammoPickup * (island ? 1 : 3);
       const actor: Actor = {
-        id: index === 0 ? 'player' : `bot-${index}`, name: index === 0 ? 'Bạn' : `Đối thủ ${index}`,
-        isPlayer: index === 0, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: index === 0 ? 0 : this.random() * Math.PI * 2,
+        id: human ? (humanCount === 1 ? 'player' : `p${index}`) : `bot-${index - humanCount + 1}`,
+        name: human ? (this.options.names[index] ?? (humanCount === 1 ? 'Bạn' : `Người chơi ${index + 1}`)) : `Đối thủ ${index - humanCount + 1}`,
+        isPlayer: human, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: human ? 0 : this.random() * Math.PI * 2,
         health: 100, alive: true, weapon, ownedWeapons: [weapon], helmet: 0, vest: 0, helmetHp: 0, vestHp: 0,
         ammo, reserve,
-        reloading: 0, healing: 0, medkits: index === 0 ? 1 : 1, hurtTimer: 0,
+        reloading: 0, healing: 0, medkits: 1, hurtTimer: 0,
       };
       this.runtime(actor);
       return actor;
     });
+    this.humanList = actors.filter(actor => actor.isPlayer);
+    this.localActor = actors.find(actor => actor.id === this.options.localId) ?? actors[0];
     const loot: Loot[] = [];
     const add = (kind: LootKind, x: number, z: number, y = 0) => loot.push({ id: `loot-${loot.length}`, kind, position: { x, y, z }, active: true });
     if (island) this.scatterIslandLoot(add);
@@ -528,12 +640,15 @@ export class GameSimulation {
     return runtime;
   }
 
-  private step(dt: number, input: PlayerInput, jumpPressed: boolean): void {
+  private step(dt: number, pressed: ReadonlySet<string>): void {
     this.state.elapsed += dt;
     this.advanceZone(dt);
     this.stepPlane(dt);
     this.stepAirdrops(dt);
-    if (jumpPressed || Math.hypot(input.moveX, input.moveZ) > 0.05) this.cancelHeal(this.player);
+    for (const human of this.humanList) {
+      const held = this.inputs.get(human.id) ?? ZERO_INPUT;
+      if (pressed.has(human.id) || Math.hypot(held.moveX, held.moveZ) > 0.05) this.cancelHeal(human);
+    }
     for (const actor of this.state.actors) {
       if (!actor.alive) continue;
       const runtime = this.runtime(actor);
@@ -559,27 +674,29 @@ export class GameSimulation {
           if (actor.medkits > 0) {
             actor.medkits--;
             actor.health = Math.min(100, actor.health + HEAL_AMOUNT);
-            if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã hồi máu.' });
+            if (actor.isPlayer) this.tell(actor, 'Đã hồi máu.');
           }
         }
       }
     }
-    const player = this.player;
-    if (player.air) this.flyPlayer(dt, input, jumpPressed);
-    else if (!player.vehicleId) this.walkPlayer(dt, input, jumpPressed);
+    for (const human of this.humanList) {
+      if (!human.alive) continue;
+      const held = this.inputs.get(human.id) ?? ZERO_INPUT;
+      if (human.air) this.flyPlayer(human, dt, held, pressed.has(human.id));
+      else if (!human.vehicleId) this.walkPlayer(human, dt, held, pressed.has(human.id));
+    }
     this.rebuildActorGrid();
     this.pathBudget = 3;
     this.updateBots(dt);
-    this.stepVehicles(dt, input);
+    this.stepVehicles(dt);
     this.applyZone(dt);
     this.checkEnd();
   }
 
-  private walkPlayer(dt: number, input: PlayerInput, jumpPressed: boolean): void {
-    const player = this.player;
+  private walkPlayer(player: Actor, dt: number, input: PlayerInput, jumpPressed: boolean): void {
     // Jumping or sprinting from a crouch or lying down first gets you up (if there is room).
     const wasLow = !!player.stance && player.stance !== 'stand';
-    if (wasLow && (jumpPressed || (input.sprint && Math.hypot(input.moveX, input.moveZ) > 0.2))) this.setStance('stand');
+    if (wasLow && (jumpPressed || (input.sprint && Math.hypot(input.moveX, input.moveZ) > 0.2))) this.setStance('stand', player);
     if (jumpPressed && !wasLow && player.position.y <= this.heightAt(player.position.x, player.position.z) + 1e-6) {
       this.runtime(player).velocityY = 6.7;
       this.cancelHeal(player);
@@ -638,7 +755,7 @@ export class GameSimulation {
     for (const actor of this.state.actors) {
       if (!actor.alive || actor.air?.mode !== 'plane') continue;
       this.jumpFromPlane(actor);
-      if (actor.isPlayer) this.events.push({ type: 'message', text: 'Máy bay đã bay hết đảo, bạn bị đẩy ra khỏi cửa!' });
+      if (actor.isPlayer) this.tell(actor, 'Máy bay đã bay hết đảo, bạn bị đẩy ra khỏi cửa!');
     }
   }
 
@@ -652,7 +769,7 @@ export class GameSimulation {
     actor.position = { x: plane.x + (this.random() - 0.5) * spread, y: plane.y - 2, z: plane.z + (this.random() - 0.5) * spread };
     this.cancelHeal(actor);
     this.events.push({ type: 'drop', actorId: actor.id, stage: 'jump' });
-    if (actor.isPlayer) this.events.push({ type: 'message', text: `Rơi tự do! Lái để chọn điểm đáp, nhảy lần nữa để mở dù (tự mở ở độ cao ${DROP.autoOpen} m).` });
+    if (actor.isPlayer) this.tell(actor, `Rơi tự do! Lái để chọn điểm đáp, nhảy lần nữa để mở dù (tự mở ở độ cao ${DROP.autoOpen} m).`);
   }
 
   private openChute(actor: Actor): void {
@@ -661,8 +778,7 @@ export class GameSimulation {
     this.events.push({ type: 'drop', actorId: actor.id, stage: 'chute' });
   }
 
-  private flyPlayer(dt: number, input: PlayerInput, jumpPressed: boolean): void {
-    const player = this.player;
+  private flyPlayer(player: Actor, dt: number, input: PlayerInput, jumpPressed: boolean): void {
     const air = player.air!;
     if (air.mode === 'plane') {
       if (jumpPressed && this.state.elapsed > DROP.doorDelay) this.jumpFromPlane(player);
@@ -727,8 +843,8 @@ export class GameSimulation {
     p.y = this.heightAt(p.x, p.z);
     this.resolvePenetration(actor);
     this.events.push({ type: 'drop', actorId: actor.id, stage: 'land' });
-    if (actor.isPlayer && splash) this.events.push({ type: 'message', text: 'Bạn rơi xuống nước và bơi vào bờ.' });
-    else if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã tiếp đất. Tìm vũ khí trong nhà gần nhất!' });
+    if (actor.isPlayer && splash) this.tell(actor, 'Bạn rơi xuống nước và bơi vào bờ.');
+    else if (actor.isPlayer) this.tell(actor, 'Đã tiếp đất. Tìm vũ khí trong nhà gần nhất!');
     if (impact > DROP.safeLanding) this.damage(actor, (impact - DROP.safeLanding) * 3);
   }
 
@@ -872,24 +988,26 @@ export class GameSimulation {
   }
 
   /** The nearest empty, working car within arm's reach of the player. */
-  get vehicleInReach(): Vehicle | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || !this.player.alive) return null;
+  get vehicleInReach(): Vehicle | null { return this.vehicleNear(this.player); }
+
+  vehicleNear(actor: Actor): Vehicle | null {
+    if (this.state.phase !== 'playing' || actor.vehicleId || actor.air || !actor.alive) return null;
     let best = null as Vehicle | null;
     let nearest = VEHICLE_REACH;
     for (const v of this.state.vehicles) {
       if (v.driverId || v.health <= 0) continue;
-      const d = distance2(v.position, this.player.position);
+      const d = distance2(v.position, actor.position);
       if (d < nearest) { best = v; nearest = d; }
     }
     return best;
   }
 
   /** Get into the nearest car, or out of the one being driven. */
-  useVehicle(): boolean {
-    if (this.state.phase !== 'playing' || this.player.air || !this.player.alive) return false;
-    if (this.player.vehicleId) { this.exitVehicle(this.player); return true; }
-    const car = this.vehicleInReach;
-    return car ? this.enterVehicle(this.player, car) : false;
+  useVehicle(actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || actor.air || !actor.alive) return false;
+    if (actor.vehicleId) { this.exitVehicle(actor); return true; }
+    const car = this.vehicleNear(actor);
+    return car ? this.enterVehicle(actor, car) : false;
   }
 
   private enterVehicle(actor: Actor, v: Vehicle): boolean {
@@ -901,7 +1019,7 @@ export class GameSimulation {
     actor.stance = 'stand';
     v.driverId = actor.id;
     actor.position = { x: v.position.x, y: v.position.y + 0.3, z: v.position.z };
-    if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đang lái xe. Nhấn F để xuống xe.' });
+    if (actor.isPlayer) this.tell(actor, 'Đang lái xe. Nhấn F để xuống xe.');
     return true;
   }
 
@@ -924,10 +1042,10 @@ export class GameSimulation {
     const runtime = this.runtime(actor);
     runtime.path = [];
     runtime.pathTimer = 0;
-    if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã xuống xe.' });
+    if (actor.isPlayer) this.tell(actor, 'Đã xuống xe.');
   }
 
-  private stepVehicles(dt: number, input: PlayerInput): void {
+  private stepVehicles(dt: number): void {
     for (const v of this.state.vehicles) {
       v.hitTimer = Math.max(0, v.hitTimer - dt);
       if (v.health <= 0) continue;
@@ -935,6 +1053,7 @@ export class GameSimulation {
       if (v.driverId && (!driver || !driver.alive)) { v.driverId = null; driver = undefined; }
       let throttle = 0, steer = 0, brake = false;
       if (driver?.isPlayer) {
+        const input = this.inputs.get(driver.id) ?? ZERO_INPUT;
         throttle = clamp(finite(input.throttle ?? 0), -1, 1);
         steer = clamp(finite(input.steer ?? 0), -1, 1);
         brake = input.jump;
@@ -1100,13 +1219,15 @@ export class GameSimulation {
   private updateBots(dt: number): void {
     if (this.botsFrozen) return;
     const lod = this.openWorld;
-    const player = this.player.position;
+    const watchers = this.humanList.filter(human => human.alive);
+    if (!watchers.length) watchers.push(this.player);
     for (const actor of this.state.actors) {
       if (actor.isPlayer || !actor.alive || this.state.phase !== 'playing') continue;
       if (actor.air) { this.updateBotAir(actor, dt); continue; }
       if (!lod) { this.updateBot(actor, dt); continue; }
       const runtime = this.runtime(actor);
-      const d = distance2(actor.position, player);
+      let d = Infinity;
+      for (const human of watchers) d = Math.min(d, distance2(actor.position, human.position));
       const tier = d < LOD_FULL ? 0 : d < LOD_NEAR ? 1 : 2;
       if (tier < 2 && runtime.lodTier === 2) { this.resolvePenetration(actor); runtime.path = []; runtime.pathTimer = 0; }
       runtime.lodTier = tier;
@@ -1131,14 +1252,14 @@ export class GameSimulation {
   private beginHeal(actor: Actor): boolean {
     if (!actor.alive || actor.medkits <= 0 || actor.health >= 100 || actor.healing > 0 || actor.reloading > 0) return false;
     actor.healing = HEAL_TIME;
-    if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đang hồi máu… Hãy đứng yên.' });
+    if (actor.isPlayer) this.tell(actor, 'Đang hồi máu… Hãy đứng yên.');
     return true;
   }
 
   private cancelHeal(actor: Actor): void {
     if (actor.healing > 0) {
       actor.healing = 0;
-      if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã hủy hồi máu.' });
+      if (actor.isPlayer) this.tell(actor, 'Đã hủy hồi máu.');
     }
   }
 
@@ -1159,7 +1280,7 @@ export class GameSimulation {
     actor.ammo[actor.weapon]--;
     runtime.weaponCooldowns[actor.weapon] = weapon.fireInterval;
     this.cancelHeal(actor);
-    if (actor.isPlayer) this.state.shots++;
+    if (actor === this.player) this.state.shots++;
     let anyHit = false;
     const damageByActor = new Map<Actor, number>();
     let visualHit: Hit = { distance: weapon.range };
@@ -1188,7 +1309,7 @@ export class GameSimulation {
     this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to, ...(visualHit.actor ? { hitId: visualHit.actor.id } : {}) });
     // On the cramped arena everyone would hear everything; halve the range there.
     this.alertNearby(actor, gunshotLoudness(actor.weapon) * (this.openWorld ? 1 : 0.45));
-    if (actor.isPlayer && anyHit) this.state.hits++;
+    if (actor === this.player && anyHit) this.state.hits++;
     for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id);
     this.checkEnd();
     return true;
@@ -1304,12 +1425,17 @@ export class GameSimulation {
       if (actor.vehicleId) this.exitVehicle(actor);
       actor.health = 0;
       actor.alive = false;
-      if (actor.isPlayer) { this.state.playerRank = this.state.actors.filter(a => a.alive).length + 1; this.state.diedAt = this.state.elapsed; }
+      actor.rank = this.state.actors.filter(a => a.alive).length + 1;
+      actor.diedAt = this.state.elapsed;
+      if (actor === this.player) { this.state.playerRank = actor.rank; this.state.diedAt = actor.diedAt; }
       actor.reloading = 0;
       actor.healing = 0;
-      if (sourceId === this.player.id && !actor.isPlayer) this.state.kills++;
+      const killer = sourceId ? this.actorById(sourceId) : undefined;
+      if (killer?.isPlayer && killer !== actor) killer.kills = (killer.kills ?? 0) + 1;
+      if (sourceId === this.player.id && actor !== this.player) this.state.kills++;
       this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}) });
-      if (!actor.isPlayer) {
+      // In a match with other people a fallen person drops their gear too.
+      if (!actor.isPlayer || this.options.humans > 1) {
         const dropPosition = (offset: number): Vec3 => {
           const x = actor.position.x + offset;
           const position = { x, y: this.heightAt(x, actor.position.z), z: actor.position.z };
@@ -1327,6 +1453,16 @@ export class GameSimulation {
 
   private checkEnd(): void {
     if (this.state.phase !== 'playing') return;
+    if (this.options.humans > 1) {
+      // With several people the match goes on without any one of them, and ends when one actor is left or nobody human is.
+      const alive = this.state.actors.filter(actor => actor.alive);
+      if (alive.length <= 1 || !this.humanList.some(human => human.alive)) {
+        const winner = alive.length === 1 ? alive[0] : undefined;
+        if (winner) this.state.winnerId = winner.id;
+        this.finish(winner === this.player);
+      }
+      return;
+    }
     if (!this.player.alive) {
       // Watching on after death: the match runs until at most one opponent is left.
       if (!this.state.spectating || this.state.actors.filter(actor => actor.alive).length <= 1) this.finish(false);
