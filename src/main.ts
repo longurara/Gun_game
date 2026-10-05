@@ -40,6 +40,8 @@ import { counter, kick, newBank, recover } from './game/recoil';
 import { STANCE } from './game/stance';
 import { lookScale, pickAssist, pullStep } from './aim-assist';
 import type { AssistTarget } from './aim-assist';
+import { ReplayRecorder, sampleReplay, shotsBetween } from './replay';
+import type { ReplayActor } from './replay';
 import { IslandRenderer } from './island-renderer';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
@@ -85,6 +87,10 @@ let lastAirMode: string | null = '', lastAirHud = -Infinity, shadowsAllowed = tr
 let planeModel: TransformNode | null = null;
 /** Steer the canopy toward the map flag by itself. */
 let autoGlide = false;
+/** The last seconds of the match, kept so the death can be replayed. */
+const recorder = new ReplayRecorder();
+let replay: { time: number; killerId: string; saved: Map<string, { x: number; y: number; z: number; yaw: number; stance: Actor['stance']; weapon: string; alive: boolean }> } | null = null;
+const lastSoundCue = new Map<string, number>();
 /** Weapon recoil: the kick not yet recovered or pulled against, and the camera's eye height as the stance changes. */
 let bank = newBank();
 let eyeHeight = STANCE.stand.eye;
@@ -104,6 +110,8 @@ const ui = new GameUI({
   onRestart: () => start(),
   onMenu: () => { sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
   onSpectate: startSpectating,
+  onReplay: startReplay,
+  onReplayStop: stopReplay,
   onSpectateExit: () => { sim.endSpectating(); },
   onSettings: (next) => { settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro(); },
   onSelectWeapon: selectWeapon,
@@ -146,6 +154,18 @@ function syncGyro() {
   if (!touchDevice) return;
   if (settings.gyro === 'off') gyro.disable();
   else void gyro.enable();
+}
+
+/** Show where a nearby gunshot by somebody else came from (if the setting is on), at most a few times a second per shooter. */
+function cueGunshot(shooterId: string, from: { x: number; z: number }) {
+  if (!settings.soundIndicator || shooterId === 'player' || sim.state.phase !== 'playing' || !sim.player.alive || sim.player.air) return;
+  const now = performance.now();
+  if (now - (lastSoundCue.get(shooterId) ?? -Infinity) < 450) return;
+  const at = sim.player.position;
+  const dx = from.x - at.x, dz = from.z - at.z, distance = Math.hypot(dx, dz);
+  if (distance < 8 || distance > 120) return;
+  lastSoundCue.set(shooterId, now);
+  ui.showSoundFrom(Math.atan2(dx, dz) - yaw, 1 - distance / 140);
 }
 
 /** Turn the camera by hand (mouse, swipe, gyro or aim assist). Pulling down against recoil counts as recovering it. */
@@ -205,6 +225,7 @@ function start() {
   releaseInput();
   sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' });
   configureWorld();
+  stopReplay(); recorder.clear();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
   for (const effect of effects) effect.mesh.dispose();
@@ -533,12 +554,14 @@ function renderActors(dt: number) {
     const blendTo = (current: number, goal: number) => current + (goal - current) * Math.min(1, dt * 10);
     model.crouch = blendTo(model.crouch, actor.alive && actor.stance === 'crouch' ? 1 : 0);
     model.prone = blendTo(model.prone, actor.alive && actor.stance === 'prone' ? 1 : 0);
-    if (model.crouch > 0.001) model.root.position.y -= 0.477 * model.crouch;
+    if (model.crouch > 0.001) model.root.position.y -= 0.477 * model.crouch - Math.abs(Math.sin(model.stride)) * 0.035 * model.crouch * Math.min(1, model.moving / 2);
     if (model.prone > 0.001) {
       model.root.rotation.x = (Math.PI / 2 - 0.12) * model.prone;
       model.root.position.x -= Math.sin(actor.yaw) * 0.85 * model.prone;
       model.root.position.z -= Math.cos(actor.yaw) * 0.85 * model.prone;
       model.root.position.y += 0.14 * model.prone;
+      // Crawling: the body rocks from side to side with each pull of an arm.
+      if (actor.alive) model.root.rotation.z = Math.sin(model.stride) * 0.07 * model.prone * Math.min(1, model.moving / 1.2);
     }
     if (actor.air?.mode === 'freefall') {
       // Belly down, arms and legs trailing: body laid flat about its middle.
@@ -781,6 +804,7 @@ function updateCamera(dt: number) {
     camera.fov = 0.7; return;
   }
   const actor = sim.player;
+  if (replay) { replayCamera(dt); return; }
   if (spectating()) { spectateCamera(dt); return; }
   if (actor.air) { airCamera(dt, actor); return; }
   const ridden = actor.vehicleId ? sim.state.vehicles.find(v => v.id === actor.vehicleId) : undefined;
@@ -961,15 +985,88 @@ function beginAim() {
   aiming = true;
 }
 
+function spawnTracer(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, shooterId: string) {
+  const line = MeshBuilder.CreateLines('tracer', { points: [new Vector3(from.x, from.y, from.z), new Vector3(to.x, to.y, to.z)] }, scene);
+  line.color = Color3.FromHexString(shooterId === 'player' ? '#ffdc9b' : '#dbb785'); line.isPickable = false;
+  effects.push({ mesh: line, remaining: 0.065 });
+  models.get(shooterId)?.soldier.fire();
+}
+
+/** Everybody within 300 m of the player (or of the watched actor): enough to replay the fight that killed them. */
+function snapshotActors(): ReplayActor[] {
+  const focus = sim.player.position;
+  const out: ReplayActor[] = [];
+  for (const actor of sim.state.actors) {
+    if (!actor.alive || actor.air || Math.hypot(actor.position.x - focus.x, actor.position.z - focus.z) > 300) continue;
+    out.push({ id: actor.id, x: actor.position.x, y: actor.position.y, z: actor.position.z, yaw: actor.yaw, stance: actor.stance, weapon: actor.weapon, vehicleId: actor.vehicleId });
+  }
+  return out;
+}
+
+const canReplay = () => sim.state.phase === 'lost' && !sim.state.spectating && recorder.playable(lastKillerId);
+
+/** Replay the last seconds before the player died, from behind the killer, using the same soldiers and a few tracers. */
+function startReplay() {
+  if (!canReplay() || replay) return;
+  const saved = new Map<string, { x: number; y: number; z: number; yaw: number; stance: Actor['stance']; weapon: string; alive: boolean }>();
+  for (const actor of sim.state.actors) saved.set(actor.id, { x: actor.position.x, y: actor.position.y, z: actor.position.z, yaw: actor.yaw, stance: actor.stance, weapon: actor.weapon, alive: actor.alive });
+  replay = { time: 0, killerId: lastKillerId!, saved };
+  const last = recorder.frames[recorder.frames.length - 1].actors.find(actor => actor.id === lastKillerId);
+  const killer = sim.state.actors.find(actor => actor.id === lastKillerId);
+  ui.setReplay(true, `${killer?.name ?? 'Đối thủ'} · ${last ? WEAPONS[last.weapon]?.label ?? '' : ''}`);
+  snapCamera = true;
+}
+
+function stopReplay() {
+  if (!replay) return;
+  for (const actor of sim.state.actors) {
+    const before = replay.saved.get(actor.id);
+    if (!before) continue;
+    actor.position.x = before.x; actor.position.y = before.y; actor.position.z = before.z;
+    actor.yaw = before.yaw; actor.stance = before.stance; actor.weapon = before.weapon; actor.alive = before.alive;
+  }
+  replay = null;
+  ui.setReplay(false);
+}
+
+/** Put every recorded soldier where it was `replay.time` seconds into the last stretch, and fire the tracers that fell in this step. */
+function stepReplay(dt: number) {
+  if (!replay) return;
+  const previous = replay.time;
+  replay.time = Math.min(recorder.duration, replay.time + dt);
+  for (const pose of sampleReplay(recorder.frames, replay.time)) {
+    const actor = sim.state.actors.find(a => a.id === pose.id);
+    if (!actor) continue;
+    actor.position.x = pose.x; actor.position.y = pose.y; actor.position.z = pose.z;
+    actor.yaw = pose.yaw; actor.stance = pose.stance; actor.weapon = pose.weapon; actor.alive = true;
+  }
+  for (const shot of shotsBetween(recorder.shots, recorder.frames, previous, replay.time)) spawnTracer(shot.from, shot.to, shot.actorId);
+  if (replay.time >= recorder.duration + 1.2) stopReplay();
+}
+
+/** Behind the killer, looking toward the victim, so both and the shots between them are in view. */
+function replayCamera(dt: number) {
+  const killer = sim.state.actors.find(actor => actor.id === replay!.killerId), victim = sim.player;
+  if (!killer) return;
+  const dx = victim.position.x - killer.position.x, dz = victim.position.z - killer.position.z, length = Math.max(0.1, Math.hypot(dx, dz));
+  const back = new Vector3(-dx / length, 0, -dz / length);
+  const side = new Vector3(dz / length, 0, -dx / length);
+  const desired = new Vector3(killer.position.x, killer.position.y + 2.1, killer.position.z).addInPlace(back.scale(4.2)).addInPlace(side.scale(1.1));
+  desired.y = Math.max(desired.y, sim.heightAt(desired.x, desired.z) + 0.8);
+  camera.position.copyFrom(snapCamera ? desired : Vector3.Lerp(camera.position, desired, 1 - Math.exp(-dt * 6)));
+  snapCamera = false;
+  camera.setTarget(new Vector3((killer.position.x + victim.position.x) / 2, killer.position.y + 1.3, (killer.position.z + victim.position.z) / 2));
+  camera.fov += (0.85 - camera.fov) * Math.min(1, dt * 6);
+}
+
 function events(dt: number) {
   for (const event of sim.drainEvents()) {
     audio.handle(event, focusPosition());
     if (event.type === 'message') ui.notify(event.text);
     if (event.type === 'shot') {
-      const line = MeshBuilder.CreateLines('tracer', { points: [new Vector3(event.from.x, event.from.y, event.from.z), new Vector3(event.to.x, event.to.y, event.to.z)] }, scene);
-      line.color = Color3.FromHexString(event.actorId === 'player' ? '#ffdc9b' : '#dbb785'); line.isPickable = false;
-      effects.push({ mesh: line, remaining: 0.065 });
-      models.get(event.actorId)?.soldier.fire();
+      cueGunshot(event.actorId, event.from);
+      spawnTracer(event.from, event.to, event.actorId);
+      recorder.shot({ t: sim.state.elapsed, actorId: event.actorId, from: event.from, to: event.to });
     }
     if (event.type === 'kill' && event.actorId === 'player') lastKillerId = event.killerId ?? null;
     if (event.type === 'kill') {
@@ -1016,6 +1113,7 @@ function events(dt: number) {
 window.addEventListener('keydown', event => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
   if (event.code === 'Escape' && !event.repeat) {
+    if (replay) { stopReplay(); return; }
     if (sim.state.phase === 'playing') pause();
     else if (sim.state.phase === 'paused') { sim.setPaused(false); void audio.unlock(); lockPointer(); clock = performance.now(); }
     return;
@@ -1190,6 +1288,9 @@ try {
     // The crosshair opens with the bullet spread (bigger when moving, jumping or standing; smaller aiming or crouched).
     ui.setCrosshair(4 + Math.tan(sim.currentSpread(aiming)) / Math.tan(camera.fov / 2) * (canvas.clientHeight / 2));
     ui.setStance(sim.player.air || sim.state.phase !== 'playing' ? 'stand' : sim.player.stance ?? 'stand');
+    if (sim.state.phase === 'playing' && sim.player.alive && !sim.player.air) recorder.frame(sim.state.elapsed, snapshotActors);
+    if (replay) stepReplay(dt);
+    ui.setReplayAvailable(canReplay() && !replay);
     audio.setListenerYaw(yaw);
     renderZone(); updateCamera(dt);
     if (sim.state.phase === 'playing' && (triggerPending || shooting && WEAPONS[sim.player.weapon].fireMode === 'auto')) shoot();

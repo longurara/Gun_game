@@ -32,6 +32,8 @@ export interface GameSettings {
   /** Touch aim assist (slows the camera over enemies and pulls toward them while firing) and recoil strength (1 = full). */
   aimAssist: 'off' | 'low' | 'high';
   recoilScale: number;
+  /** Pale wedges around the crosshair showing where other people's gunshots came from. */
+  soundIndicator: boolean;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */

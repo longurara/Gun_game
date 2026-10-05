@@ -1709,6 +1709,8 @@ export class GameSimulation {
 
     let direct: { dx: number; dz: number; speed: number } | null = null;
     let hold = false;
+    // A marksman holding a long-range position lies down instead of crouching.
+    let lieDown = false;
     let speed = 3.6;
     const lowHealth = actor.health < 38 && (actor.medkits > 0 || actor.health < 22);
     if (target) {
@@ -1733,7 +1735,7 @@ export class GameSimulation {
         else if (distance > 0.1) direct = { dx: -dx / distance, dz: -dz / distance, speed: 4.5 };
       } else if (visible) {
         const scoped = weapon.fireMode === 'bolt' || weapon.zoom >= 4;
-        if (scoped && distance > 22) hold = true;
+        if (scoped && distance > 22) { hold = true; lieDown = distance > 60; }
         else if (distance > weapon.preferredRange * 1.4) { runtime.goal = { x: target.position.x, z: target.position.z }; speed = 4.4; }
         else {
           if (runtime.strafeTimer <= 0) { runtime.strafeDir = this.random() < 0.5 ? 1 : -1; runtime.strafeTimer = 0.7 + this.random() * 1.4; }
@@ -1753,8 +1755,8 @@ export class GameSimulation {
       this.boardCheck(actor, runtime, dt);
     }
 
-    // A bot that stands its ground to shoot crouches: a smaller, steadier target.
-    actor.stance = hold ? 'crouch' : 'stand';
+    // A bot that stands its ground to shoot crouches (or lies down at long range): a smaller, steadier target.
+    actor.stance = hold ? (lieDown ? 'prone' : 'crouch') : 'stand';
     let moved = 0;
     if (hold) moved = 0;
     else if (direct) {

@@ -158,3 +158,31 @@ test('settings: the recoil slider and aim-assist choice appear on a phone, and t
   assert.ok(await visible(ppage, '#gyro-choice'));
   await phone.close();
 });
+
+test('after dying the kill can be replayed: the results hide behind a banner, the replay moves the soldiers, and closing returns to the results', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await open(context, 'arena');
+  await page.waitForTimeout(3500); // the recorder needs a few seconds of the match
+  await page.evaluate(() => {
+    const sim = (window as unknown as { __LASTLIGHT__: { simulation: { damage(a: unknown, n: number, s?: string): void; player: unknown } } }).__LASTLIGHT__.simulation;
+    sim.damage(sim.player, 999, 'bot-1');
+  });
+  await page.waitForSelector('#result-screen', { state: 'visible' });
+  assert.ok(await visible(page, '#replay-button'), 'the replay button is offered');
+  assert.ok(await visible(page, '#spectate-button'), 'and so is watching on');
+  const before = await page.evaluate(() => { const a = (window as unknown as { __LASTLIGHT__: { simulation: { state: { actors: Array<{ id: string; position: { x: number; z: number } }> } } } }).__LASTLIGHT__.simulation.state.actors.find(x => x.id === 'bot-1')!; return { x: a.position.x, z: a.position.z }; });
+  await page.click('#replay-button');
+  await page.waitForTimeout(700);
+  assert.ok(await visible(page, '#replay-bar'), 'replay banner');
+  assert.equal(await visible(page, '#result-screen'), false, 'results are hidden while it plays');
+  assert.match(await page.textContent('#replay-detail') ?? '', /Đối thủ 1/);
+  await page.click('#replay-stop');
+  await page.waitForTimeout(300);
+  assert.equal(await visible(page, '#replay-bar'), false);
+  assert.ok(await visible(page, '#result-screen'), 'the results come back');
+  const after = await page.evaluate(() => { const a = (window as unknown as { __LASTLIGHT__: { simulation: { state: { actors: Array<{ id: string; position: { x: number; z: number } }> } } } }).__LASTLIGHT__.simulation.state.actors.find(x => x.id === 'bot-1')!; return { x: a.position.x, z: a.position.z }; });
+  assert.deepEqual(after, before, 'the world is put back exactly as it was');
+  assert.ok(await visible(page, '#replay-button'), 'it can be watched again');
+  assert.deepEqual((page as Page & { errors: string[] }).errors, []);
+  await context.close();
+});

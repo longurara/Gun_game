@@ -148,3 +148,24 @@ test('stance is dropped when getting into a car and cannot change while driving 
   falling.start();
   assert.equal(falling.setStance('crouch'), false, 'not from the plane');
 });
+
+test('a bot holding a long-range position lies down, one holding at medium range crouches, and a moving bot stands', () => {
+  const stanceAt = (distance: number, weapon: string) => {
+    const game = new GameSimulation({ seed: 7, botCount: 2, map: 'arena' });
+    game.start();
+    const bot = game.state.actors[1];
+    bot.weapon = weapon; bot.ownedWeapons = [weapon]; bot.ammo[weapon] = 5;
+    bot.position = { x: -60, y: 0, z: -20 };
+    game.player.position = { x: -60 + distance, y: 0, z: -20 };
+    game.state.actors.slice(2).forEach(a => { a.alive = false; });
+    // The bot has already spotted the player and can see them.
+    const runtime = (game as unknown as { runtime(a: unknown): { targetId: string | null; memory: number; reaction: number; focus: number } }).runtime(bot);
+    runtime.targetId = 'player'; runtime.memory = 6; runtime.reaction = 0; runtime.focus = 1;
+    (game as unknown as { rebuildActorGrid(): void }).rebuildActorGrid();
+    (game as unknown as { updateBot(a: unknown, dt: number): void }).updateBot(bot, 1 / 30);
+    return bot.stance;
+  };
+  assert.equal(stanceAt(40, 'sniper'), 'crouch', 'scoped rifle at 40 m: crouch');
+  assert.equal(stanceAt(90, 'sniper'), 'prone', 'scoped rifle at 90 m: lie down');
+  assert.equal(stanceAt(12, 'rifle'), 'stand', 'close range with a rifle: keep moving');
+});

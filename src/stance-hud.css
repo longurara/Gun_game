@@ -15,3 +15,18 @@ html[data-input="touch"] .touch-prone { position: absolute; width: 46px; height:
 html[data-input="touch"] .touch-crouch { left: calc(max(12px, 7% - 30px) + 74px + var(--safe-left, 0px)); }
 html[data-input="touch"] .touch-prone { left: calc(max(12px, 7% - 30px) + 126px + var(--safe-left, 0px)); }
 html[data-input="touch"] .touch-crouch > span, html[data-input="touch"] .touch-prone > span { display: none; }
+
+/* Gunshot direction cues: pale wedges around the crosshair that fade over a second and a half. */
+.sound-dirs { position: absolute; inset: 0; pointer-events: none; }
+.sound-dir { position: absolute; left: 50%; top: 50%; width: 330px; height: 330px; transform: translate(-50%, -50%); opacity: 0; --loud: 1; }
+.sound-dir i { position: absolute; left: 50%; top: 0; width: 80px; height: 30px; transform: translateX(-50%); background: radial-gradient(ellipse at 50% 100%, rgba(255, 230, 150, .95), rgba(255, 230, 150, 0) 72%); }
+.sound-dir.flash { animation: sound-flash 1.5s ease-out forwards; }
+@keyframes sound-flash { 0% { opacity: calc(var(--loud) * .9); } 100% { opacity: 0; } }
+html[data-input="touch"] .sound-dir { width: 240px; height: 240px; }
+
+/* Kill replay banner: sits over the canvas, above everything else. */
+.replay-bar { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 14px; padding: 9px 14px; background: #0f1e18e6; border: 1px solid #ffffff2e; font-size: 11px; letter-spacing: 2px; color: #f1f0dc; white-space: nowrap; pointer-events: auto; }
+.replay-bar[hidden] { display: none; }
+.replay-bar small { font-size: 10px; letter-spacing: .8px; color: #f2b43c; }
+.replay-bar button { padding: 6px 12px; font: inherit; font-size: 10px; letter-spacing: 1.5px; color: #17120a; background: #f2b43c; border: 0; cursor: pointer; }
+html[data-input="touch"] .replay-bar { bottom: auto; top: calc(10px + var(--safe-top, 0px)); padding: 6px 10px; gap: 8px; font-size: 9px; }

@@ -13,11 +13,14 @@ type Callbacks = {
   /** Keep watching the match after dying, and stop watching. */
   onSpectate?: () => void;
   onSpectateExit?: () => void;
+  /** Watch the last seconds before dying again, and stop watching. */
+  onReplay?: () => void;
+  onReplayStop?: () => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
   onTouchOverlayChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1 };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false };
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
 const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
@@ -52,7 +55,7 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 }
 function readSettings(): GameSettings {
   const touch = document.documentElement.dataset.input === 'touch';
-  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: touch ? 0.75 : 1 };
+  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: touch ? 0.75 : 1, soundIndicator: touch };
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
@@ -71,6 +74,7 @@ function readSettings(): GameSettings {
     showFps: raw.showFps === true,
     aimAssist: raw.aimAssist === 'off' || raw.aimAssist === 'low' || raw.aimAssist === 'high' ? raw.aimAssist : defaults.aimAssist,
     recoilScale: clamp(raw.recoilScale, 0.3, 1.5, defaults.recoilScale),
+    soundIndicator: typeof raw.soundIndicator === 'boolean' ? raw.soundIndicator : defaults.soundIndicator,
   };
 }
 function readBest(): BestRecord {
@@ -159,6 +163,7 @@ export class GameUI {
                 <div class="setting-gyro-head"><span>${icon('target')}<span>Hỗ trợ ngắm<small>Camera chậm lại khi tâm lướt qua địch và hút nhẹ về thân khi bạn bắn hoặc ngắm</small></span></span></div>
                 <div id="assist-choice" class="seg seg-compact" role="radiogroup" aria-label="Hỗ trợ ngắm"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="low"><b>Nhẹ</b></button><button type="button" role="radio" data-value="high"><b>Mạnh</b><small>như Free Fire</small></button></div>
               </div>
+              <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện hướng tiếng súng<small>Vệt nhạt quanh tâm chỉ hướng người khác nổ súng gần bạn</small></span></span><input id="sound-indicator" type="checkbox" aria-label="Hiện hướng tiếng súng"></label>
               <label class="setting-row setting-check"><span>${icon('target')}<span>Gợi ý cho người mới<small>Mẹo ngắn hiện một lần, lần đầu bạn gặp từng tình huống</small></span></span><input id="tips" type="checkbox" aria-label="Gợi ý cho người mới"></label>
               <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện FPS<small>Số khung hình mỗi giây và số vật thể đang vẽ, để biết máy có chạy nổi không</small></span></span><input id="show-fps" type="checkbox" aria-label="Hiện FPS"></label>
               <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
@@ -190,7 +195,7 @@ export class GameUI {
         <div class="compass"><div class="compass-needle"></div><div id="compass-labels" class="compass-labels"></div><span id="compass-degrees" class="compass-degrees">000°</span></div>
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
-        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
+        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="sound-dirs" class="sound-dirs" aria-hidden="true">${[0, 1, 2, 3].map(i => `<div id="sound-dir-${i}" class="sound-dir"><i></i></div>`).join('')}</div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
         <div id="stance-badge" class="stance-badge" hidden></div><div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
@@ -201,8 +206,8 @@ export class GameUI {
         <div class="orientation-hint">Xoay điện thoại ngang để chơi</div>
       </section>
       <section id="pause-screen" class="overlay-screen" aria-labelledby="pause-title" hidden><div class="dialog pause-dialog"><div class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU ĐÃ TẠM DỪNG</div><h2 id="pause-title">NGHỈ MỘT NHỊP.</h2><p>Chiến trường đang chờ bạn quay lại.</p><button id="resume-button" class="button button-primary" type="button">TIẾP TỤC TRẬN ${icon('arrow')}</button><button id="pause-restart" class="button button-secondary" type="button">CHƠI LẠI</button><button id="pause-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button><small class="dialog-hint">Nhấn ESC để tiếp tục</small></div></section>
-      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
-      <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="replay-button" class="button button-secondary" type="button" hidden>XEM LẠI CÚ HẠ GỤC ${icon('arrow')}</button><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
+      <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="replay-bar" class="replay-bar" hidden><span id="replay-title">PHÁT LẠI · 8 GIÂY CUỐI</span><small id="replay-detail"></small><button id="replay-stop" type="button">ĐÓNG</button></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
     `;
@@ -217,6 +222,7 @@ export class GameUI {
     this.el('recoil-scale').addEventListener('input', () => this.changeSettings({ recoilScale: Number((this.el('recoil-scale') as HTMLInputElement).value) }));
     choose('gyro-choice', value => this.changeSettings({ gyro: value === 'always' ? 'always' : value === 'aim' ? 'aim' : 'off' }));
     this.el('gyro-sensitivity').addEventListener('input', () => this.changeSettings({ gyroSensitivity: Number((this.el('gyro-sensitivity') as HTMLInputElement).value) }));
+    this.el('sound-indicator').addEventListener('change', () => this.changeSettings({ soundIndicator: (this.el('sound-indicator') as HTMLInputElement).checked }));
     this.el('tips').addEventListener('change', () => this.changeSettings({ tips: (this.el('tips') as HTMLInputElement).checked }));
     this.el('show-fps').addEventListener('change', () => this.changeSettings({ showFps: (this.el('show-fps') as HTMLInputElement).checked }));
     this.el('gyro-invert').addEventListener('change', () => this.changeSettings({ gyroInvertY: (this.el('gyro-invert') as HTMLInputElement).checked }));
@@ -233,6 +239,8 @@ export class GameUI {
     this.el('pause-restart').addEventListener('click', callbacks.onRestart);
     this.el('restart-button').addEventListener('click', callbacks.onRestart);
     this.el('spectate-button').addEventListener('click', () => callbacks.onSpectate?.());
+    this.el('replay-button').addEventListener('click', () => callbacks.onReplay?.());
+    this.el('replay-stop').addEventListener('click', () => callbacks.onReplayStop?.());
     this.el('spectate-exit').addEventListener('click', () => callbacks.onSpectateExit?.());
     this.el('pause-menu').addEventListener('click', callbacks.onMenu);
     this.el('result-menu').addEventListener('click', callbacks.onMenu);
@@ -344,6 +352,7 @@ export class GameUI {
     this.text('gyro-sensitivity-value', `${this.settings.gyroSensitivity.toFixed(2)}×`);
     (this.el('gyro-invert') as HTMLInputElement).checked = this.settings.gyroInvertY;
     (this.el('tips') as HTMLInputElement).checked = this.settings.tips;
+    (this.el('sound-indicator') as HTMLInputElement).checked = this.settings.soundIndicator;
     (this.el('show-fps') as HTMLInputElement).checked = this.settings.showFps;
     const info = MAP_INFO[this.settings.map];
     this.text('preview-title', info.title);
@@ -560,6 +569,18 @@ export class GameUI {
     this.damageUntil = performance.now() + 900;
   }
 
+  private soundSlot = 0;
+  /** A pale wedge pointing at a gunshot: `angle` is relative to where you face, `strength` (0..1) is how loud it was. */
+  public showSoundFrom(angle: number, strength: number): void {
+    const indicator = this.el(`sound-dir-${this.soundSlot}`);
+    this.soundSlot = (this.soundSlot + 1) % 4;
+    indicator.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+    indicator.style.setProperty('--loud', `${Math.max(0.25, Math.min(1, strength)).toFixed(2)}`);
+    indicator.classList.remove('flash');
+    void (indicator as HTMLElement).offsetWidth;
+    indicator.classList.add('flash');
+  }
+
   /** Speedometer and car condition while driving; pass null on foot. */
   public setVehicle(info: { speed: number; health: number } | null): void {
     this.hide('vehicle-hud', !info);
@@ -569,6 +590,16 @@ export class GameUI {
     const bar = this.el('vehicle-health-bar');
     bar.style.transform = `scaleX(${Math.max(0, Math.min(1, info.health))})`;
     bar.classList.toggle('low', info.health < 0.3);
+  }
+
+  /** Show or hide the "watch the kill again" button on the results screen. */
+  public setReplayAvailable(available: boolean): void { this.hide('replay-button', !available); }
+
+  /** While the kill replay plays the results are hidden behind a small banner; `detail` names the killer and gun. */
+  public setReplay(active: boolean, detail = ''): void {
+    this.hide('replay-bar', !active);
+    this.hide('result-screen', active || this.phase === 'playing' || this.phase === 'paused' || this.phase === 'menu');
+    if (active) this.text('replay-detail', detail);
   }
 
   /** Banner while watching the match after dying; null otherwise. */

@@ -196,3 +196,21 @@ test('recoil strength and aim assist are settings that persist; phones default t
   assert.equal(desktop.settings.aimAssist, 'off', 'no aim assist on a mouse by default');
   assert.equal(desktop.settings.recoilScale, 1, 'full PUBG-style recoil on a desktop');
 });
+
+test('gunshot cues point the right way, fade with distance and cycle through a few markers; the setting persists', () => {
+  freshDom(true);
+  const ui = new GameUI(callbacks());
+  assert.equal(ui.settings.soundIndicator, true, 'on by default on phones');
+  ui.showSoundFrom(Math.PI / 2, 0.8);
+  assert.match(el('sound-dir-0').style.transform, /rotate\(1\.5707/);
+  assert.equal(el('sound-dir-0').style.getPropertyValue('--loud'), '0.80');
+  assert.ok(el('sound-dir-0').classList.contains('flash'));
+  ui.showSoundFrom(-1, 0.05);
+  assert.equal(el('sound-dir-1').style.getPropertyValue('--loud'), '0.25', 'even a faint shot leaves a visible cue');
+  ui.showSoundFrom(0, 1); ui.showSoundFrom(0, 1); ui.showSoundFrom(2, 1);
+  assert.match(el('sound-dir-0').style.transform, /rotate\(2rad\)/, 'the fifth cue reuses the first marker');
+  const box = el('sound-indicator') as HTMLInputElement;
+  box.checked = false; change(box);
+  el('ui-root').innerHTML = '';
+  assert.equal(new GameUI(callbacks()).settings.soundIndicator, false);
+});
