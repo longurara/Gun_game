@@ -21,6 +21,7 @@ export class AccountView {
   /** What the window is currently built for; the skeleton is only rebuilt when this changes, so typing is never wiped. */
   private shape = '';
   private lastQuery = '';
+  private searched = false;
 
   constructor(parent: HTMLElement, private readonly store: SocialStore, private readonly callbacks: AccountCallbacks) {
     this.root = document.createElement('section');
@@ -90,6 +91,7 @@ export class AccountView {
 
   private async runSearch(): Promise<void> {
     this.lastQuery = this.value('acc-query');
+    this.searched = this.lastQuery.trim().length > 0;
     await this.store.search(this.lastQuery);
   }
 
@@ -183,7 +185,7 @@ export class AccountView {
   }
 
   private searchHtml(results: Person[]): string {
-    if (!results.length) return '<p class="acc-empty">Nhập ít nhất 2 ký tự của tên người chơi rồi bấm TÌM.</p>';
+    if (!results.length) return this.searched ? '<p class="acc-empty">Không có kết quả. Nhập đúng tên người chơi (không phân biệt hoa thường).</p>' : '<p class="acc-empty">Nhập tên người chơi (đầy đủ hoặc vài chữ đầu) rồi bấm TÌM.</p>';
     const store = this.store;
     return `<ul>${results.map(p => {
       const edge = store.state.edges.find(e => e.person.id === p.id);

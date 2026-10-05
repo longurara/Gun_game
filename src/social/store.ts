@@ -131,7 +131,7 @@ export class SocialStore {
     await this.run(async () => {
       const results = await this.api.search(prefix);
       this.set({ results });
-      if (!results.length && prefix.trim().length >= 2) this.say('Không tìm thấy ai với tên đó.');
+      if (!results.length && prefix.trim().length >= 1) this.say('Không tìm thấy ai với tên đó. Kiểm tra lại cách viết (không phân biệt hoa thường).');
     });
   }
 

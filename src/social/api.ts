@@ -165,7 +165,7 @@ export class SupabaseSocialApi implements SocialApi {
 
   async search(prefix: string): Promise<Person[]> {
     const clean = prefix.trim().replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
-    if (clean.length < 2) return [];
+    if (clean.length < 1) return [];
     const account = await this.currentAccount();
     const { data, error } = await this.db.from('profiles').select(PROFILE_COLUMNS).ilike('username', `${escapeLike(clean)}%`).limit(12);
     if (error) throw friendlyError(error);

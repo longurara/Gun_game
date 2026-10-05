@@ -80,7 +80,7 @@ export class FakeSocialApi implements SocialApi {
   async search(prefix: string) {
     const me = this.need();
     const clean = prefix.trim();
-    if (clean.length < 2) return [];
+    if (clean.length < 1) return [];
     return this.server.users.filter(u => u.id !== me.id && u.username.toLowerCase().startsWith(clean.toLowerCase())).slice(0, 12).map(u => this.server.person(u));
   }
   async request(userId: string): Promise<'sent' | 'accepted'> {

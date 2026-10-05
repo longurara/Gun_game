@@ -199,3 +199,24 @@ test('the profile chip on the main screen shows the account name and saved total
   assert.equal(q('#best-third-label')!.textContent, 'SỐNG LÂU NHẤT');
   assert.equal(q('#best-wins')!.textContent, '0');
 });
+
+test('search accepts a full name or one letter, and says plainly when nobody matches', async () => {
+  const { hana, minh, view } = await twoFriends();
+  view.show(true);
+  click(q('[data-act="tab-search"]'));
+  assert.match(q('#acc-list')!.textContent!, /đầy đủ hoặc vài chữ đầu/);
+  type('#acc-query', 'minh');
+  click(q('[data-act="search"]'));
+  await settle();
+  assert.match(q('#acc-list')!.textContent!, /Minh/);
+  type('#acc-query', 'M');
+  click(q('[data-act="search"]'));
+  await settle();
+  assert.match(q('#acc-list')!.textContent!, /Minh/);
+  type('#acc-query', 'Nobody');
+  click(q('[data-act="search"]'));
+  await settle();
+  assert.match(q('#acc-list')!.textContent!, /Không có kết quả/);
+  assert.match(q('#acc-msg')!.textContent!, /Không tìm thấy/);
+  void hana; void minh;
+});
