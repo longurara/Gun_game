@@ -8,12 +8,11 @@ export function isTouchDevice(): boolean {
 }
 
 /** Babylon without adaptToDeviceRatio renders CSS pixels / hardware scaling. */
-export function renderBudgetFor(quality: GameSettings['quality'], touch: boolean, width: number, height: number, dpr = 1) {
-  const area = Math.max(1, width) * Math.max(1, height);
+export function renderBudgetFor(quality: GameSettings['quality'], touch: boolean, _width: number, _height: number, dpr = 1) {
   if (touch) {
-    const pixelBudget = quality === 'low' ? 550_000 : 900_000;
-    const baseScale = quality === 'low' ? 1.15 : 1;
-    return { scaling: Math.max(baseScale, Math.sqrt(area / pixelBudget)), shadows: false };
+    const density = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+    // Render every device pixel at both quality levels, with no resolution cap.
+    return { scaling: 1 / density, shadows: false };
   }
   return { scaling: quality === 'low' ? Math.max(1.4, dpr) : Math.max(1, dpr * 0.75), shadows: quality === 'high' };
 }

@@ -96,7 +96,7 @@ Người chơi bắt đầu với AR-26. Cụm vật phẩm ngay quanh điểm x
 - Vòng bo thu qua 6 giai đoạn, gây sát thương ngoài vùng an toàn và cuối cùng thu về 0. Mục tiêu thời lượng trận đầy đủ khoảng 6–10 phút; người chơi có thể thua sớm.
 - Menu tiếng Việt, HUD máu/đạn, rack 8 ô súng, tâm ngắm/ống ngắm, báo trúng đạn, minimap địa hình/vị trí người chơi/bo, thông báo nhặt đồ, kết quả thắng/thua, số hạ gục, thời gian sống và độ chính xác; chơi lại hoặc về menu.
 - Nhân vật low-poly, camera tránh vật cản, hiệu ứng đường đạn/chớp nòng và âm thanh tạo bằng Web Audio. Có tùy chọn đồ họa, âm lượng và độ nhạy chuột.
-- Trên thiết bị cảm ứng, render có giới hạn số pixel, tắt bóng động, giảm cây/cỏ trang trí và tần suất cập nhật đồ họa/HUD. Khi trang bị ẩn, game tạm dừng và ngừng render. Các tối ưu này giữ nguyên luật trận và hitbox.
+- Trên thiết bị cảm ứng, render đầy đủ độ phân giải màn hình theo devicePixelRatio, không giới hạn số pixel ở cả hai mức chất lượng, tắt bóng động, giảm cây/cỏ trang trí và tần suất cập nhật đồ họa/HUD. Khi trang bị ẩn, game tạm dừng và ngừng render. Các tối ưu này giữ nguyên luật trận và hitbox.
 
 Thắng khi bạn còn sống và tất cả bot đã bị loại; thua khi bạn chết. Đây là bản MVP để chơi thử và tiếp tục tinh chỉnh cảm giác súng, hình ảnh và AI. Hiệu năng tùy thiết bị và trình duyệt.
 
@@ -113,11 +113,11 @@ npm test
 npm run test:scenarios
 ```
 
-Bộ kiểm thử tự động kiểm tra catalogue 8 súng, nhặt đúng súng/đạn, băng đạn và dự trữ độc lập, ngắm và độ tản, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, đường đi của bot và 10 seed trận đầy đủ. Có thêm kiểm tra ngân sách pixel trên điện thoại/máy tính bảng ở DPR 1/2/3 và hành vi chất lượng desktop. Script kịch bản in kết quả cho người chơi thụ động và các trận chỉ quan sát bot.
+Bộ kiểm thử tự động kiểm tra catalogue 8 súng, nhặt đúng súng/đạn, băng đạn và dự trữ độc lập, ngắm và độ tản, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, đường đi của bot và 10 seed trận đầy đủ. Có thêm kiểm tra độ phân giải đầy đủ trên điện thoại/máy tính bảng ở DPR 1/2/3/4 và hành vi chất lượng desktop. Script kịch bản in kết quả cho người chơi thụ động và các trận chỉ quan sát bot.
 
 Trong 10 seed đã kiểm tra sau khi mở rộng vũ khí, các trận chỉ quan sát bot kết thúc sau **418–432 giây** và còn **3–6 bot ở giây 60**. Đây là kiểm tra logic mô phỏng, không phải phép đo FPS hoặc bảo đảm thời lượng cho mọi cách chơi.
 
-Phạm vi kiểm tra trình duyệt và ảnh minh chứng được ghi riêng tại [KIEM_THU.md](KIEM_THU.md). Chưa có phép đo FPS hay xác nhận hiệu năng trên điện thoại thật; các kiểm tra ngân sách render là kiểm tra logic. Các thiết bị và trình duyệt khác cần chơi thử riêng.
+Phạm vi kiểm tra trình duyệt và ảnh minh chứng được ghi riêng tại [KIEM_THU.md](KIEM_THU.md). Chưa có phép đo FPS hay xác nhận hiệu năng trên điện thoại thật; các kiểm tra độ phân giải render là kiểm tra logic. Các thiết bị và trình duyệt khác cần chơi thử riêng.
 
 ## Đưa lên hosting tĩnh
 

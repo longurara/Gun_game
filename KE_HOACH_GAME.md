@@ -12,7 +12,7 @@ Game bắn súng sinh tồn lấy cảm hứng từ vòng chơi PUBG, có tên, 
 | Bản đồ | Khoảng 200 × 200 m, công trình, thùng và đá làm vật che; nhà là khối đặc, không có nội thất |
 | Di chuyển | WASD theo camera, Shift chạy, Space nhảy, va chạm và camera tránh vật cản |
 | Cảm ứng | Cần di chuyển bên trái, vuốt xoay camera bên phải, nút bắn/ngắm/hành động/đổi súng/pause; bố cục dọc và ngang |
-| Cấu hình mobile | Mặc định 5 bot, chất lượng thấp khi chưa có cài đặt đã lưu; giới hạn pixel, tắt bóng động, giảm chi tiết trang trí và cập nhật đồ họa/HUD |
+| Cấu hình mobile | Mặc định 5 bot, chất lượng thấp khi chưa có cài đặt đã lưu; độ phân giải màn hình đầy đủ, tắt bóng động, giảm chi tiết trang trí và cập nhật đồ họa/HUD |
 | Chiến đấu | 8 súng, ngắm, sát thương thân/đầu, vật cản chặn đạn, độ tản/giật và nạp đạn riêng |
 | Trang bị | 8 ô súng; mỗi súng có băng đạn và dự trữ độc lập; thuốc hồi máu |
 | AI | Tuần tra, phát hiện theo hướng/đường nhìn, giao chiến với người và bot khác, tìm đường quanh vật cản, nạp đạn, hồi máu, vào bo |
@@ -53,7 +53,7 @@ TypeScript + Vite + Babylon.js; render WebGL trong trình duyệt và phân ph�
 ```text
 src/
   main.ts              # render 3D, camera, input, vòng game
-  device.ts            # nhận diện cảm ứng và giới hạn ngân sách pixel render
+  device.ts            # nhận diện cảm ứng và độ phân giải render theo thiết bị
   weapon-models.ts     # model riêng cho 8 súng
   audio.ts             # âm thanh
   types.ts             # kiểu dữ liệu chung
@@ -80,7 +80,7 @@ Mô phỏng tách khỏi DOM/render, chia bước thời gian tối đa 1/30 gi�
 | Loot, hồi máu, bo, thắng/thua, pause/reset | Đã triển khai |
 | 8 súng, đạn riêng, rack phím số và ống ngắm | Đã triển khai |
 | Điều khiển cảm ứng và cấu hình render mobile | Đã triển khai; cần kiểm chứng hiệu năng trên điện thoại thật |
-| Kiểm thử logic và build | Có kiểm thử mô phỏng, 8 súng và ngân sách render; kết quả bàn giao ghi tại KIEM_THU.md |
+| Kiểm thử logic và build | Có kiểm thử mô phỏng, 8 súng và độ phân giải render; kết quả bàn giao ghi tại KIEM_THU.md |
 | Chơi thử trên trình duyệt | Phạm vi và giới hạn được ghi tại KIEM_THU.md |
 | Hosting công khai và thử với người chơi ngoài máy phát triển | Chưa thực hiện |
 

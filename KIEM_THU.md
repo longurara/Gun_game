@@ -4,7 +4,7 @@ Ngày: **05/10/2026**. Phạm vi: bản single player trên web với **8 loại
 
 ## Kiểm thử tự động
 
-- `npm test`: **52 kiểm thử vượt qua**. Bao gồm nhặt và nạp đúng đạn cho từng súng, tầm bắn/nhịp bắn, sát thương thân/đầu, độ chính xác khi ngắm, vật cản, đồ rơi và reset; có thêm 6 kiểm tra joystick và 4 kiểm tra ngân sách render theo kích thước/DPR.
+- `npm test`: **52 kiểm thử vượt qua**. Bao gồm nhặt và nạp đúng đạn cho từng súng, tầm bắn/nhịp bắn, sát thương thân/đầu, độ chính xác khi ngắm, vật cản, đồ rơi và reset; có thêm 6 kiểm tra joystick và 4 kiểm tra độ phân giải render theo kích thước/DPR.
 - Kiểm tra TypeScript và build production: **vượt qua**.
 - `npm run test:scenarios`: **vượt qua**. 10 trận mô phỏng chỉ quan sát bot, dùng các seed cố định: tất cả kết thúc trong **418–432 giây**, còn **3–6 bot tại giây 60**. Người chơi thụ động thua sau 77–212 giây. Đây là kiểm tra mô phỏng, không phải các trận do người chơi tự hoàn thành.
 
@@ -38,7 +38,7 @@ Chrome giả lập cảm ứng iPhone, viewport **844 × 390** và **667 × 375*
 - Nhảy, nạp đạn, nhặt AMR-50, chọn qua Kho súng, bật/tắt scope 8×, đổi súng, hồi máu và tạm dừng/tiếp tục.
 - Giữ nút Bắn với AMR-50 chỉ bắn một phát; cần chạm lại cho phát tiếp theo.
 - Thay đổi viewport trong lúc bắn xóa trạng thái giữ nút, không làm nhân vật bắn liên tục ngoài ý muốn.
-- Mặc định đồ họa thấp, không khóa chuột, tắt bóng động. Ở 844 × 390, buffer thực là **733 × 339 pixel**; ở 667 × 375 là **580 × 326 pixel**, đều trong ngân sách render.
+- Lần kiểm tra cảm ứng trước khi đổi độ phân giải: buffer là 733 × 339 và 580 × 326 pixel. Bản hiện tại đã bỏ giới hạn này: ở DPR 3, viewport 844 × 390 render **2532 × 1170 pixel** với cả hai mức chất lượng. Độ phân giải mới được xác nhận bằng kiểm thử logic; chưa đo lại buffer trong trình duyệt.
 - Ghi nhận **0 lỗi pageerror**. Bot được giữ yên trong tình huống dev để kiểm tra input độc lập.
 
 Chưa kiểm tra trên điện thoại vật lý, chưa cam kết FPS hoặc hỗ trợ riêng cho Safari iOS. Bố cục ưu tiên cầm ngang.
