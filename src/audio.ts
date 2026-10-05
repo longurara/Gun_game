@@ -1,5 +1,6 @@
 import type { GameEvent, Vec3, WeaponType } from './types';
 import { WEAPONS } from './game/weapons';
+import { MenuMusic } from './menu-music';
 
 /** Short procedural effects: no downloaded assets, loops, or audio before a user gesture. */
 /**
@@ -31,6 +32,7 @@ export class GameAudio {
   private listenerYaw = 0;
   private currentPan: number | null = null;
   private stepSide = false;
+  private music: MenuMusic | null = null;
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
   async unlock(): Promise<void> {
@@ -235,6 +237,19 @@ export class GameAudio {
     this.tone(660, 0.22, 0.045, 'sine', 0.26);
   }
 
+  /**
+   * The main-menu theme. Call every frame with whether the menu is showing: it fades in when the browser lets audio
+   * start (after the first click or key press) and out when a match begins.
+   */
+  setMenuMusic(on: boolean): void {
+    if (this.disposed) return;
+    const playing = this.music?.running ?? false;
+    if (on && !playing && this.context && this.master && this.ready()) {
+      this.music ??= new MenuMusic(this.context, this.master);
+      this.music.start();
+    } else if (!on && playing) this.music?.stop();
+  }
+
   /** Cancel even future scheduled notes immediately when gameplay is paused. */
   pause(): void {
     for (const source of this.sources) {
@@ -246,6 +261,8 @@ export class GameAudio {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.music?.stop();
+    this.music = null;
     this.pause();
     this.master?.disconnect();
     const context = this.context;

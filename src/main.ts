@@ -70,6 +70,8 @@ const touchDevice = isTouchDevice();
 document.documentElement.dataset.input = touchDevice ? 'touch' : 'mouse';
 const sim = new GameSimulation({ botCount: 5, difficulty: 'normal' });
 const audio = new GameAudio();
+// Browsers only start audio after a gesture: the first click, touch or key press anywhere lets the menu theme begin.
+for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => { void audio.unlock(); }, { once: true, capture: true });
 let engine: Engine;
 let scene: Scene;
 let camera: FreeCamera;
@@ -1455,6 +1457,7 @@ try {
     if (frameInterval && now - lastRenderTime < frameInterval - 1) return;
     lastRenderTime = now;
     const dt = Math.min(0.1, Math.max(0, (now - clock) / 1000)); clock = now;
+    audio.setMenuMusic(sim.state.phase === 'menu');
     if (sim.state.phase === 'playing') {
       const rawForward = gameplayInputBlocked() ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (mobile?.movement.forward ?? 0);
       const rawSide = gameplayInputBlocked() ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
