@@ -158,6 +158,8 @@ export class ClientSession {
   private jumpDown = false;
   private edge = false;
   private over = false;
+  /** Consecutive snapshots that put the local player at an earlier stage of the drop than they predicted. */
+  private regressStreak = 0;
   closedByHost = false;
 
   constructor(readonly sim: GameSimulation, private readonly transport: Transport, private readonly hostId: string, clock: () => number = () => performance.now()) {
@@ -207,7 +209,8 @@ export class ClientSession {
     const now = this.clock();
     this.lastSnapshotAt = now;
     if (echoCt) this.rttMs = this.rttMs ? this.rttMs * 0.8 + Math.max(0, now - echoCt) * 0.2 : Math.max(0, now - echoCt);
-    const result = applySnapshot(this.sim, snap, { writePositions: false, protectAmmo: now - this.lastFireAt < 350 });
+    const result = applySnapshot(this.sim, snap, { writePositions: false, protectAmmo: now - this.lastFireAt < 350, keepFlight: this.regressStreak < 12 });
+    this.regressStreak = result.flightRegress ? this.regressStreak + 1 : 0;
     this.events.push(...result.events.filter(event => !('for' in event) || (event as { for?: string }).for === undefined || (event as { for?: string }).for === this.sim.localId));
     // The plane in a snapshot is where it was a moment ago: move it on by the time the message took, riders with it.
     const plane = this.sim.state.plane;

@@ -314,7 +314,8 @@ export class GameSimulation {
       me.healing = Math.max(0, me.healing - dt);
       const pressed = input.jump && !this.jumpHeldBy.get(me.id);
       this.jumpHeldBy.set(me.id, input.jump);
-      if (me.air) this.flyPlayer(me, dt, input, pressed && me.air.mode !== 'plane');
+      // The jump from the plane is predicted too, so the door opens the instant the key goes down; the host confirms it.
+      if (me.air) this.flyPlayer(me, dt, input, pressed);
       else if (!me.vehicleId) this.walkPlayer(me, dt, input, pressed);
     }
     this.events.length = kept;
@@ -563,7 +564,7 @@ export class GameSimulation {
         if (!actor.isPlayer) this.runtime(actor).drop = this.planDrop(plane);
       }
     }
-    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [] };
+    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [], localId: this.localActor?.id };
   }
 
   /** Weighted gear tables: later tiers (cities, big houses) hold the heavy weapons. */

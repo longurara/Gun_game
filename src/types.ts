@@ -108,6 +108,8 @@ export interface GameState {
   playerRank?: number; diedAt?: number; spectating?: boolean;
   /** Multiplayer: who won once the match is over. */
   winnerId?: string;
+  /** The human at this machine (everything the HUD shows is about them). */
+  localId?: string;
 }
 /** While driving, throttle (-1 reverse to 1 forward) and steer (-1 left to 1 right) replace the move vector; jump is the handbrake. */
 export interface PlayerInput { moveX: number; moveZ: number; sprint: boolean; jump: boolean; throttle?: number; steer?: number }

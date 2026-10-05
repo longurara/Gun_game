@@ -10,6 +10,8 @@ type Callbacks = {
   onResume: () => void;
   onRestart: () => void;
   onMenu: () => void;
+  /** The "play with friends" button on the main screen. */
+  onMultiplayer?: () => void;
   onSettings: (settings: GameSettings) => void;
   /** Keep watching the match after dying, and stop watching. */
   onSpectate?: () => void;
@@ -146,6 +148,7 @@ export class GameUI {
                 <div class="setting-group"><span class="group-label">ĐỘ KHÓ</span><div id="difficulty-choice" class="seg seg-compact" role="radiogroup" aria-label="Độ khó"><button type="button" role="radio" data-value="normal"><b>Tiêu chuẩn</b></button><button type="button" role="radio" data-value="easy"><b>Dễ</b></button></div></div>
               </div>
               <button id="start-button" class="start-button" type="button"><span class="start-label">${icon('target')}<span><b>BẮT ĐẦU TRẬN</b><small id="start-sub">100 đối thủ · ≈ 10 phút</small></span></span>${icon('arrow')}</button>
+              <button id="multi-button" class="button button-secondary multi-button" type="button">CHƠI VỚI BẠN BÈ · ONLINE ${icon('arrow')}</button>
             </div>
             <div id="settings-panel" class="settings-panel" hidden>
               <div class="panel-title"><span>CHUẨN BỊ TRƯỚC KHI VÀO TRẬN</span><em>THIẾT LẬP</em></div>
@@ -207,7 +210,7 @@ export class GameUI {
         <div class="orientation-hint">Xoay điện thoại ngang để chơi</div>
       </section>
       <section id="pause-screen" class="overlay-screen" aria-labelledby="pause-title" hidden><div class="dialog pause-dialog"><div class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU ĐÃ TẠM DỪNG</div><h2 id="pause-title">NGHỈ MỘT NHỊP.</h2><p>Chiến trường đang chờ bạn quay lại.</p><button id="resume-button" class="button button-primary" type="button">TIẾP TỤC TRẬN ${icon('arrow')}</button><button id="pause-restart" class="button button-secondary" type="button">CHƠI LẠI</button><button id="pause-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button><small class="dialog-hint">Nhấn ESC để tiếp tục</small></div></section>
-      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="replay-button" class="button button-secondary" type="button" hidden>XEM LẠI CÚ HẠ GỤC ${icon('arrow')}</button><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
+      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="replay-button" class="button button-secondary" type="button" hidden>XEM LẠI CÚ HẠ GỤC ${icon('arrow')}</button><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button"><span id="restart-button-label">VÀO TRẬN MỚI</span> ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
       <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="replay-bar" class="replay-bar" hidden><span id="replay-title">PHÁT LẠI · 8 GIÂY CUỐI</span><small id="replay-detail"></small><button id="replay-stop" type="button">ĐÓNG</button></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
@@ -237,6 +240,7 @@ export class GameUI {
     root.querySelector('.wordmark')?.addEventListener('click', event => { event.preventDefault(); this.showSettings(false); });
     this.el('start-button').addEventListener('click', () => { this.hide('error-banner', true); this.callbacks.onStart({ ...this.settings }); });
     this.el('resume-button').addEventListener('click', callbacks.onResume);
+    this.el('multi-button').addEventListener('click', () => callbacks.onMultiplayer?.());
     this.el('pause-restart').addEventListener('click', callbacks.onRestart);
     this.el('restart-button').addEventListener('click', callbacks.onRestart);
     this.el('spectate-button').addEventListener('click', () => callbacks.onSpectate?.());
@@ -410,7 +414,7 @@ export class GameUI {
       if (focusId) this.el(focusId).focus({ preventScroll: true });
       if (results) this.showResults(state);
     }
-    const player = state.actors.find(actor => actor.isPlayer);
+    const player = state.actors.find(actor => actor.id === state.localId) ?? state.actors.find(actor => actor.isPlayer);
     if (!player) return;
     if (this.currentWeapon !== player.weapon || phaseChanged) {
       this.currentWeapon = player.weapon;
@@ -595,13 +599,28 @@ export class GameUI {
   }
 
   /** Show or hide the "watch the kill again" button on the results screen. */
-  public setReplayAvailable(available: boolean): void { this.hide('replay-button', !available); }
+  public setReplayAvailable(available: boolean): void { this.hide('replay-button', !available || this.multiplayer); }
 
   /** While the kill replay plays the results are hidden behind a small banner; `detail` names the killer and gun. */
   public setReplay(active: boolean, detail = ''): void {
     this.hide('replay-bar', !active);
     this.hide('result-screen', active || this.phase === 'playing' || this.phase === 'paused' || this.phase === 'menu');
     if (active) this.text('replay-detail', detail);
+  }
+
+  private multiplayer = false;
+  /** In an online match the pause menu cannot pause the world and there is no restart or replay. */
+  public setMultiplayer(on: boolean): void {
+    this.multiplayer = on;
+    this.hide('pause-restart', on);
+    this.text('restart-button-label', on ? 'VỀ MÀN HÌNH CHÍNH' : 'VÀO TRẬN MỚI');
+    this.root.dataset.multiplayer = on ? 'on' : 'off';
+  }
+
+  /** The in-game menu of an online match: it opens over the running game. */
+  public setMpMenu(open: boolean): void {
+    this.hide('pause-screen', !open);
+    if (open) this.el('resume-button').focus({ preventScroll: true });
   }
 
   /** Banner while watching the match after dying; null otherwise. */
@@ -775,7 +794,7 @@ export class GameUI {
       ctx.font = '600 15px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#0b100dcc'; ctx.fillStyle = '#f4efd8';
       for (const town of world.towns) { const x = mapX(town.x), y = mapY(town.z) - (town.tier === 'city' ? 12 : 9); ctx.strokeText(town.name, x, y); ctx.fillText(town.name, x, y); }
     }
-    const player = state.actors.find(actor => actor.isPlayer);
+    const player = state.actors.find(actor => actor.id === state.localId) ?? state.actors.find(actor => actor.isPlayer);
     const plane = state.plane;
     if (plane?.active) {
       // The plane's route, so the jump point can be chosen against the towns on the map.
@@ -829,9 +848,11 @@ export class GameUI {
     this.el('result-screen').classList.toggle('victory', won);
     this.text('result-rank', won ? '#1' : `#${Math.max(2, state.playerRank ?? state.actors.filter(actor => actor.alive).length + 1)}`);
     // The place the player died in; the option to keep watching disappears once they already did.
-    this.hide('spectate-button', won || !!state.spectating || state.actors.filter(actor => actor.alive).length < 2);
-    this.text('result-title', won ? 'NGƯỜI SỐNG CUỐI.' : 'HẸN Ở TRẬN SAU.');
-    this.text('result-copy', won ? 'Bạn đã giữ vững vị trí cho đến giây cuối cùng.' : 'Mỗi lần trở lại, bạn sẽ hiểu chiến trường hơn.');
+    this.hide('spectate-button', this.multiplayer || won || !!state.spectating || state.actors.filter(actor => actor.alive).length < 2);
+    this.hide('replay-button', this.multiplayer);
+    const winner = state.winnerId ? state.actors.find(actor => actor.id === state.winnerId) : undefined;
+    this.text('result-title', won ? 'NGƯỜI SỐNG CUỐI.' : this.multiplayer && winner ? `${winner.name.toUpperCase()} CHIẾN THẮNG.` : 'HẸN Ở TRẬN SAU.');
+    this.text('result-copy', won ? 'Bạn đã giữ vững vị trí cho đến giây cuối cùng.' : this.multiplayer && winner ? `Hạng của bạn: #${state.playerRank ?? '?'}. Chúc mừng ${winner.name}!` : 'Mỗi lần trở lại, bạn sẽ hiểu chiến trường hơn.');
     this.text('result-kills', `${state.kills}`);
     const survived = state.diedAt ?? state.elapsed;
     this.text('result-time', formatTime(survived));

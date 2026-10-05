@@ -1,0 +1,60 @@
+/* The "play with friends" screen and the floating name tags in an online match. */
+.multi-button { margin-top: 10px; width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.multi-button svg { width: 18px; height: 18px; }
+
+.lobby-screen { z-index: 30; }
+.lobby-dialog { width: min(460px, 94vw); display: flex; flex-direction: column; gap: 12px; }
+.lobby-dialog h2 { margin: 0; }
+.mp-field { display: flex; flex-direction: column; gap: 6px; font-size: 9px; letter-spacing: 2px; color: #b9c9aa; }
+.mp-field input, .mp-join input { padding: 11px 12px; font: inherit; font-size: 15px; letter-spacing: 1px; color: #f2f0dd; background: #ffffff10; border: 1px solid #ffffff2a; border-radius: 3px; width: 100%; box-sizing: border-box; }
+.mp-field input:focus, .mp-join input:focus { outline: 2px solid #f2b43c; outline-offset: 1px; }
+.mp-entry { display: flex; flex-direction: column; gap: 10px; }
+.mp-or { text-align: center; font-size: 10px; letter-spacing: 1.5px; color: #8ea580; }
+.mp-join { display: flex; gap: 8px; }
+.mp-join input { text-transform: uppercase; letter-spacing: 6px; text-align: center; font-size: 20px; }
+.mp-join .button { white-space: nowrap; }
+.mp-room { display: flex; flex-direction: column; gap: 12px; }
+.mp-code-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: #ffffff0d; border: 1px solid #ffffff1f; }
+.mp-code-row small { display: block; font-size: 8px; letter-spacing: 2px; color: #93a885; }
+.mp-code-row strong { font-size: 30px; letter-spacing: 8px; color: #f2b43c; font-weight: 600; }
+.mp-config { font-size: 11px; letter-spacing: .6px; color: #c7d4b8; }
+.mp-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 210px; overflow: auto; }
+.mp-players li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: #ffffff0c; border-left: 3px solid #ffffff30; font-size: 14px; }
+.mp-players li.me { border-left-color: #f2b43c; background: #f2b43c14; }
+.mp-players li b { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-players li em, .mp-players li i { font-style: normal; font-size: 8px; letter-spacing: 1.5px; padding: 3px 6px; background: #ffffff1a; color: #dfe8cf; }
+.mp-players li i { background: #f2b43c; color: #17120a; }
+.mp-wait { text-align: center; font-size: 11px; letter-spacing: 1px; color: #b9c9aa; padding: 6px; }
+.mp-status { min-height: 16px; font-size: 11px; letter-spacing: .5px; color: #aebf9f; text-align: center; }
+.mp-error { padding: 9px 12px; font-size: 12px; color: #ffd9c7; background: #5a2517cc; border: 1px solid #e0865f66; }
+.mp-error[hidden] { display: none; }
+.mp-foot { display: flex; justify-content: center; }
+.mp-note { font-size: 9px; line-height: 1.55; color: #8ea580; text-align: center; }
+
+#nameplates { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 3; }
+.nameplate { position: absolute; left: 0; top: 0; padding: 2px 8px; font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #fff; background: #0b1914b0; border-bottom: 2px solid #f2b43c; text-shadow: 0 1px 2px #000; white-space: nowrap; will-change: transform; }
+
+html[data-input="touch"] .lobby-dialog { gap: 8px; padding: 16px 18px; }
+html[data-input="touch"] .mp-code-row strong { font-size: 24px; }
+html[data-input="touch"] .mp-players { max-height: 110px; }
+html[data-input="touch"] .mp-note { display: none; }
+
+/* Short screens (a phone held sideways): drop the headline, put the start button beside the player list. */
+@media (max-height: 520px) {
+  .lobby-screen { align-items: flex-start; padding: 8px; }
+  .lobby-dialog { width: min(720px, 98vw); gap: 6px; padding: 12px 16px; margin: auto; }
+  .lobby-dialog .eyebrow, .lobby-dialog h2, .mp-note { display: none; }
+  .mp-field { flex-direction: row; align-items: center; gap: 10px; }
+  .mp-field span { white-space: nowrap; }
+  .mp-room { display: grid; grid-template-columns: 1fr 200px; gap: 6px 14px; }
+  .mp-room > * { grid-column: 1; }
+  .mp-room > #mp-start, .mp-room > #mp-wait { grid-column: 2; grid-row: 1 / span 3; align-self: start; }
+  .mp-code-row { padding: 6px 10px; }
+  .mp-code-row strong { font-size: 22px; letter-spacing: 6px; }
+  .mp-players { max-height: 84px; }
+  .mp-players li { padding: 6px 10px; font-size: 13px; }
+  .mp-entry { flex-direction: row; align-items: center; gap: 10px; }
+  .mp-or { display: none; }
+  .mp-entry > .button { flex: 0 0 auto; }
+  .mp-join { flex: 1; }
+}

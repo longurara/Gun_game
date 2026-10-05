@@ -153,3 +153,25 @@ test('ammo protection: a snapshot that predates the latest shots does not refill
   applySnapshot(mirror, snap);
   assert.equal(me.ammo[me.weapon], before, 'without protection the host value wins');
 });
+
+test('flight prediction: a snapshot sent before the host saw the jump does not put the local player back in the plane', () => {
+  const { host, mirror, builder } = pair('island', true, 6);
+  const me = mirror.player;
+  me.air = { mode: 'freefall', vx: 0, vy: -10, vz: 0, time: 0.2 };
+  const snap = JSON.parse(JSON.stringify(builder.build([])));
+  const stale = applySnapshot(mirror, snap, { keepFlight: true });
+  assert.equal(me.air?.mode, 'freefall', 'the local jump stands');
+  assert.equal(stale.flightRegress, true);
+  // Once the host agrees, nothing is overruled; and landing (no air state) is always accepted.
+  host.actorById('p1')!.air = { mode: 'freefall', vx: 0, vy: -10, vz: 0, time: 0.4 };
+  const agreed = applySnapshot(mirror, JSON.parse(JSON.stringify(builder.build([]))), { keepFlight: true });
+  assert.equal(agreed.flightRegress, undefined);
+  host.actorById('p1')!.air = null;
+  applySnapshot(mirror, JSON.parse(JSON.stringify(builder.build([]))), { keepFlight: true });
+  assert.equal(me.air, null);
+  // Without the option the old behaviour applies.
+  me.air = { mode: 'chute', vx: 0, vy: -6, vz: 0, time: 3 };
+  host.actorById('p1')!.air = { mode: 'plane', vx: 0, vy: 0, vz: 0, time: 0 };
+  applySnapshot(mirror, JSON.parse(JSON.stringify(builder.build([]))));
+  assert.equal(me.air?.mode, 'plane');
+});

@@ -79,6 +79,14 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - `npm test`: **390/390 đạt** (5 bài mới trong tests/ballistics.test.ts: đường đạn cắt đường ngắm đúng ở điểm 0, rơi nhanh dần, mọi súng mang vận tốc của lớp của nó, ngắm vào đầu ở 200 m trúng thân và ngắm cao hơn đúng lượng bù thì lại trúng đầu, bắn thật bằng SR-98 ở 190 m trên đảo thấp hơn điểm ngắm hơn 15 cm còn ở sân tập thì thẳng).
 - Chưa chơi thử cảm giác: hệ số trọng lực 36 m/s² và các điểm 0 là ước lượng của tôi.
 
+## Chơi online — 05/10/2026
+
+- `npm test`: **420/420 đạt** (thêm: mô phỏng nhiều người chơi 9 bài, giao thức ảnh chụp 8 bài, phiên chủ/khách và phòng chờ 13 bài trên mạng giả lập có độ trễ 40–100 ms, nhiễu 80 ms, mất gói 5%).
+- Mạng giả lập đo được: máy khách gửi khoảng 10 gói/giây, chủ phòng khoảng 10 ảnh chụp/giây, ảnh chụp trung bình dưới 9 KB (đảo 100 bot); không giật lùi khi tự dự đoán chuyển động (bước nhảy lớn nhất mỗi khung dưới 0,35 m); tường mà máy khách không biết thì chủ phòng kéo máy khách lại; bắn nhau, nạp đạn, đổi tư thế, nhặt đồ (thông báo chỉ gửi cho người nhặt), rời trận, mất kết nối 8 giây, chủ phòng đóng phòng đều đúng.
+- **Qua Supabase Realtime thật**, `npm run test:e2e` (bốn bài trong tests/e2e/multiplayer.e2e.ts): ba trình duyệt Edge tạo phòng, hai bạn vào bằng mã, thấy đủ tên, chủ phòng bấm bắt đầu, cả ba vào trận với đúng id người chơi; bạn đi bộ thì chủ phòng và người kia thấy đúng chỗ; bắn hạ nhau (máy khách dự đoán, chủ phòng quyết định) thì nạn nhân được xem tiếp và người bắn có điểm hạ gục và dòng thông báo; chủ phòng loại những người còn lại thì người cuối cùng thấy "NGƯỜI SỐNG CUỐI" và các bạn khác thấy "… CHIẾN THẮNG"; mã sai hoặc phòng không có thì báo lỗi; link `?room=` tự điền mã; hai người cùng máy bay, một người nhảy dù thật bằng phím Space, hạ cánh và chủ phòng đồng ý vị trí tiếp đất. Đo trực tiếp: độ trễ một chiều của Supabase từ máy này khoảng 80–130 ms; presence mất hơn 1 giây để lan truyền nên phòng chờ dùng nhịp tim bằng broadcast thay cho presence.
+- Chụp màn hình: phòng chờ, cảnh trong trận (bạn bè áo đỏ, tên nổi trên đầu), bố cục điện thoại 740 × 360.
+- **Chưa kiểm tra:** chơi trên nhiều máy thật và nhiều mạng khác nhau (chỉ thử nhiều tab trình duyệt trên một máy), phòng 6 người, mạng di động, chủ phòng chuyển tab giữa trận, lái xe online, giới hạn 100 tin nhắn/giây khi có nhiều phòng. Chưa có chat, bảng điểm, chuyển chủ phòng khi chủ thoát.
+
 ## Chưa kiểm tra / giới hạn
 
 - Chưa nghe thử âm thanh stereo và tiếng báo hộp tiếp tế; chưa có chỉ hướng tiếng súng trên HUD (chỉ có âm thanh).

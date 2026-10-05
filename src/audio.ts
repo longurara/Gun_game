@@ -96,14 +96,14 @@ export class GameAudio {
         // Keep nearby fire punchy while letting distant bot battles remain audible.
         if (distance > 170) return;
         const attenuation = 1 / (1 + Math.pow(distance / 22, 1.55));
-        this.currentPan = event.actorId === 'player' ? null : this.panFor(event.from, playerPosition);
+        this.currentPan = event.actorId === this.localId ? null : this.panFor(event.from, playerPosition);
         this.gunshot(event.weapon, attenuation, distance);
         this.currentPan = null;
-        if (event.actorId === 'player' && event.hitId) this.hit();
+        if (event.actorId === this.localId && event.hitId) this.hit();
         break;
       }
       case 'damage':
-        if (event.actorId === 'player') this.damage();
+        if (event.actorId === this.localId) this.damage();
         break;
       case 'pickup':
         this.tone(620, 0.09, 0.07, 'sine');
@@ -114,13 +114,13 @@ export class GameAudio {
         for (let i = 0; i < 3; i++) this.tone(event.stage === 'landed' ? 880 + i * 120 : 520 + i * 90, 0.16, 0.07, 'triangle', i * 0.17);
         break;
       case 'drop':
-        if (event.actorId !== 'player') break;
+        if (event.actorId !== this.localId) break;
         if (event.stage === 'jump') { this.noise(0.9, 0.3, 'lowpass', 1500); this.noise(0.5, 0.12, 'highpass', 2600, 0.05); }
         else if (event.stage === 'chute') { this.noise(0.12, 0.34, 'bandpass', 700); this.noise(0.5, 0.2, 'lowpass', 520, 0.08); this.tone(90, 0.25, 0.1, 'sine', 0.05, 50); }
         else { this.noise(0.1, 0.22, 'lowpass', 380); this.tone(68, 0.12, 0.12, 'sine', 0, 40); }
         break;
       case 'kill':
-        if (event.killerId === 'player') {
+        if (event.killerId === this.localId) {
           this.tone(780, 0.09, 0.055, 'triangle');
           this.tone(1040, 0.13, 0.055, 'triangle', 0.075);
         }
@@ -183,6 +183,9 @@ export class GameAudio {
 
   /** Which way the listener faces, so sounds can be placed left or right of them. */
   setListenerYaw(yaw: number): void { this.listenerYaw = yaw; }
+
+  /** The id of this machine's own player: their shots and hits are not positional sounds. */
+  localId = 'player';
 
   /** Stereo position, -1 (left) to 1 (right), of a sound at `from` for a listener at `at`. Close sounds stay near the centre. */
   private panFor(from: { x: number; z: number }, at: { x: number; z: number }): number {

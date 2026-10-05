@@ -147,6 +147,8 @@ export interface ApplyOptions {
   writePositions?: boolean;
   /** The local player has fired very recently: do not let a snapshot that predates those shots refill their magazine. */
   protectAmmo?: boolean;
+  /** Do not take the local player back to an earlier stage of the drop (a snapshot sent before the host saw their jump). */
+  keepFlight?: boolean;
 }
 
 export interface ApplyResult {
@@ -156,7 +158,12 @@ export interface ApplyResult {
   /** Rows by actor index, for the interpolation buffer. */
   poses: Map<number, PoseRow>;
   over?: string;
+  /** The snapshot said the local player was at an earlier stage of the drop than prediction, and was overruled. */
+  flightRegress?: boolean;
 }
+
+/** Plane, free fall, canopy: how far along the drop someone is. */
+const FLIGHT_ORDER: Record<string, number> = { plane: 1, freefall: 2, chute: 3 };
 
 /** Client side: bring the mirror simulation in line with a snapshot. */
 export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: ApplyOptions = {}): ApplyResult {
@@ -175,7 +182,8 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
     actor.reloading = flags & 2 ? Math.max(actor.reloading, 0.01) : 0;
     actor.healing = flags & 4 ? Math.max(actor.healing, 0.01) : 0;
     const airMode = AIR_CODES[(flags >> 3) & 3];
-    if (airMode) { if (!actor.air || actor.air.mode !== airMode) actor.air = { mode: airMode, vx: 0, vy: 0, vz: 0, time: actor.air?.time ?? 0 }; }
+    if (options.keepFlight && actor.id === localId && airMode && actor.air && (FLIGHT_ORDER[actor.air.mode] ?? 0) > (FLIGHT_ORDER[airMode] ?? 0)) result.flightRegress = true;
+    else if (airMode) { if (!actor.air || actor.air.mode !== airMode) actor.air = { mode: airMode, vx: 0, vy: 0, vz: 0, time: actor.air?.time ?? 0 }; }
     else actor.air = null;
     actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
     actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;

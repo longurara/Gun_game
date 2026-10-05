@@ -1,0 +1,86 @@
+import type { LobbyModel, LobbyView } from '../lobby-ui';
+import { Lobby, makeRoomCode, normalizeRoomCode } from './lobby';
+import type { RoomConfig } from './lobby';
+import type { MatchSetup } from './session';
+import { SupabaseTransport } from './transport';
+import type { Transport } from './transport';
+import { SUPABASE } from './config';
+
+/** Everything the game needs to begin a match once the lobby is done. */
+export interface MatchStart { setup: MatchSetup; role: 'host' | 'client'; transport: Transport; hostId: string; me: string }
+
+export interface ControllerOptions {
+  /** The map, bot count and difficulty currently chosen on the main screen: the host's room settings. */
+  config(): RoomConfig;
+  begin(start: MatchStart): void;
+  /** Tests and tools may supply another transport. */
+  makeTransport?(room: string): Transport;
+}
+
+/** Glue between the lobby view, the lobby logic and the real network. */
+export class MultiplayerController {
+  private lobby: Lobby | null = null;
+  private transport: Transport | null = null;
+  private code = '';
+  private timer = 0;
+  private localError = '';
+
+  constructor(private readonly view: LobbyView, private readonly options: ControllerOptions) {}
+
+  create(name: string): void { this.open(makeRoomCode(), name, 'host'); }
+
+  join(codeText: string, name: string): void {
+    const code = normalizeRoomCode(codeText);
+    if (code.length !== 5) { this.localError = 'Mã phòng gồm 5 ký tự.'; this.render(); return; }
+    this.open(code, name, 'client');
+  }
+
+  /** Host: begin the match for everybody in the room. */
+  start(): void { this.lobby?.start(performance.now()); }
+
+  /** The host changed the map or bots on the main screen while the room is open. */
+  refreshConfig(): void { if (this.lobby?.role === 'host') this.lobby.setConfig(this.options.config()); }
+
+  /** Close the room and the connection (before a match starts). */
+  leave(): void {
+    window.clearInterval(this.timer);
+    if (this.lobby && this.lobby.phase !== 'starting') this.lobby.leave();
+    else if (this.transport && this.lobby?.phase !== 'starting') this.transport.close();
+    this.lobby = null; this.transport = null; this.code = ''; this.localError = '';
+    this.render();
+  }
+
+  private open(code: string, name: string, role: 'host' | 'client'): void {
+    this.leave();
+    this.localError = '';
+    const transport = this.options.makeTransport ? this.options.makeTransport(code) : new SupabaseTransport(SUPABASE, code);
+    this.transport = transport;
+    this.code = code;
+    const lobby = new Lobby(transport, name, role, this.options.config());
+    this.lobby = lobby;
+    lobby.onChange(() => this.render());
+    lobby.onStart(setup => {
+      window.clearInterval(this.timer);
+      this.options.begin({ setup, role, transport, hostId: lobby.hostId ?? transport.clientId, me: transport.clientId });
+      // The transport now belongs to the match.
+      this.lobby = null; this.transport = null; this.code = '';
+    });
+    this.timer = window.setInterval(() => lobby.tick(performance.now()), 400);
+    lobby.tick(performance.now());
+    this.render();
+  }
+
+  private render(): void {
+    const lobby = this.lobby;
+    const phase = lobby?.phase ?? null;
+    const status = phase === 'connecting' ? 'Đang kết nối tới máy chủ…'
+      : phase === 'joining' ? 'Đang tìm phòng…'
+        : phase === 'waiting' ? (lobby!.role === 'host' ? 'Gửi mã phòng hoặc link cho bạn bè, rồi bấm bắt đầu.' : 'Đã vào phòng.')
+          : phase === 'starting' ? 'Đang vào trận…' : '';
+    const model: LobbyModel = {
+      phase, code: this.code, players: lobby?.players ?? [], me: lobby?.me ?? '', isHost: lobby?.role === 'host',
+      error: lobby?.error || this.localError, config: lobby?.config ?? this.options.config(), status,
+    };
+    this.view.render(model);
+  }
+}

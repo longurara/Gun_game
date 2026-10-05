@@ -4,9 +4,10 @@ import './mobile-hud.css';
 import './desktop-hud.css';
 import './air-hud.css';
 import './stance-hud.css';
+import './lobby.css';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
@@ -31,7 +32,7 @@ import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, ammoTypeOf } from './game/weapons';
-import type { Actor, GameSettings, GyroMode, Loot, Vehicle, WeaponType } from './types';
+import type { Actor, GameSettings, GyroMode, Loot, PlayerInput, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
@@ -41,6 +42,12 @@ import { STANCE } from './game/stance';
 import { lookScale, pickAssist, pullStep } from './aim-assist';
 import type { AssistTarget } from './aim-assist';
 import { ReplayRecorder, sampleReplay, shotsBetween } from './replay';
+import { LobbyView } from './lobby-ui';
+import { normalizeRoomCode } from './net/lobby';
+import { MultiplayerController } from './net/controller';
+import type { MatchStart } from './net/controller';
+import { ClientSession, HostSession, matchOptions } from './net/session';
+import type { Transport } from './net/transport';
 import type { ReplayActor } from './replay';
 import { IslandRenderer } from './island-renderer';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
@@ -91,6 +98,11 @@ let autoGlide = false;
 const recorder = new ReplayRecorder();
 let replay: { time: number; killerId: string; saved: Map<string, { x: number; y: number; z: number; yaw: number; stance: Actor['stance']; weapon: string; alive: boolean }> } | null = null;
 const lastSoundCue = new Map<string, number>();
+/** An online match: the host runs the game, a client mirrors it. Null in single player. */
+let net: { role: 'host' | 'client'; host?: HostSession; client?: ClientSession; transport: Transport } | null = null;
+let mpMenuOpen = false, mpSpectating = false;
+let lastInput: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
+const nameplates = new Map<string, HTMLDivElement>();
 /** Weapon recoil: the kick not yet recovered or pulled against, and the camera's eye height as the stance changes. */
 let bank = newBank();
 let eyeHeight = STANCE.stand.eye;
@@ -106,13 +118,14 @@ const pitchMin = () => sim.player.air ? -1.4 : -0.7;
 
 const ui = new GameUI({
   onStart: (next) => { settings = next; applySettings(); syncGyro(); start(); },
-  onResume: () => { void audio.unlock(); sim.setPaused(false); lockPointer(); clock = performance.now(); },
-  onRestart: () => start(),
-  onMenu: () => { sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
+  onResume: () => { void audio.unlock(); if (net) { mpMenuOpen = false; ui.setMpMenu(false); } else sim.setPaused(false); lockPointer(); clock = performance.now(); },
+  onRestart: () => { if (net) leaveMatch(); else start(); },
+  onMenu: () => { if (net) { leaveMatch(); return; } sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
+  onMultiplayer: openLobby,
   onSpectate: startSpectating,
   onReplay: startReplay,
   onReplayStop: stopReplay,
-  onSpectateExit: () => { sim.endSpectating(); },
+  onSpectateExit: () => { if (net) leaveMatch(); else sim.endSpectating(); },
   onSettings: (next) => { settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro(); },
   onSelectWeapon: selectWeapon,
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
@@ -137,9 +150,9 @@ if (touchDevice) {
     },
     onAimToggle: () => { if (sim.state.phase === 'playing') { void audio.unlock(); if (aiming) aiming = false; else beginAim(); } },
     onJump: (pressed) => { mobileJump = pressed; },
-    onReload: () => { if (sim.reload()) { void audio.unlock(); audio.reload(); } },
-    onInteract: () => { if (!sim.interact()) useVehicle(); },
-    onHeal: () => { if (sim.heal()) { void audio.unlock(); audio.heal(); } },
+    onReload: () => { if (doReload()) { void audio.unlock(); audio.reload(); } },
+    onInteract: () => { if (!doInteract()) useVehicle(); },
+    onHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
     onCycleWeapon: () => cycleWeapon(1),
     onPause: pause,
     onCrouch: () => toggleStance('crouch'),
@@ -158,7 +171,7 @@ function syncGyro() {
 
 /** Show where a nearby gunshot by somebody else came from (if the setting is on), at most a few times a second per shooter. */
 function cueGunshot(shooterId: string, from: { x: number; z: number }) {
-  if (!settings.soundIndicator || shooterId === 'player' || sim.state.phase !== 'playing' || !sim.player.alive || sim.player.air) return;
+  if (!settings.soundIndicator || shooterId === sim.localId || sim.state.phase !== 'playing' || !sim.player.alive || sim.player.air) return;
   const now = performance.now();
   if (now - (lastSoundCue.get(shooterId) ?? -Infinity) < 450) return;
   const at = sim.player.position;
@@ -204,6 +217,7 @@ function toggleStance(stance: 'crouch' | 'prone') {
   if (sim.state.phase !== 'playing') return;
   const next = sim.player.stance === stance ? 'stand' : stance;
   if (!sim.setStance(next)) { if (next === 'stand') ui.notify('Không đủ chỗ để đứng lên.'); return; }
+  net?.client?.queueCommand('stance', next);
   aiming = false;
   ui.tip('stance', touchDevice ? 'Nút Ngồi / Nằm: thấp hơn thì chậm hơn nhưng ngắm chính xác, giật ít và khó bị phát hiện. Nhảy hoặc chạy để đứng lên.' : 'Phím C ngồi, Z nằm (bấm lại để đứng). Thấp hơn thì chậm hơn nhưng ngắm chính xác, giật ít và khó bị phát hiện.');
 }
@@ -219,11 +233,131 @@ function onGyroLook(dYaw: number, dPitch: number) {
   lookBy(dYaw * scale * friction, dPitch * scale * friction * (settings.gyroInvertY ? -1 : 1));
 }
 
+/** Actions on the local player. Online, a client applies them to its own copy for instant feedback and asks the host; a host acts directly. */
+function doReload(): boolean {
+  const ok = sim.reload();
+  if (ok) net?.client?.queueCommand('reload');
+  return ok;
+}
+function doHeal(): boolean {
+  const ok = sim.heal();
+  if (ok) net?.client?.queueCommand('heal');
+  return ok;
+}
+function doInteract(): boolean {
+  if (net?.client) {
+    // The host decides who gets the item; the pickup arrives in the next snapshot.
+    if (!sim.lootInReach) return false;
+    net.client.queueCommand('interact');
+    return true;
+  }
+  return sim.interact();
+}
+function doVehicle(): boolean {
+  if (net?.client) {
+    if (!sim.player.vehicleId && !sim.vehicleInReach) return false;
+    net.client.queueCommand('vehicle');
+    return true;
+  }
+  return sim.useVehicle();
+}
+
+// ---- Online matches -----------------------------------------------------------------------------------------------
+
+const uiRoot = document.getElementById('ui-root')!;
+const plateLayer = document.createElement('div');
+plateLayer.id = 'nameplates';
+uiRoot.appendChild(plateLayer);
+const lobbyView = new LobbyView(uiRoot, {
+  onCreate: name => mp.create(name),
+  onJoin: (code, name) => mp.join(code, name),
+  onStart: () => mp.start(),
+  onLeave: () => mp.leave(),
+  onClose: () => lobbyView.show(false),
+});
+const mp = new MultiplayerController(lobbyView, {
+  config: () => ({ map: settings.map, botCount: settings.botCount, difficulty: settings.difficulty }),
+  begin: beginMultiplayer,
+});
+
+function openLobby() {
+  void audio.unlock();
+  lobbyView.show(true);
+  mp.refreshConfig();
+}
+
+/** The lobby is done: build the same match on every machine (the host runs it, clients mirror it). */
+function beginMultiplayer(info: MatchStart) {
+  void audio.unlock();
+  audio.pause();
+  releaseInput();
+  sim.start(matchOptions(info.setup, info.me, info.role === 'client'));
+  audio.localId = sim.localId;
+  net = info.role === 'host'
+    ? { role: 'host', host: new HostSession(sim, info.transport, info.setup), transport: info.transport }
+    : { role: 'client', client: new ClientSession(sim, info.transport, info.hostId), transport: info.transport };
+  mpMenuOpen = false; mpSpectating = false;
+  ui.setMultiplayer(true); ui.setMpMenu(false);
+  lobbyView.show(false);
+  configureWorld();
+  stopReplay(); recorder.clear();
+  pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
+  yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
+  for (const effect of effects) effect.mesh.dispose();
+  effects.length = 0;
+  for (const model of models.values()) model.root.setEnabled(false);
+  lockPointer();
+  clock = performance.now();
+  ui.notify(sim.state.plane ? 'Trận online: máy bay đang bay qua đảo. Chọn điểm đáp rồi nhảy!' : 'Trận online bắt đầu. Người sống cuối cùng chiến thắng!');
+}
+
+/** Leave an online match (the others carry on) and go back to the main screen. */
+function leaveMatch() {
+  const current = net;
+  net = null;
+  try { current?.host?.close(); current?.client?.leave(); } catch { /* the connection may already be gone */ }
+  mpMenuOpen = false; mpSpectating = false;
+  ui.setMultiplayer(false); ui.setMpMenu(false);
+  for (const label of nameplates.values()) label.remove();
+  nameplates.clear();
+  sim.returnToMenu({ map: 'arena', botCount: 5, humans: 1, localId: '', names: [], remote: false });
+  audio.localId = sim.localId;
+  configureWorld();
+  releaseInput();
+  audio.pause();
+}
+
+/** Floating names over the other players, projected from the 3D world onto the page. */
+function updateNameplates() {
+  const show = !!net && sim.state.phase === 'playing' && !spectating() && !replay;
+  const people = show ? sim.humans.filter(human => human.id !== sim.localId && human.alive && human.air?.mode !== 'plane') : [];
+  const wanted = new Set(people.map(person => person.id));
+  for (const [id, label] of nameplates) if (!wanted.has(id)) { label.remove(); nameplates.delete(id); }
+  if (!people.length) return;
+  const width = engine.getRenderWidth(), height = engine.getRenderHeight();
+  const toCss = { x: canvas.clientWidth / width, y: canvas.clientHeight / height };
+  const view = scene.getTransformMatrix(), viewport = camera.viewport.toGlobal(width, height);
+  for (const person of people) {
+    let label = nameplates.get(person.id);
+    if (!label) { label = document.createElement('div'); label.className = 'nameplate'; label.textContent = person.name; plateLayer.appendChild(label); nameplates.set(person.id, label); }
+    const distance = Vector3.Distance(camera.position, new Vector3(person.position.x, person.position.y, person.position.z));
+    const above = (person.stance === 'prone' ? 0.9 : person.stance === 'crouch' ? 1.7 : 2.25) + (person.air ? 1.5 : 0);
+    const spot = Vector3.Project(new Vector3(person.position.x, person.position.y + above, person.position.z), Matrix.IdentityReadOnly, view, viewport);
+    const visible = spot.z > 0 && spot.z < 1 && distance < 170 && spot.x > -50 && spot.x < width + 50;
+    label.style.display = visible ? 'block' : 'none';
+    if (visible) {
+      label.style.transform = `translate(${(spot.x * toCss.x).toFixed(0)}px, ${(spot.y * toCss.y).toFixed(0)}px) translate(-50%, -100%)`;
+      label.style.opacity = String(Math.max(0.35, 1 - distance / 220));
+    }
+  }
+}
+
 function start() {
   void audio.unlock();
   audio.pause();
   releaseInput();
-  sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' });
+  sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena', humans: 1, localId: '', names: [], remote: false });
+  audio.localId = sim.localId;
   configureWorld();
   stopReplay(); recorder.clear();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
@@ -290,6 +424,8 @@ function releaseInput() {
 function pause() {
   ui.toggleMap(false);
   if (sim.state.phase !== 'playing') return;
+  // Online the world cannot be paused (other people are in it): the menu just opens over the running game.
+  if (net) { if (!mpMenuOpen) { mpMenuOpen = true; releaseInput(); ui.setMpMenu(true); } return; }
   sim.setPaused(true); releaseInput(); audio.pause();
 }
 
@@ -517,7 +653,7 @@ function createChute(parent: TransformNode, id: string): TransformNode {
 }
 
 function createCharacter(actor: Actor): Character {
-  const soldier = new Soldier(scene, actor.id, actor.isPlayer, shadows);
+  const soldier = new Soldier(scene, actor.id, actor.isPlayer && actor.id === sim.localId, shadows, actor.isPlayer && actor.id !== sim.localId);
   soldier.setWeapon(actor.weapon);
   return { soldier, root: soldier.root, last: new Vector3(), stride: 0, moving: 0, crouch: 0, prone: 0 };
 }
@@ -545,7 +681,7 @@ function renderActors(dt: number) {
     model.stride += dt * model.moving * 2.2;
     // Each footfall of a nearby soldier is heard, placed left or right of the listener.
     const footfall = Math.floor(model.stride / Math.PI);
-    if (!actor.isPlayer && dt > 0 && actor.alive && !actor.air && !actor.vehicleId && model.moving > 1.5 && model.lastStep !== undefined && footfall !== model.lastStep) audio.footstepOther(actor.position, focus, model.moving > 5);
+    if (actor.id !== sim.localId && dt > 0 && actor.alive && !actor.air && !actor.vehicleId && model.moving > 1.5 && model.lastStep !== undefined && footfall !== model.lastStep) audio.footstepOther(actor.position, focus, model.moving > 5);
     model.lastStep = footfall;
     model.root.position.copyFrom(pos);
     model.root.rotation.set(0, actor.yaw, actor.alive ? 0 : Math.PI / 2);
@@ -732,11 +868,15 @@ function renderZone() {
   nextRing.position.set(zone.nextCenter.x, 0.085, zone.nextCenter.z); nextRing.scaling.set(zone.nextRadius, 1, zone.nextRadius);
 }
 
-const spectating = () => !!sim.state.spectating && !sim.player.alive;
+const spectating = () => !sim.player.alive && (!!sim.state.spectating || (!!net && sim.state.phase === 'playing'));
 
 /** Alive opponents in a stable order, for cycling through who to watch. */
 function spectateCandidates(): Actor[] {
-  return sim.state.actors.filter(actor => !actor.isPlayer && actor.alive);
+  if (!net) return sim.state.actors.filter(actor => !actor.isPlayer && actor.alive);
+  // Online only people and the bots around them are sent to every machine, so those are the ones worth watching.
+  const people = sim.humans.filter(human => human.alive && human.id !== sim.localId);
+  return sim.state.actors.filter(actor => actor.id !== sim.localId && actor.alive && !actor.air
+    && (actor.isPlayer || people.some(person => Math.hypot(person.position.x - actor.position.x, person.position.z - actor.position.z) < 300)));
 }
 
 function spectateTarget(): Actor | null {
@@ -935,11 +1075,16 @@ function shoot() {
   const ray = camera.getForwardRay(weapon.range);
   const pick = scene.pickWithRay(ray, mesh => {
     if (!mesh.isEnabled() || !mesh.isPickable) return false;
-    if (mesh.metadata?.actorId) return mesh.metadata.actorId !== 'player' && !!sim.state.actors.find(a => a.id === mesh.metadata.actorId)?.alive;
+    if (mesh.metadata?.actorId) return mesh.metadata.actorId !== sim.localId && !!sim.state.actors.find(a => a.id === mesh.metadata.actorId)?.alive;
     return !!mesh.metadata?.solid;
   });
   const target = pick?.hit && pick.pickedPoint ? pick.pickedPoint : ray.origin.add(ray.direction.scale(weapon.range));
   if (sim.shootPlayer({ x: target.x, y: target.y, z: target.z }, aiming)) {
+    if (net?.client) {
+      // The host decides what the shot hits; the gunshot is heard at once on this machine.
+      net.client.queueFire({ x: target.x, y: target.y, z: target.z }, aiming);
+      audio.handle({ type: 'shot', actorId: sim.localId, weapon: sim.player.weapon, from: { ...sim.player.position }, to: { x: target.x, y: target.y, z: target.z } }, sim.player.position);
+    }
     const push = kick(bank, weapon, { aiming, stance: sim.player.stance ?? 'stand', moving: Math.min(1, sim.playerSpeed / 5.2), scale: settings.recoilScale });
     yaw += push.yaw;
     pitch = Math.max(pitchMin(), Math.min(0.8, pitch + push.pitch));
@@ -949,7 +1094,7 @@ function shoot() {
 
 /** Get in or out of a car and reset aim state so nothing carries over. */
 function useVehicle() {
-  if (!sim.useVehicle()) return;
+  if (!doVehicle()) return;
   aiming = false; shooting = false; triggerPending = false; recoil = 0;
   mobile?.cancelFire();
 }
@@ -957,6 +1102,7 @@ function useVehicle() {
 function selectWeapon(weapon: WeaponType) {
   if (!sim.player.ownedWeapons.includes(weapon)) return;
   if (sim.switchWeapon(weapon)) {
+    net?.client?.queueCommand('switch', weapon);
     bank = newBank();
     aiming = false; shooting = false; triggerPending = false; recoil = 0;
     mobile?.cancelFire();
@@ -975,7 +1121,7 @@ function cycleWeapon(direction: number) {
 function beginAim() {
   if (WEAPONS[sim.player.weapon].zoom >= 4) {
     const ray = camera.getForwardRay(WEAPONS[sim.player.weapon].range);
-    const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && !!mesh.metadata && mesh.metadata.actorId !== 'player' && (!!mesh.metadata.solid || !!sim.state.actors.find(actor => actor.id === mesh.metadata.actorId)?.alive));
+    const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && !!mesh.metadata && mesh.metadata.actorId !== sim.localId && (!!mesh.metadata.solid || !!sim.state.actors.find(actor => actor.id === mesh.metadata.actorId)?.alive));
     const target = pick?.pickedPoint ?? ray.origin.add(ray.direction.scale(WEAPONS[sim.player.weapon].range));
     const dx = target.x - sim.player.position.x, dz = target.z - sim.player.position.z;
     yaw = Math.atan2(dx, dz);
@@ -987,7 +1133,7 @@ function beginAim() {
 
 function spawnTracer(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, shooterId: string) {
   const line = MeshBuilder.CreateLines('tracer', { points: [new Vector3(from.x, from.y, from.z), new Vector3(to.x, to.y, to.z)] }, scene);
-  line.color = Color3.FromHexString(shooterId === 'player' ? '#ffdc9b' : '#dbb785'); line.isPickable = false;
+  line.color = Color3.FromHexString(shooterId === sim.localId ? '#ffdc9b' : '#dbb785'); line.isPickable = false;
   effects.push({ mesh: line, remaining: 0.065 });
   models.get(shooterId)?.soldier.fire();
 }
@@ -1003,7 +1149,7 @@ function snapshotActors(): ReplayActor[] {
   return out;
 }
 
-const canReplay = () => sim.state.phase === 'lost' && !sim.state.spectating && recorder.playable(lastKillerId);
+const canReplay = () => !net && sim.state.phase === 'lost' && !sim.state.spectating && recorder.playable(lastKillerId);
 
 /** Replay the last seconds before the player died, from behind the killer, using the same soldiers and a few tracers. */
 function startReplay() {
@@ -1060,24 +1206,31 @@ function replayCamera(dt: number) {
 }
 
 function events(dt: number) {
-  for (const event of sim.drainEvents()) {
-    audio.handle(event, focusPosition());
+  // Online, the host also queues events for the others and a client gets them in snapshots; a client's own simulation
+  // produces nothing worth showing (the host reports it).
+  const list = net?.host ? net.host.drainEvents() : net?.client ? (sim.drainEvents(), net.client.drainEvents()) : sim.drainEvents();
+  for (const event of list) {
+    if ((event.type === 'message' || event.type === 'pickup') && event.for && event.for !== sim.localId) continue;
+    const ownEcho = !!net?.client && event.type === 'shot' && event.actorId === sim.localId;
+    if (ownEcho && event.type === 'shot' && event.hitId) sim.state.hits++;
+    if (!ownEcho) audio.handle(event, focusPosition());
+    if (net?.client && event.type === 'kill' && event.killerId === sim.localId && event.actorId !== sim.localId) sim.state.kills++;
     if (event.type === 'message') ui.notify(event.text);
     if (event.type === 'shot') {
       cueGunshot(event.actorId, event.from);
       spawnTracer(event.from, event.to, event.actorId);
       recorder.shot({ t: sim.state.elapsed, actorId: event.actorId, from: event.from, to: event.to });
     }
-    if (event.type === 'kill' && event.actorId === 'player') lastKillerId = event.killerId ?? null;
+    if (event.type === 'kill' && event.actorId === sim.localId) lastKillerId = event.killerId ?? null;
     if (event.type === 'kill') {
       const victim = sim.state.actors.find(a => a.id === event.actorId);
       const killer = event.killerId ? sim.state.actors.find(a => a.id === event.killerId) : undefined;
-      if (victim) ui.pushKill(killer?.name ?? 'Vòng bo', victim.name, killer?.vehicleId ? 'XE' : killer ? WEAPONS[killer.weapon].label : 'BO', event.killerId === 'player' || victim.isPlayer);
+      if (victim) ui.pushKill(killer?.name ?? 'Vòng bo', victim.name, killer?.vehicleId ? 'XE' : killer ? WEAPONS[killer.weapon].label : 'BO', event.killerId === sim.localId || victim.id === sim.localId);
     }
-    if (event.type === 'kill' && event.killerId === 'player') {
+    if (event.type === 'kill' && event.killerId === sim.localId) {
       const victim = sim.state.actors.find(a => a.id === event.actorId); ui.notify(`Đã hạ ${victim?.name ?? 'đối thủ'}`);
     }
-    if (event.type === 'damage' && event.actorId === 'player') {
+    if (event.type === 'damage' && event.actorId === sim.localId) {
       recoil = Math.min(0.13, recoil + 0.005);
       const source = event.sourceId ? sim.state.actors.find(a => a.id === event.sourceId) : undefined;
       if (source) ui.showDamageFrom(Math.atan2(source.position.x - sim.player.position.x, source.position.z - sim.player.position.z) - yaw);
@@ -1114,6 +1267,7 @@ window.addEventListener('keydown', event => {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
   if (event.code === 'Escape' && !event.repeat) {
     if (replay) { stopReplay(); return; }
+    if (net && mpMenuOpen) { mpMenuOpen = false; ui.setMpMenu(false); void audio.unlock(); lockPointer(); return; }
     if (sim.state.phase === 'playing') pause();
     else if (sim.state.phase === 'paused') { sim.setPaused(false); void audio.unlock(); lockPointer(); clock = performance.now(); }
     return;
@@ -1123,10 +1277,12 @@ window.addEventListener('keydown', event => {
   if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;
-  if (event.code === 'KeyR' && sim.reload()) audio.reload();
-  if (event.code === 'KeyH' && sim.heal()) audio.heal();
+  // A quick tap on Space (jump from the plane, open the canopy) can be over before the next frame reads the keys.
+  if (event.code === 'Space' && sim.airborne) pendingJump = true;
+  if (event.code === 'KeyR' && doReload()) audio.reload();
+  if (event.code === 'KeyH' && doHeal()) audio.heal();
   if ((event.code === 'KeyE' || event.code === 'KeyF') && sim.airborne) pendingJump = true;
-  else if (event.code === 'KeyE' && !sim.interact()) useVehicle();
+  else if (event.code === 'KeyE' && !doInteract()) useVehicle();
   else if (event.code === 'KeyF') useVehicle();
   // Slots 1 and 2 are the main guns in the order they were picked up; slot 3 is the sidearm.
   const slotKey = /^(?:Digit|Numpad)([1-3])$/.exec(event.code);
@@ -1165,8 +1321,8 @@ document.addEventListener('pointerlockchange', () => {
   if (!locked && hadLock && sim.state.phase === 'playing') pause();
   hadLock = locked;
 });
-window.addEventListener('blur', pause);
-document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+window.addEventListener('blur', () => { if (!net) pause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && !net) pause(); });
 function resizeGame() {
   if (touchDevice) releaseInput();
   if (engine) { applySettings(); engine.resize(); }
@@ -1174,6 +1330,11 @@ function resizeGame() {
 window.addEventListener('resize', resizeGame);
 window.visualViewport?.addEventListener('resize', resizeGame);
 window.addEventListener('orientationchange', resizeGame);
+
+{
+  const room = new URLSearchParams(location.search).get('room');
+  if (room) { lobbyView.prefillCode(normalizeRoomCode(room)); lobbyView.show(true); }
+}
 
 try {
   ui.setLoading('Đang dựng vùng sinh tồn…');
@@ -1227,7 +1388,7 @@ try {
           const heading = car.speed >= 0 ? car.yaw : car.yaw + Math.PI;
           yaw += Math.atan2(Math.sin(heading - yaw), Math.cos(heading - yaw)) * Math.min(1, dt * 1.6);
         }
-        sim.update(dt, { moveX: 0, moveZ: 0, sprint: false, jump: keys.has('Space') || mobileJump, throttle: Math.max(-1, Math.min(1, rawForward)), steer: Math.max(-1, Math.min(1, rawSide)) });
+        sim.update(dt, lastInput = { moveX: 0, moveZ: 0, sprint: false, jump: keys.has('Space') || mobileJump, throttle: Math.max(-1, Math.min(1, rawForward)), steer: Math.max(-1, Math.min(1, rawSide)) });
         audio.engine(car.speed, rawForward);
       } else {
         let moveX = Math.sin(yaw) * forward + Math.cos(yaw) * side, moveZ = Math.cos(yaw) * forward - Math.sin(yaw) * side;
@@ -1240,7 +1401,7 @@ try {
           moveX = distance > 0.5 ? dx / distance * throttle : 0; moveZ = distance > 0.5 ? dz / distance * throttle : 0;
         }
         if (!air) autoGlide = false;
-        sim.update(dt, { moveX, moveZ, sprint, jump: keys.has('Space') || mobileJump || pendingJump });
+        sim.update(dt, lastInput = { moveX, moveZ, sprint, jump: keys.has('Space') || mobileJump || pendingJump });
         pendingJump = false;
         sim.player.yaw = yaw;
       }
@@ -1250,6 +1411,25 @@ try {
       if (!car && !sim.player.air && (forward || side) && lowStance !== 'prone') { footsteps += dt; if (footsteps > (sprint ? 0.30 : lowStance === 'crouch' ? 0.75 : 0.43) && sim.player.position.y < 0.05 && lowStance === 'stand') { audio.footstep(sprint); footsteps = 0; } else if (footsteps > 0.75) footsteps = 0; }
       else footsteps = 0;
     }
+    if (net) {
+      if (net.host) {
+        net.host.tick(dt);
+        for (const text of net.host.takeDeparted()) ui.notify(text);
+      } else if (net.client) {
+        net.client.tick(now, lastInput, yaw);
+        net.client.frame(now);
+        if (net.client.closedByHost || net.client.silence > 15) { ui.notify(net.client.closedByHost ? 'Chủ phòng đã rời trận.' : 'Mất kết nối với chủ phòng.'); leaveMatch(); }
+      }
+      if (net && sim.state.phase === 'playing' && !sim.player.alive && !mpSpectating) {
+        // Killed in an online match: the match goes on without you, so keep watching it.
+        mpSpectating = true;
+        sim.state.spectating = true;
+        spectateId = lastKillerId && sim.state.actors.some(actor => actor.id === lastKillerId && actor.alive) ? lastKillerId : null;
+        snapCamera = true; pitch = -0.15;
+        ui.notify(`Bạn bị hạ · hạng #${sim.state.playerRank ?? sim.player.rank ?? '?'} · đang xem tiếp trận`);
+      }
+    }
+    updateNameplates();
     renderActors(sim.state.phase === 'paused' ? 0 : dt);
     renderVehicles(sim.state.phase === 'paused' ? 0 : dt);
     renderLoot(sim.state.elapsed);
@@ -1321,7 +1501,7 @@ try {
       lastPerfAt = now;
       const average = frameTimes.reduce((sum, value) => sum + value, 0) / Math.max(1, frameTimes.length);
       ui.setPerf(`${Math.round(engine.getFps())} FPS · khung TB ${average.toFixed(1)} ms · tệ nhất ${Math.max(...frameTimes).toFixed(0)} ms
-${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không`);
+${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không${net?.client ? ` · ping ${Math.round(net.client.rttMs)} ms` : net?.host ? ' · chủ phòng' : ''}`);
     }
     ui.setSpectate(spectating() && sim.state.phase === 'playing' ? spectateTarget()?.name ?? '—' : null);
     const air = sim.player.air;
@@ -1352,7 +1532,7 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
     scene.render();
   });
   if (import.meta.env.DEV) {
-    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()), bank: { ...bank } }) } });
+    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()), bank: { ...bank } }) } });
   }
 } catch (error) {
   console.error(error);

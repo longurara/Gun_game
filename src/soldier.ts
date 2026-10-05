@@ -31,7 +31,14 @@ function hash(text: string): () => number {
 }
 
 /** A stable look for each soldier: the player is always the teal-and-amber one, bots vary. */
-export function outfitFor(id: string, isPlayer: boolean): Outfit {
+/** Jerseys for the other people in a multiplayer match, so friends are easy to tell from bots. */
+const FRIEND_COLORS: Rgb[] = [[0.9, 0.35, 0.3], [0.3, 0.55, 0.95], [0.95, 0.75, 0.2], [0.65, 0.4, 0.9], [0.95, 0.5, 0.75], [0.95, 0.95, 0.95]];
+
+export function outfitFor(id: string, isPlayer: boolean, friend = false): Outfit {
+  if (friend) {
+    const index = Number(/\d+/.exec(id)?.[0] ?? 0);
+    return { camo: false, fabric: FRIEND_COLORS[index % FRIEND_COLORS.length], skin: SKIN[(index + 1) % SKIN.length], hair: HAIR[index % HAIR.length], hat: [0.97, 0.97, 0.97], headgear: 'cap', pack: 1 };
+  }
   if (isPlayer) return { camo: false, fabric: [0.36, 0.68, 0.62], skin: SKIN[1], hair: HAIR[1], hat: [0.95, 0.72, 0.3], headgear: 'cap', pack: 0 };
   const r = hash(id);
   const camo = r() < 0.6;
@@ -109,8 +116,8 @@ export class Soldier {
   private kick = 0;
   private readonly tmp = { s: new Vector3(), t: new Vector3(), e: new Vector3(), axis: new Vector3(), pole: new Vector3(), dir: new Vector3(), q: new Quaternion() };
 
-  constructor(private readonly scene: Scene, private readonly id: string, isPlayer: boolean, private readonly shadows: ShadowGenerator) {
-    const outfit = outfitFor(id, isPlayer);
+  constructor(private readonly scene: Scene, private readonly id: string, isPlayer: boolean, private readonly shadows: ShadowGenerator, friend = false) {
+    const outfit = outfitFor(id, isPlayer, friend);
     const root = this.root = new TransformNode(`actor-${id}`, scene);
     const attach = (part: PartName, parent: TransformNode, tint: Rgb): InstancedMesh[] => {
       const out: InstancedMesh[] = [];

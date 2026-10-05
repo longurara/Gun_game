@@ -36,6 +36,25 @@ Mở địa chỉ **Network** mà Vite in ra trên điện thoại, ví dụ `ht
 
 Thiết bị cảm ứng mặc định **chất lượng thấp** khi chưa có cài đặt đã lưu; cài đặt bạn đã chọn trước đó được giữ lại. Bố cục điện thoại ưu tiên **cầm ngang**: joystick bên trái, nút bắn/ngắm bên phải.
 
+## Chơi online với bạn bè
+
+Ở màn hình chính chọn bản đồ, số bot, độ khó như thường rồi bấm **CHƠI VỚI BẠN BÈ · ONLINE**:
+
+1. **Chủ phòng** nhập tên, bấm **TẠO PHÒNG MỚI** và nhận một **mã phòng 5 ký tự** (ví dụ `JTHHB`). Bấm **SAO CHÉP LINK** để gửi bạn bè một đường dẫn dạng `…/?room=JTHHB`; mở link đó là tự điền mã.
+2. **Bạn bè** nhập tên và mã (hoặc mở link) rồi bấm **VÀO PHÒNG**. Tối đa **6 người**. Phòng đầy hoặc trận đã bắt đầu thì báo lỗi.
+3. Chủ phòng bấm **BẮT ĐẦU TRẬN**. Mọi người cùng nhảy dù xuống một hòn đảo giống hệt nhau, cùng bot, cùng đồ trong nhà; **người sống cuối cùng thắng** (bạn bè là đối thủ của nhau). Bạn bè mặc áo màu khác bot và có **tên nổi trên đầu**. Ai bị hạ thì xem tiếp trận (Q/E đổi người xem) và có thể rời trận; khi kết thúc mọi người thấy ai thắng.
+
+Cách hoạt động: dùng **Supabase Realtime (broadcast)**, không cần tài khoản hay cơ sở dữ liệu. **Máy chủ phòng chạy toàn bộ trận** (bot, vòng bo, xe, hộp tiếp tế) và gửi ảnh chụp trạng thái 10 lần mỗi giây; máy các bạn chạy một bản sao cùng hạt giống, tự dự đoán chuyển động của chính mình để điều khiển mượt, vẽ người khác chậm khoảng 0,15 giây và gửi lại thao tác (di chuyển, bắn, nạp đạn, nhặt đồ…) cho chủ phòng. Chủ phòng quyết định đạn có trúng hay không; mọi người cũng không thấy bot ở xa người nào (chỉ gửi những gì trong vòng 420 m quanh người chơi) nên băng thông nhỏ (khoảng 3–9 KB mỗi gói).
+
+Giới hạn cần biết:
+- **Chủ phòng nên để tab game ở phía trước** và có mạng ổn định: trình duyệt làm chậm tab nền, khi đó cả phòng bị chậm theo. Chủ phòng thoát hoặc mất mạng thì trận kết thúc cho mọi người; bạn bè thoát hoặc im quá 8 giây thì bị loại khỏi trận.
+- Gói miễn phí của Supabase giới hạn **100 tin nhắn mỗi giây cho cả dự án** (mỗi phòng dùng khoảng 10 + 10 mỗi người). Vài phòng nhỏ cùng lúc thì đủ; nhiều hơn thì cần nâng gói.
+- Ai biết mã phòng đều vào được (không có mật khẩu). Chưa có chat, bảng điểm, ngồi chung xe, hay gia nhập giữa trận. Lái xe online có độ trễ bằng đường truyền vì xe do chủ phòng điều khiển.
+- Không chống gian lận: chủ phòng là "máy chủ" nên chỉ nên chơi với người quen.
+- Địa chỉ và khóa công khai (publishable) của dự án Supabase nằm trong [src/net/config.ts](src/net/config.ts); đổi sang dự án khác bằng `VITE_SUPABASE_URL` và `VITE_SUPABASE_KEY` trong `.env.local` (xem `.env.example`). **Không bao giờ đưa khóa service-role vào trình duyệt hay vào mã nguồn.**
+
+Mã: [src/net/protocol.ts](src/net/protocol.ts) (ảnh chụp trạng thái), [src/net/session.ts](src/net/session.ts) (chủ phòng và máy khách), [src/net/lobby.ts](src/net/lobby.ts) (phòng chờ), [src/net/transport.ts](src/net/transport.ts) (Supabase và mạng giả lập cho test), [src/lobby-ui.ts](src/lobby-ui.ts).
+
 ## Hai bản đồ
 
 | | Đảo LASTLIGHT | Đấu trường |
