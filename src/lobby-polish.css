@@ -62,3 +62,14 @@ html:not([data-input="touch"]) .multi-button {
   transition: background .15s, border-color .15s;
 }
 html:not([data-input="touch"]) .multi-button:hover { background: rgba(255, 255, 255, .09); border-color: rgba(245, 181, 10, .5); }
+
+/* ---------- the soldier's name plate on the main screen ---------- */
+html:not([data-input="touch"]) .lobby-spot { gap: 6px; padding-left: clamp(18px, 3vw, 56px); padding-bottom: clamp(18px, 5vh, 52px); position: relative; }
+html:not([data-input="touch"]) .lobby-spot::before { content: ""; position: absolute; left: clamp(4px, 1.6vw, 36px); top: 4px; bottom: clamp(18px, 5vh, 52px); width: 3px; background: linear-gradient(180deg, var(--amber), rgba(245, 181, 10, 0)); border-radius: 2px; }
+html:not([data-input="touch"]) .spot-tag { font-size: 11px; letter-spacing: 4px; }
+html:not([data-input="touch"]) .spot-name { font-size: clamp(38px, 5.2vw, 76px); letter-spacing: 5px; background: linear-gradient(180deg, #fff 30%, #d9dcd2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 22px #000c); max-width: 14ch; overflow-wrap: anywhere; }
+html:not([data-input="touch"]) .spot-line { display: block; height: 3px; width: 72px; background: var(--amber); border-radius: 2px; animation: spot-line 3.2s ease-in-out infinite; }
+@keyframes spot-line { 0%, 100% { width: 72px; opacity: .9; } 50% { width: 150px; opacity: 1; } }
+html:not([data-input="touch"]) .spot-gear { align-self: flex-start; margin-top: 4px; padding: 5px 11px; font-size: 12px; letter-spacing: 1.6px; font-weight: 650; color: var(--ink); background: rgba(10, 13, 15, .6); border: 1px solid var(--stroke); border-radius: 4px; backdrop-filter: blur(4px); text-transform: uppercase; }
+html:not([data-input="touch"]) .spot-gear:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .spot-line { animation: none; } }

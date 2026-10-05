@@ -147,7 +147,7 @@ export class GameUI {
           </div>
         </header>
         <div class="lobby-stage">
-          <div class="lobby-spot" aria-hidden="true"><span class="spot-tag">SẴN SÀNG</span><span class="spot-name">BẠN</span></div>
+          <div class="lobby-spot" aria-hidden="true"><span class="spot-tag">SẴN SÀNG</span><span id="spot-name" class="spot-name">BẠN</span><span class="spot-line"></span><span id="spot-gear" class="spot-gear"></span></div>
           <aside class="lobby-panel">
             <div id="play-panel" class="panel-play">
               <div class="panel-title"><span>CHỌN CHIẾN TRƯỜNG</span><em>ĐƠN · ĐẤU BOT</em></div>
@@ -438,6 +438,7 @@ export class GameUI {
   public setAccount(info: { name: string; wins: number; kills: number; matches: number } | null): void {
     this.account = info;
     this.el('profile-chip').dataset.signed = info ? 'in' : 'out';
+    this.text('spot-name', info ? info.name.toUpperCase() : 'BẠN');
     this.text('profile-name', info ? info.name.toUpperCase() : 'NGƯỜI SINH TỒN');
     this.text('profile-sub', info ? 'ĐÃ ĐĂNG NHẬP · BẠN BÈ' : 'CHƠI NGAY · ĐĂNG NHẬP ĐỂ KẾT BẠN');
     this.text('best-third-label', info ? 'TRẬN' : 'SỐNG LÂU NHẤT');
@@ -727,6 +728,8 @@ export class GameUI {
 
   /** Line under the gyroscope setting that says whether the sensor works. */
   public setGyroStatus(text: string): void { this.text('gyro-status', text); }
+  /** The line under the soldier's name on the main screen: what they are carrying. */
+  public setSpotGear(text: string): void { this.text('spot-gear', text); }
 
   /** Flight readout while in the plane, in free fall or under the canopy; null once on the ground. */
   public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number; flag?: { distance: number; reachable: boolean; auto: boolean } | null } | null): void {

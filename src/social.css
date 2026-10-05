@@ -74,3 +74,18 @@ html[data-input="touch"] .invite-banner { top: calc(8px + var(--safe-top, 0px));
 .acc-head small { display: block; font-size: 13px; opacity: .9; }
 .acc-head .text-button { flex: none; width: auto; min-height: 0; white-space: nowrap; align-self: flex-start; margin-top: 14px; padding: 8px 14px; border: 1px solid #ffffff2a; border-radius: 3px; letter-spacing: 1.6px; }
 .acc-head .text-button:hover { background: #ffffff12; color: #fff; }
+
+/* ---------- sign-in / register: one vertical rhythm, nothing touching ---------- */
+.account-screen .account-dialog { padding: 34px 38px 30px; }
+.account-dialog #acc-body { display: flex; flex-direction: column; gap: 16px; }
+#acc-body > .eyebrow { margin: 0 0 -6px; line-height: 1; }
+#acc-body > h2#acc-title { margin: 0 0 6px; padding-right: 36px; font-size: clamp(30px, 6vw, 40px); line-height: 1.12; letter-spacing: 2px; }
+#acc-body .acc-tabs { gap: 8px; margin-top: 2px; }
+#acc-body .acc-tabs button { padding: 12px 8px; font-size: 11px; letter-spacing: 1.8px; border-radius: 6px; transition: background .15s, color .15s, border-color .15s; }
+#acc-body .acc-tabs button:not(.on):hover { background: #ffffff18; color: #fff; }
+#acc-body .acc-field { gap: 8px; font-size: 10px; letter-spacing: 2.2px; font-weight: 600; }
+#acc-body .acc-field input { padding: 13px 14px; border-radius: 6px; }
+#acc-body .acc-field input::placeholder { color: #ffffff55; }
+#acc-body .acc-field input:focus { outline: 0; border-color: #f2b43c; box-shadow: 0 0 0 3px #f2b43c33; }
+#acc-body #acc-submit { margin-top: 4px; min-height: 50px; justify-content: center; text-align: center; border-radius: 6px; letter-spacing: 3px; }
+#acc-body .acc-note { margin-top: 2px; }

@@ -88,6 +88,9 @@ const lootTemplates = new Map<string, Mesh>();
 let lootSelector: Mesh | null = null;
 let arenaMeshes: Mesh[] = [];
 let islandRenderer: IslandRenderer | null = null;
+/** Where the pointer is on screen (-1..1) and a smoothed copy: the lobby camera and soldier lean towards it a little. */
+const menuPointer = { x: 0, y: 0, sx: 0, sy: 0 };
+window.addEventListener('pointermove', event => { menuPointer.x = (event.clientX / Math.max(1, innerWidth)) * 2 - 1; menuPointer.y = (event.clientY / Math.max(1, innerHeight)) * 2 - 1; });
 let sunlight: DirectionalLight;
 let ambient: HemisphericLight;
 let pipeline: DefaultRenderingPipeline | null = null;
@@ -821,7 +824,7 @@ function renderActors(dt: number) {
     const showcase = sim.state.phase === 'menu' && actor.isPlayer;
     if (showcase) {
       // Lobby display: turned toward the camera, breathing, weapon held low.
-      model.root.rotation.set(0, Math.PI + 0.55 + Math.sin(time * 0.5) * 0.1, 0);
+      model.root.rotation.set(0, Math.PI + 0.55 + Math.sin(time * 0.5) * 0.1 - menuPointer.sx * 0.3, 0);
       model.root.position.y = actor.position.y + Math.sin(time * 1.6) * 0.012;
     }
     model.soldier.pose(dt, { moving: showcase ? 0 : model.moving, stride: model.stride, alive: actor.alive, reloading: actor.reloading > 0, healing: actor.healing > 0, time, showcase, crouch: model.crouch, prone: model.prone });
@@ -1060,15 +1063,78 @@ function spectateCamera(dt: number) {
   camera.fov += (0.92 - camera.fov) * Math.min(1, dt * 8);
 }
 
+/**
+ * The lobby's stage: a cool rim light behind the soldier, two slowly turning hex rings and a soft glow on the ground,
+ * and a few dozen dust motes drifting through the light. Built on first use, shown only while the menu is up.
+ */
+interface MenuStage { rim: DirectionalLight; rings: Mesh[]; glow: Mesh; pulse: Mesh; motes: Array<{ node: InstancedMesh; seed: number }>; }
+let menuStage: MenuStage | null = null;
+
+function glowMaterial(name: string, color: string, alpha: number): StandardMaterial {
+  const material = new StandardMaterial(name, scene);
+  material.disableLighting = true; material.emissiveColor = Color3.FromHexString(color); material.alpha = alpha; material.fogEnabled = false; material.backFaceCulling = false;
+  return material;
+}
+
+function buildMenuStage(): MenuStage {
+  const rim = new DirectionalLight('menu-rim', new Vector3(0.53, -0.05, -0.85), scene);
+  rim.diffuse = Color3.FromHexString('#8fd0ff'); rim.specular = Color3.Black(); rim.intensity = 1.1;
+  const ringA = CreateTorus('menu-ring-a', { diameter: 3.1, thickness: 0.05, tessellation: 6 }, scene);
+  ringA.material = glowMaterial('menu-ring-a-material', '#f5b50a', 0.9);
+  const ringB = CreateTorus('menu-ring-b', { diameter: 4.4, thickness: 0.03, tessellation: 6 }, scene);
+  ringB.material = glowMaterial('menu-ring-b-material', '#f5b50a', 0.5);
+  const pulse = CreateTorus('menu-ring-pulse', { diameter: 2.2, thickness: 0.012, tessellation: 64 }, scene);
+  pulse.material = glowMaterial('menu-ring-pulse-material', '#ffe28a', 0.7);
+  const glow = CreateCylinder('menu-glow', { diameter: 3.6, height: 0.01, tessellation: 48 }, scene);
+  glow.material = glowMaterial('menu-glow-material', '#f5b50a', 0.14);
+  const meshes = [ringA, ringB, pulse, glow];
+  for (const mesh of meshes) { mesh.isPickable = false; mesh.receiveShadows = false; }
+  const template = CreateSphere('menu-mote', { diameter: 1, segments: 4 }, scene);
+  template.material = glowMaterial('menu-mote-material', '#ffd98a', 0.55);
+  template.isPickable = false; template.setEnabled(false);
+  const motes = Array.from({ length: 64 }, (_, index) => ({ node: template.createInstance(`menu-mote-${index}`), seed: index * 12.9898 }));
+  for (const mote of motes) mote.node.isPickable = false;
+  return { rim, rings: [ringA, ringB, pulse], glow, pulse, motes };
+}
+
+function updateMenuStage(show: boolean, dt: number) {
+  if (!show && !menuStage) return;
+  if (show && (!menuStage || menuStage.glow.isDisposed())) menuStage = buildMenuStage();
+  const stage = menuStage!;
+  stage.rim.setEnabled(show);
+  for (const mesh of [...stage.rings, stage.glow]) mesh.setEnabled(show);
+  for (const mote of stage.motes) mote.node.setEnabled(show);
+  if (!show) return;
+  const t = performance.now() * 0.001, p = sim.player.position;
+  menuPointer.sx += (menuPointer.x - menuPointer.sx) * Math.min(1, dt * 3);
+  menuPointer.sy += (menuPointer.y - menuPointer.sy) * Math.min(1, dt * 3);
+  const y = p.y + 0.035;
+  stage.rings[0].position.set(p.x, y, p.z); stage.rings[0].rotation.y = t * 0.35;
+  stage.rings[1].position.set(p.x, y, p.z); stage.rings[1].rotation.y = -t * 0.2;
+  stage.pulse.position.set(p.x, y, p.z);
+  const breathe = 1 + ((t * 0.8) % 1) * 0.55;
+  stage.pulse.scaling.set(breathe, 1, breathe);
+  (stage.pulse.material as StandardMaterial).alpha = 0.7 * (1 - ((t * 0.8) % 1));
+  stage.glow.position.set(p.x, y - 0.015, p.z);
+  for (const { node, seed } of stage.motes) {
+    const rise = (t * (0.05 + (Math.sin(seed) * 0.5 + 0.5) * 0.08) + (Math.sin(seed * 3.1) * 0.5 + 0.5) * 4) % 4;
+    node.position.set(p.x + Math.sin(seed * 1.7) * 4.2 + Math.sin(t * 0.3 + seed) * 0.35, p.y + rise * 0.9, p.z + Math.cos(seed * 2.3) * 3.4 + Math.cos(t * 0.25 + seed) * 0.3);
+    const size = 0.018 + (Math.sin(seed * 5.3) * 0.5 + 0.5) * 0.03;
+    node.scaling.set(size, size, size);
+  }
+}
+
 function updateCamera(dt: number) {
+  updateMenuStage(sim.state.phase === 'menu', dt);
+  if (sim.state.phase === 'menu') { const gun = WEAPONS[sim.player.weapon]; ui.setSpotGear(`${gun.label} · ${gun.category}`); }
   if (sim.state.phase === 'menu') {
-    // Lobby shot: the player's character stands left of centre (the panel fills the right), seen from a low
-    // three-quarter angle with a slow sway, against the arena and its sun.
+    // Lobby shot: a low, close three-quarter angle on the soldier (left of centre; the panel fills the right) with a slow
+    // sway, leaning a little towards the pointer so the scene feels alive.
     const t = performance.now() * 0.001;
     const p = sim.player.position;
-    camera.position.set(p.x + 3.3 + Math.sin(t * 0.25) * 0.5, p.y + 1.35 + Math.sin(t * 0.4) * 0.05, p.z - 5.2 + Math.cos(t * 0.25) * 0.3);
-    camera.setTarget(new Vector3(p.x + 1.15, p.y + 1.2, p.z));
-    camera.fov = 0.7; return;
+    camera.position.set(p.x + 3.0 + Math.sin(t * 0.25) * 0.7 + menuPointer.sx * 0.55, p.y + 1.0 + Math.sin(t * 0.4) * 0.06 - menuPointer.sy * 0.12, p.z - 4.4 + Math.cos(t * 0.25) * 0.4);
+    camera.setTarget(new Vector3(p.x + 1.0 - menuPointer.sx * 0.25, p.y + 1.15 - menuPointer.sy * 0.08, p.z));
+    camera.fov = 0.62; return;
   }
   const actor = sim.player;
   if (replay) { replayCamera(dt); return; }
