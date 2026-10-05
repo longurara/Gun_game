@@ -135,6 +135,12 @@ Khoảng 47 xe đỗ dọc đường và trong thị trấn. Lại gần và nh�
 
 Bot gần bạn: nhặt đồ trong nhà và quanh đó (chọn thứ có giá trị cao nhất theo khoảng cách, bỏ qua thứ không tới được), nghe tiếng súng và đi điều tra, né ngang khi giao tranh, ngắm có độ trễ nên chạy ngang sẽ khó trúng hơn, bắn theo loạt, đổi súng theo cự ly, tìm chỗ khuất để băng bó khi yếu, lên xe khi đích đến xa, và vào vòng bo.
 
+## Cỏ và cây
+
+Atlas ImageGen có bốn ô alpha riêng cho cây thông xa, cành thông, cành lá rộng và bụi cỏ; texture vỏ cây dùng UV chạy dọc thân. Cây gần dựng tán từ nhiều cành nhỏ, dùng chung một material và gộp mesh theo chunk. Cỏ nhận bóng trên PC, lay động bằng shader GPU và thu chiều cao ở rìa vùng hiển thị; không cập nhật ma trận mỗi khung hình.
+
+Cỏ phân bố cố định theo địa hình, tránh đường, sông, hồ và dốc đá. Giới hạn 6.000 bụi trên PC, 2.600 trên thiết bị cảm ứng; bán kính thấy cỏ tương ứng khoảng 32 m và 22 m. Điện thoại vẫn render đủ DPR, không bật bóng. Texture và prompt nằm ở `src/assets/textures/`; đây là albedo, chưa phải bộ vật liệu PBR đầy đủ.
+
 ## Dữ liệu trên trình duyệt
 
 `localStorage` lưu cài đặt và kỷ lục: tổng số trận thắng, số hạ gục cao nhất trong một trận, thời gian sống lâu nhất. Dữ liệu thuộc trình duyệt và địa chỉ website đang dùng; đổi trình duyệt, đổi địa chỉ hoặc xóa dữ liệu site sẽ không giữ cùng kỷ lục. Nếu trình duyệt chặn lưu trữ, game vẫn chạy nhưng dữ liệu có thể không được lưu.
@@ -148,7 +154,7 @@ npm test
 npm run test:scenarios
 ```
 
-Bộ kiểm thử tự động gồm **87 bài** ở `tests/`: catalogue 8 súng, nhặt/đổi súng theo ô, giáp, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, bot (nhặt đồ, đường đi, tầm nhìn), lưới không gian so với duyệt thủ công, sinh bản đồ đảo (đất liền, nước, nhà, loot), xe (lái, va chạm, đâm người, bị bắn, nổ, bot lái), và hai trận 100 bot trọn vẹn. Có thêm kiểm tra độ phân giải đầy đủ trên điện thoại ở DPR 1–4. Script kịch bản in kết quả trận trên bản đồ nhỏ.
+Bộ kiểm thử tự động gồm **322 bài** ở `tests/`: catalogue hơn 100 súng, nhặt/đổi súng theo ô, giáp, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, bot (nhặt đồ, đường đi, tầm nhìn), lưới không gian so với duyệt thủ công, sinh bản đồ đảo (đất liền, nước, nhà, loot), xe (lái, va chạm, đâm người, bị bắn, nổ, bot lái), và hai trận 100 bot trọn vẹn. Có thêm kiểm tra độ phân giải đầy đủ trên điện thoại ở DPR 1–4. Script kịch bản in kết quả trận trên bản đồ nhỏ.
 
 Số đo trên máy phát triển (xem [KIEM_THU.md](KIEM_THU.md)): một trận 100 bot trên đảo kết thúc sau khoảng 580 giây game; mô phỏng tốn trung bình dưới 1 ms mỗi bước. Đây là kiểm tra logic và đo trên một laptop, **chưa phải đo FPS hay xác nhận hiệu năng trên điện thoại thật**.
 

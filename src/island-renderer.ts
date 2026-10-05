@@ -30,8 +30,8 @@ function hashString(value: string): number {
 const cellHash = (x: number, z: number, salt = 0): number => Math.abs(Math.sin(x * 127.1 + z * 311.7 + salt * 74.7) * 43758.5453) % 1;
 
 const PALETTE = {
-  grassLow: hex('#6a9440'), grassHigh: hex('#a39b57'), meadow: hex('#7fae46'), forestFloor: hex('#4b6c36'),
-  dryGrass: hex('#b3a85f'), moss: hex('#4f7a3c'),
+  grassLow: hex('#788752'), grassHigh: hex('#a29a69'), meadow: hex('#86985e'), forestFloor: hex('#596c43'),
+  dryGrass: hex('#b0a373'), moss: hex('#64774b'),
   dirt: hex('#8c7550'), rock: hex('#8d8e85'), peak: hex('#c9cabf'), sand: hex('#d8c897'), wet: hex('#70694a'),
   concrete: hex('#8d9087'), road: hex('#474b44'),
   crop: [hex('#bda55a'), hex('#6f9440'), hex('#7a5d40')], hedge: hex('#3d5a2e'),
@@ -46,7 +46,7 @@ const PALETTE = {
   trim: hex('#eae5d6'), door: hex('#5a4030'), shadowStone: hex('#6a6c64'), warmStone: hex('#8a7b66'),
 };
 
-/** A chunk mesh with separate wood indices and world-space UVs; plain surfaces keep their vertex colours. */
+/** Batched props with plain, sawn-wood and bark finishes. */
 class Geometry {
   positions: number[] = [];
   normals: number[] = [];
@@ -54,7 +54,10 @@ class Geometry {
   indices: number[] = [];
   uvs: number[] = [];
   wood = false;
+  bark = false;
   private readonly woodIndices: number[] = [];
+  private readonly barkIndices: number[] = [];
+  private uvOverride: Map<number[], [number, number]> | null = null;
 
   /** One triangle with a colour at each corner; winding is corrected so the face points along `outward` (Babylon is left-handed). */
   triC(a: number[], b: number[], c: number[], outward: number[], ca: Rgb, cb: Rgb, cc: Rgb): void {
@@ -74,9 +77,9 @@ class Geometry {
       const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
       // U follows the horizontal grain on wood; each tile covers two metres.
       const [u, v] = ax >= ay && ax >= az ? [p[2], p[1]] : ay >= az ? [p[0], p[2]] : [p[0], p[1]];
-      this.uvs.push(u / 2, v / 2);
+      this.uvs.push(...(this.uvOverride?.get(p) ?? [u / 2, v / 2]));
     }
-    (this.wood ? this.woodIndices : this.indices).push(base, base + 1, base + 2);
+    (this.bark ? this.barkIndices : this.wood ? this.woodIndices : this.indices).push(base, base + 1, base + 2);
   }
 
   tri(a: number[], b: number[], c: number[], outward: number[], color: Rgb): void { this.triC(a, b, c, outward, color, color, color); }
@@ -111,7 +114,12 @@ class Geometry {
       const t0 = [cx + leanX + Math.cos(a0) * r1, y0 + h, cz + leanZ + Math.sin(a0) * r1], t1 = [cx + leanX + Math.cos(a1) * r1, y0 + h, cz + leanZ + Math.sin(a1) * r1];
       const mid = (a0 + a1) / 2;
       const lit = shade(color, 0.85 + 0.25 * Math.max(0, Math.cos(mid - 0.8)));
+      // Cylindrical U unwraps the last face; V follows the branch rather than world axes.
+      const wraps = Math.max(1, Math.round(Math.PI * 2 * r0 / 1.5)), length = Math.hypot(h, leanX, leanZ) / 2;
+      this.uvOverride = new Map([[b0, [i / sides * wraps, 0]], [b1, [(i + 1) / sides * wraps, 0]],
+        [t0, [i / sides * wraps, length]], [t1, [(i + 1) / sides * wraps, length]]]);
       this.quadC(b0, b1, t1, t0, [Math.cos(mid), 0.05, Math.sin(mid)], dark, dark, lit, lit);
+      this.uvOverride = null;
     }
   }
 
@@ -173,17 +181,18 @@ class Geometry {
   }
 
   build(name: string, scene: Scene, material: StandardMaterial | MultiMaterial): Mesh | null {
-    if (!this.indices.length && !this.woodIndices.length) return null;
+    if (!this.indices.length && !this.woodIndices.length && !this.barkIndices.length) return null;
     const mesh = new Mesh(name, scene);
     const data = new VertexData();
     data.positions = this.positions; data.normals = this.normals; data.colors = this.colors;
-    data.uvs = this.uvs; data.indices = [...this.indices, ...this.woodIndices];
+    data.uvs = this.uvs; data.indices = [...this.indices, ...this.woodIndices, ...this.barkIndices];
     data.applyToMesh(mesh);
     mesh.material = material;
     if (material instanceof MultiMaterial) {
       mesh.releaseSubMeshes();
       if (this.indices.length) SubMesh.CreateFromIndices(0, 0, this.indices.length, mesh);
       if (this.woodIndices.length) SubMesh.CreateFromIndices(1, this.indices.length, this.woodIndices.length, mesh);
+      if (this.barkIndices.length) SubMesh.CreateFromIndices(2, this.indices.length + this.woodIndices.length, this.barkIndices.length, mesh);
     }
     mesh.isPickable = false;
     mesh.freezeWorldMatrix();
@@ -237,11 +246,12 @@ export class IslandRenderer {
     bump.gammaSpace = false;
     bump.level = 0.22;
     this.terrainMaterial.bumpTexture = bump;
-    const plainProps = make('island-props-plain'), woodProps = make('island-props-wood');
+    const plainProps = make('island-props-plain'), woodProps = make('island-props-wood'), barkProps = make('island-props-bark');
     woodProps.specularColor = new Color3(0.10, 0.10, 0.10); woodProps.specularPower = 28;
     useGeneratedAlbedo(woodProps, GENERATED_TEXTURES.wood, 1, 1.12);
+    useGeneratedAlbedo(barkProps, GENERATED_TEXTURES.bark);
     this.propMaterial = new MultiMaterial('island-props', scene);
-    this.propMaterial.subMaterials = [plainProps, woodProps];
+    this.propMaterial.subMaterials = [plainProps, woodProps, barkProps];
     this.roadMaterial = make('island-roads');
     useGeneratedAlbedo(this.roadMaterial, GENERATED_TEXTURES.ground, 0.5, 1.25);
     this.foliageMaterial = createFoliageMaterial(scene);
@@ -410,38 +420,54 @@ export class IslandRenderer {
         const y = this.height(x, z);
         if (y < 3 || this.townWeight(x, z) > 0.2 || this.lakeNear(x, z, 4)) continue;
         if (blocked.some(o => Math.abs(x - o.x) < o.width / 2 + 1.5 && Math.abs(z - o.z) < o.depth / 2 + 1.5)) continue;
-        const r = 0.6 + hs * 1.1, v = 0.78 + hx * 0.42;
+        const r = 0.6 + hs * 1.1, v = 0.82 + hx * 0.14;
         // A bush is a handful of leaf cards leaning outward from a low centre.
-        for (let k = 0; k < 5; k++) cards.card(x, y + r * 0.5, z, hz * 6 + k * 1.26, 0.45 + (k % 2) * 0.25, r * 2.3, r * 1.9, ATLAS.leaves, [v * 0.9, v, v * 0.88], 0.7);
+        for (let k = 0; k < 4; k++) {
+          const a = hz * 6 + k * 2.39996;
+          cards.card(x + Math.cos(a) * r * 0.35, y + r * (0.55 + (k % 2) * 0.18), z + Math.sin(a) * r * 0.35,
+            a, 0.3 + (k % 2) * 0.5, r * 1.55, r * 1.4, ATLAS.leaves, [v * 0.97, v, v * 0.95], 0.75);
+        }
       }
     }
   }
 
   private pine(g: Geometry, cards: CardBatch, x: number, base: number, z: number, h: number, seed: number): void {
     const lean = (seed - 0.5) * h * 0.07;
-    g.trunk(x, base, z, 0.34, 0.1, h * 0.72, 5, PALETTE.trunk, lean * 0.4, lean * 0.4);
-    const v = 0.8 + cellHash(seed * 91, 3, 7) * 0.4;
-    const tint: [number, number, number] = [v * 0.94, v, v * 0.95];
-    const width = h * 0.8, height = h * 0.9, cx = x + lean * 0.5, cz = z + lean * 0.5;
-    // Four crossed cards give the crown its volume; a wider, shorter skirt fills the lower boughs.
-    for (let k = 0; k < 4; k++) cards.card(cx, base + h * 0.1 + height / 2, cz, k * Math.PI / 4 + seed * 3, 0, width, height, ATLAS.conifer, tint);
-    for (let k = 0; k < 3; k++) cards.card(cx, base + h * 0.08 + height * 0.3, cz, k * Math.PI / 3 + 0.4 + seed, 0, width * 1.2, height * 0.62, ATLAS.conifer, [tint[0] * 0.9, tint[1] * 0.9, tint[2] * 0.9], 0.5);
+    g.trunk(x, base, z, 0.34, 0.06, h * 0.9, 7, [0.86, 0.83, 0.78], lean * 0.4, lean * 0.4);
+    const v = 0.85 + cellHash(seed * 91, 3, 7) * 0.12;
+    const cx = x + lean * 0.4, cz = z + lean * 0.4;
+    // Separate bough tiers taper upwards; no repeated full-tree images in the near crown.
+    for (let tier = 0; tier < 4; tier++) {
+      const width = h * (0.64 - tier * 0.145), cy = base + h * (0.34 + tier * 0.17);
+      for (let k = 0; k < 3; k++) {
+        const a = seed * 6 + k * Math.PI * 2 / 3 + tier * 0.57;
+        cards.card(cx + Math.cos(a) * width * 0.17, cy, cz + Math.sin(a) * width * 0.17,
+          a, 0.55 + tier * 0.12, width, width * 0.68, ATLAS.needles, [v * 0.97, v, v * 0.96], 0.78);
+      }
+    }
   }
 
   private broadleaf(g: Geometry, cards: CardBatch, x: number, base: number, z: number, h: number, seed: number): void {
     const lean = (seed - 0.5) * h * 0.1;
-    g.trunk(x, base, z, 0.42, 0.2, h * 0.58, 6, PALETTE.trunk, lean, lean * 0.6);
-    const r = h * 0.38, cx = x + lean, cz = z + lean * 0.6, cy = base + h * 0.64;
+    g.trunk(x, base, z, 0.42, 0.13, h * 0.69, 8, [0.88, 0.85, 0.8], lean, lean * 0.6);
+    const r = h * 0.38, cx = x + lean, cz = z + lean * 0.6;
     const autumn = seed > 0.94;
-    const v = 0.82 + cellHash(seed * 57, 11, 3) * 0.36;
-    const tint: [number, number, number] = autumn ? [1.25, 0.82, 0.5] : [v * 0.93, v, v * 0.86];
-    // An irregular crown: many leaf cards at scattered tilts and offsets, so no flat disc or star shows.
-    for (let k = 0; k < 10; k++) {
+    const v = 0.86 + cellHash(seed * 57, 11, 3) * 0.12;
+    const tint: Rgb = autumn ? [v, v * 0.84, v * 0.67] : [v * 0.98, v, v * 0.95];
+    for (let k = 0; k < 3; k++) {
+      const a = seed * 6 + k * Math.PI * 2 / 3;
+      g.trunk(x + lean * 0.6, base + h * 0.36, z + lean * 0.36, 0.16, 0.04, h * (0.24 + k * 0.035), 5,
+        [0.86, 0.83, 0.78], Math.cos(a) * h * 0.2, Math.sin(a) * h * 0.2);
+    }
+    // Smaller leaf-bearing branches spread over three crown levels.
+    for (let k = 0; k < 12; k++) {
       const hk = (salt: number) => cellHash(seed * 131 + k * 17, salt, 5);
-      const angle = hk(1) * Math.PI * 2, spread = r * 0.38 * hk(2);
-      const size = r * (1.7 + hk(3) * 0.9);
-      const shadeK = 0.9 + hk(4) * 0.28 + (k > 6 ? 0.1 : 0);
-      cards.card(cx + Math.cos(angle) * spread, cy + (hk(5) - 0.35) * r * 0.9, cz + Math.sin(angle) * spread, hk(6) * Math.PI, (hk(7) - 0.5) * 1.9, size, size * 0.88, ATLAS.leaves, [tint[0] * shadeK, tint[1] * shadeK, tint[2] * shadeK], 0.55 + hk(8) * 0.3);
+      const layer = Math.floor(k / 4), angle = k * 2.39996 + seed * 6 + hk(1) * 0.4;
+      const spread = r * (0.38 + hk(2) * 0.46) * (layer === 2 ? 0.65 : 1);
+      const size = r * (0.9 + hk(3) * 0.45), cy = base + h * (0.53 + layer * 0.15) + (hk(5) - 0.5) * r * 0.18;
+      const shadeK = 0.88 + hk(4) * 0.1;
+      cards.card(cx + Math.cos(angle) * spread, cy, cz + Math.sin(angle) * spread, angle + hk(6) * 0.8,
+        (hk(7) - 0.5) * 1.4, size, size * 0.85, ATLAS.leaves, shade(tint, shadeK), 0.77);
     }
   }
 
@@ -515,6 +541,7 @@ export class IslandRenderer {
     const key = cz * this.grid + cx;
     for (const obstacle of this.byChunk.get(key) ?? []) {
       geometry.wood = obstacle.kind === 'crate';
+      geometry.bark = obstacle.kind === 'tree';
       const base = obstacleBase(obstacle);
       const bottom = base + (obstacle.bottom ?? 0);
       const height = base + obstacle.height - bottom;
@@ -522,9 +549,13 @@ export class IslandRenderer {
       if (far) {
         if (obstacle.kind === 'tree') {
           // Distant trees are just two crossed cards.
-          const v = 0.8 + cellHash(seed * 91, 3, 7) * 0.4;
-          if (seed < 0.38) for (let k = 0; k < 2; k++) cards.card(obstacle.x, bottom + height * 0.64, obstacle.z, k * Math.PI / 2 + seed, 0, height * 0.8, height * 0.7, ATLAS.leaves, [v * 0.93, v, v * 0.86], 0.6);
-          else for (let k = 0; k < 2; k++) cards.card(obstacle.x, bottom + height * 0.56, obstacle.z, k * Math.PI / 2 + seed * 3, 0, height * 0.66, height * 0.9, ATLAS.conifer, [v * 0.94, v, v * 0.95]);
+          const v = 0.86 + cellHash(seed * 91, 3, 7) * 0.12;
+          if (seed < 0.38) {
+            geometry.trunk(obstacle.x, bottom, obstacle.z, 0.35, 0.12, height * 0.6, 5, [0.86, 0.83, 0.78]);
+            for (let k = 0; k < 2; k++) cards.card(obstacle.x, bottom + height * 0.68, obstacle.z, k * Math.PI / 2 + seed,
+              0, height * 0.76, height * 0.6, ATLAS.leaves, [v * 0.98, v, v * 0.95], 0.77);
+          } else for (let k = 0; k < 2; k++) cards.card(obstacle.x, bottom + height * 0.5, obstacle.z, k * Math.PI / 2 + seed * 3,
+            0, height * 0.9, height, ATLAS.conifer, [v * 0.98, v, v * 0.96], 0.85);
         } else if (obstacle.kind === 'roof') {
           const rise = Math.max(0.9, Math.min(obstacle.width, obstacle.depth) * 0.3);
           geometry.box(obstacle.x, base, obstacle.z, obstacle.width - 0.6, HOUSE_HEIGHT, obstacle.depth - 0.6, PALETTE.plaster[Math.floor(seed * 5)], 0.85);

@@ -2,8 +2,10 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import groundUrl from './assets/textures/ground-detail-v1.png?url';
 import woodUrl from './assets/textures/wood-grain-v1.png?url';
+import foliageUrl from './assets/textures/foliage-atlas-v2.png?url';
+import barkUrl from './assets/textures/bark-v1.png?url';
 
-export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl } as const;
+export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl, foliage: foliageUrl, bark: barkUrl } as const;
 
 /** Keep the existing finish visible while an ImageGen albedo loads; cancel work when its owner is disposed. */
 export function useGeneratedAlbedo(material: StandardMaterial, url: string, repeat = 1, level = 1): Texture {
@@ -19,7 +21,7 @@ export function useGeneratedAlbedo(material: StandardMaterial, url: string, repe
       // The original procedural texture (or flat colour) remains usable after a failed request.
       candidate.dispose();
     });
-  candidate.name = 'imagegen-' + (url === groundUrl ? 'ground' : 'wood');
+  candidate.name = 'imagegen-' + Object.keys(GENERATED_TEXTURES).find(key => GENERATED_TEXTURES[key as keyof typeof GENERATED_TEXTURES] === url);
   candidate.wrapU = candidate.wrapV = Texture.WRAP_ADDRESSMODE;
   candidate.uScale = candidate.vScale = repeat;
   candidate.level = level;

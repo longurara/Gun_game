@@ -5,17 +5,19 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js'
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
 
 /**
  * Foliage is drawn as alpha-tested cards carrying painted textures (conifer boughs, leaf clusters, grass blades),
  * the way most real-time games do it: far more natural than faceted solids, and cheaper to render.
- * Everything is painted once into a single atlas, so all foliage shares one material.
+ * ImageGen cutouts share one atlas and material; the painted atlas remains a loading fallback.
  */
 export type UvRect = { u0: number; v0: number; u1: number; v1: number };
 
-/** Where each painted sprite sits in the 512 x 512 atlas (v runs bottom to top). */
+/** Four atlas quadrants with a gutter (v runs bottom to top). */
 export const ATLAS = {
-  conifer: { u0: 0.01, v0: 0.01, u1: 0.49, v1: 0.99 } as UvRect,
+  conifer: { u0: 0.01, v0: 0.51, u1: 0.49, v1: 0.99 } as UvRect,
+  needles: { u0: 0.01, v0: 0.01, u1: 0.49, v1: 0.49 } as UvRect,
   leaves: { u0: 0.51, v0: 0.51, u1: 0.99, v1: 0.99 } as UvRect,
   grass: { u0: 0.51, v0: 0.01, u1: 0.99, v1: 0.49 } as UvRect,
 };
@@ -125,7 +127,8 @@ export function createFoliageMaterial(scene: Scene): StandardMaterial {
   const texture = new DynamicTexture('foliage-atlas', { width: 512, height: 512 }, scene, true);
   const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
   ctx.clearRect(0, 0, 512, 512);
-  paintConifer(ctx, 0, 0, 256, 512);
+  paintConifer(ctx, 0, 0, 256, 256);
+  paintConifer(ctx, 0, 256, 256, 256);
   paintLeaves(ctx, 256, 0, 256);
   paintGrass(ctx, 256, 256, 256);
   texture.update(true);
@@ -138,10 +141,14 @@ export function createFoliageMaterial(scene: Scene): StandardMaterial {
   material.diffuseColor = Color3.White();
   material.specularColor = Color3.Black();
   material.useAlphaFromDiffuseTexture = true;
-  material.alphaCutOff = 0.42;
+  material.alphaCutOff = 0.36;
   material.transparencyMode = StandardMaterial.MATERIAL_ALPHATEST;
   material.backFaceCulling = false;
-  material.twoSidedLighting = true;
+  // Upward-biased canopy normals shade both sides alike; flipping them makes thin grass backs pitch black.
+  material.twoSidedLighting = false;
+  const generated = useGeneratedAlbedo(material, GENERATED_TEXTURES.foliage);
+  generated.hasAlpha = true;
+  generated.wrapU = generated.wrapV = Texture.CLAMP_ADDRESSMODE;
   return material;
 }
 
@@ -209,11 +216,12 @@ export class CardBatch {
     const start = this.positions.length / 3;
     corners.forEach(([x, y, z, u, v], index) => {
       this.positions.push(x, y, z);
-      const outwardX = fx * 0.35, outwardZ = fz * 0.35;
-      const length = Math.hypot(outwardX, 0.9, outwardZ);
-      this.normals.push(outwardX / length, 0.9 / length, outwardZ / length);
-      const k = index < 2 ? base : 1.08;
-      this.colors.push(Math.min(1.3, tint[0] * k), Math.min(1.3, tint[1] * k), Math.min(1.3, tint[2] * k), 1);
+      const outwardX = fx * Math.cos(tilt) * 0.65, outwardZ = fz * Math.cos(tilt) * 0.65;
+      const up = 0.55 - Math.sin(tilt) * 0.2;
+      const length = Math.hypot(outwardX, up, outwardZ);
+      this.normals.push(outwardX / length, up / length, outwardZ / length);
+      const k = index < 2 ? base : 1;
+      this.colors.push(Math.min(1, tint[0] * k), Math.min(1, tint[1] * k), Math.min(1, tint[2] * k), 1);
       this.uvs.push(u, v);
     });
     this.indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
