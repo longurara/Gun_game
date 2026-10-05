@@ -48,6 +48,14 @@ export class SocialStore {
     if (account) await this.accountChanged(account);
   }
 
+  /** The player came back from an e-mail link that failed (the link is in the address as #error=…): say what happened. */
+  linkFailed(hash: string): boolean {
+    const text = linkErrorMessage(hash);
+    if (!text) return false;
+    this.say(text);
+    return true;
+  }
+
   get signedIn(): boolean { return this.state.account !== null; }
   /** The name to play under: the account's username (from the profile once loaded). */
   get displayName(): string | null { return this.state.profile?.username ?? this.state.account?.username ?? null; }
@@ -177,4 +185,14 @@ export class SocialStore {
   }
   /** A new match is starting: its result may be reported again. */
   newMatch(): void { this.reported = false; }
+}
+
+/** A readable explanation of the error Supabase puts in the address after a bad confirmation link, or null if there is none. */
+export function linkErrorMessage(hash: string): string | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const code = params.get('error_code') ?? params.get('error');
+  if (!code) return null;
+  if (code === 'otp_expired') return 'Link xác nhận đã hết hạn hoặc đã được dùng rồi. Hãy thử ĐĂNG NHẬP trước (có thể tài khoản đã xác nhận xong); nếu vẫn báo chưa xác nhận thì đăng ký lại.';
+  if (code === 'access_denied') return 'Link xác nhận không hợp lệ. Hãy thử đăng nhập hoặc đăng ký lại.';
+  return 'Không xác nhận được qua link trong thư. Hãy thử đăng nhập hoặc đăng ký lại.';
 }

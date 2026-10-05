@@ -178,11 +178,11 @@ test('the crosshair opens with the bullet spread and the stance badge shows only
   assert.equal(el('stance-badge').hidden, true);
 });
 
-test('recoil strength and aim assist are settings that persist; phones default to gentle recoil and light assist', () => {
+test('recoil strength and aim assist are settings that persist; phones default to light assist', () => {
   freshDom(true);
   const first = new GameUI(callbacks());
   assert.equal(first.settings.aimAssist, 'low');
-  assert.equal(first.settings.recoilScale, 0.75);
+  assert.equal(first.settings.recoilScale, 1);
   click(dom.window.document.querySelector('#assist-choice button[data-value="high"]')!);
   const slider = el('recoil-scale') as HTMLInputElement;
   slider.value = '1.25'; slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
@@ -194,7 +194,7 @@ test('recoil strength and aim assist are settings that persist; phones default t
   freshDom();
   const desktop = new GameUI(callbacks());
   assert.equal(desktop.settings.aimAssist, 'off', 'no aim assist on a mouse by default');
-  assert.equal(desktop.settings.recoilScale, 1, 'full PUBG-style recoil on a desktop');
+  assert.equal(desktop.settings.recoilScale, 1, 'default recoil on a desktop');
 });
 
 test('gunshot cues point the right way, fade with distance and cycle through a few markers; the setting persists', () => {

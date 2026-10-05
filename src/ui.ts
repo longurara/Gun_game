@@ -60,7 +60,7 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 }
 function readSettings(): GameSettings {
   const touch = document.documentElement.dataset.input === 'touch';
-  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: touch ? 0.75 : 1, soundIndicator: touch };
+  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off', aimAssist: touch ? 'low' : 'off', recoilScale: 1, soundIndicator: touch };
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
@@ -164,7 +164,7 @@ export class GameUI {
                 <label class="setting-row gyro-invert"><span>${icon('target')}<span>Đảo chiều lên / xuống<small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span></span><input id="gyro-invert" type="checkbox" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
               </div>
               <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
-              <label class="setting-row"><span>${icon('target')}<span>Độ giật súng<small>1× = giật như PUBG PC: tâm leo lên theo mẫu riêng của từng súng, kéo chuột xuống để bù. Thấp hơn thì nhẹ hơn</small></span></span><output id="recoil-value">1.00×</output><input id="recoil-scale" type="range" min="0.3" max="1.5" step="0.05" aria-label="Độ giật súng"></label>
+              <label class="setting-row"><span>${icon('target')}<span>Độ giật súng<small>1× = giật mặc định: mỗi phát hất nhẹ góc nhìn rồi tự hồi lại. Thấp hơn thì nhẹ hơn</small></span></span><output id="recoil-value">1.00×</output><input id="recoil-scale" type="range" min="0.3" max="1.5" step="0.05" aria-label="Độ giật súng"></label>
               <div class="setting-gyro touch-only">
                 <div class="setting-gyro-head"><span>${icon('target')}<span>Hỗ trợ ngắm<small>Camera chậm lại khi tâm lướt qua địch và hút nhẹ về thân khi bạn bắn hoặc ngắm</small></span></span></div>
                 <div id="assist-choice" class="seg seg-compact" role="radiogroup" aria-label="Hỗ trợ ngắm"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="low"><b>Nhẹ</b></button><button type="button" role="radio" data-value="high"><b>Mạnh</b><small>như Free Fire</small></button></div>

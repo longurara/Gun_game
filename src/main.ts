@@ -38,7 +38,6 @@ import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
 import { Gyro, GYRO_STATUS_TEXT, gyroSupport } from './gyro';
-import { counter, kick, newBank, recover } from './game/recoil';
 import { STANCE } from './game/stance';
 import { lookScale, pickAssist, pullStep } from './aim-assist';
 import type { AssistTarget } from './aim-assist';
@@ -111,8 +110,7 @@ let mpMenuOpen = false, mpSpectating = false;
 let resultReported = false;
 let lastInput: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 const nameplates = new Map<string, HTMLDivElement>();
-/** Weapon recoil: the kick not yet recovered or pulled against, and the camera's eye height as the stance changes. */
-let bank = newBank();
+/** The camera's eye height as the stance changes. */
 let eyeHeight = STANCE.stand.eye;
 let assistTargets: AssistTarget[] = [], lastAssistScan = -Infinity;
 const frameTimes: number[] = [];
@@ -190,12 +188,10 @@ function cueGunshot(shooterId: string, from: { x: number; z: number }) {
   ui.showSoundFrom(Math.atan2(dx, dz) - yaw, 1 - distance / 140);
 }
 
-/** Turn the camera by hand (mouse, swipe, gyro or aim assist). Pulling down against recoil counts as recovering it. */
+/** Turn the camera by hand (mouse, swipe, gyro or aim assist). */
 function lookBy(dYaw: number, dPitch: number) {
-  const before = pitch;
   yaw += dYaw;
   pitch = Math.max(pitchMin(), Math.min(0.8, pitch + dPitch));
-  counter(bank, pitch - before, dYaw);
   lastLookAt = performance.now();
 }
 
@@ -306,6 +302,11 @@ social.onChange(() => {
   mp.refresh();
 });
 void social.start();
+// Coming back from a confirmation e-mail whose link failed: show why in the account window and clean the address.
+if (social.linkFailed(location.hash)) {
+  history.replaceState(null, '', location.pathname + location.search);
+  accountView.show(true);
+}
 
 /** Send the result of the match that just ended to the signed-in player's record (once per match). */
 function reportResult(won: boolean) {
@@ -451,7 +452,6 @@ function lockPointer() {
 }
 
 function releaseInput() {
-  bank = newBank();
   keys.clear(); shooting = false; triggerPending = false; aiming = false;
   mobileJump = false; mobile?.reset();
   if (document.pointerLockElement === canvas) document.exitPointerLock();
@@ -1121,10 +1121,8 @@ function shoot() {
       net.client.queueFire({ x: target.x, y: target.y, z: target.z }, aiming);
       audio.handle({ type: 'shot', actorId: sim.localId, weapon: sim.player.weapon, from: { ...sim.player.position }, to: { x: target.x, y: target.y, z: target.z } }, sim.player.position);
     }
-    const push = kick(bank, weapon, { aiming, stance: sim.player.stance ?? 'stand', moving: Math.min(1, sim.playerSpeed / 5.2), scale: settings.recoilScale });
-    yaw += push.yaw;
-    pitch = Math.max(pitchMin(), Math.min(0.8, pitch + push.pitch));
-    recoil = Math.min(0.13, recoil + 0.004);
+    // A short kick of the view that settles by itself; the setting scales it and a lower stance softens it.
+    recoil = Math.min(0.13, recoil + weapon.recoil * settings.recoilScale * STANCE[sim.player.stance ?? 'stand'].recoil);
   }
 }
 
@@ -1139,7 +1137,6 @@ function selectWeapon(weapon: WeaponType) {
   if (!sim.player.ownedWeapons.includes(weapon)) return;
   if (sim.switchWeapon(weapon)) {
     net?.client?.queueCommand('switch', weapon);
-    bank = newBank();
     aiming = false; shooting = false; triggerPending = false; recoil = 0;
     mobile?.cancelFire();
     ui.notify(`${WEAPONS[weapon].label} · ${WEAPONS[weapon].category}`);
@@ -1495,17 +1492,14 @@ try {
       if (scene.shadowsEnabled !== shadowsOn) scene.shadowsEnabled = shadowsOn;
     }
     if (sim.state.phase === 'playing' && sim.player.alive && !sim.player.air) {
-      // The aim drifts back by whatever recoil the player has not pulled against; assist slows and pulls toward enemies.
-      const back = recover(bank, WEAPONS[sim.player.weapon], dt);
-      yaw += back.yaw;
-      pitch = Math.max(pitchMin(), Math.min(0.8, pitch + back.pitch));
+      // Assist slows the aim over enemies and pulls toward them.
       scanAssist(now);
       const level = assistLevel();
       if (level !== 'off' && (shooting || aiming)) {
         const pull = pullStep(pickAssist(yaw, pitch, assistTargets, level), level, dt, true);
         if (pull.yaw || pull.pitch) lookBy(pull.yaw, pull.pitch);
       }
-    } else bank = newBank();
+    }
     // The crosshair opens with the bullet spread (bigger when moving, jumping or standing; smaller aiming or crouched).
     ui.setCrosshair(4 + Math.tan(sim.currentSpread(aiming)) / Math.tan(camera.fov / 2) * (canvas.clientHeight / 2));
     ui.setStance(sim.player.air || sim.state.phase !== 'playing' ? 'stand' : sim.player.stance ?? 'stand');
@@ -1573,7 +1567,7 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
     scene.render();
   });
   if (import.meta.env.DEV) {
-    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()), bank: { ...bank } }) } });
+    Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()) }) } });
   }
 } catch (error) {
   console.error(error);

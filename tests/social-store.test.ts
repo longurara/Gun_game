@@ -208,3 +208,11 @@ test('Supabase error messages become Vietnamese advice', () => {
   ];
   for (const [error, expected] of cases) assert.match(friendlyError(error).message, expected);
 });
+
+test('a failed confirmation link is explained, and an ordinary address is left alone', async () => {
+  const { linkErrorMessage } = await import('../src/social/store.ts');
+  assert.match(linkErrorMessage('#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired&sb=')!, /hết hạn/);
+  assert.match(linkErrorMessage('#error=access_denied')!, /không hợp lệ/);
+  assert.equal(linkErrorMessage(''), null);
+  assert.equal(linkErrorMessage('#access_token=abc&type=signup'), null);
+});
