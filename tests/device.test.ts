@@ -1,8 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBudgetFor } from '../src/device.ts';
+import { renderBudgetFor, touchLookSensitivity } from '../src/device.ts';
 
 const renderedPixels = (width: number, height: number, scaling: number) => (width / scaling) * (height / scaling);
+
+test('touch swipe turn is consistent across phone sizes and orientations', () => {
+  const turn = 390 * touchLookSensitivity(844, 390);
+  assert.equal(touchLookSensitivity(844, 390), touchLookSensitivity(390, 844));
+  assert.ok(Math.abs(375 * touchLookSensitivity(667, 375) - turn) < 1e-10);
+  assert.ok(Math.abs(412 * touchLookSensitivity(915, 412) - turn) < 1e-10);
+  assert.equal(touchLookSensitivity(844, 390, 2), touchLookSensitivity(844, 390) * 2);
+});
+
+test('touch aim slows high zoom optics and invalid screen values remain usable', () => {
+  const normal = touchLookSensitivity(844, 390);
+  const aim = touchLookSensitivity(844, 390, 1, 8);
+  assert.ok(aim < touchLookSensitivity(844, 390, 1, 2));
+  assert.ok(Math.abs(aim / normal - 0.72 / Math.sqrt(8)) < 1e-10);
+  for (const [width, height] of [[0, 0], [NaN, 390], [844, Infinity]]) {
+    assert.equal(touchLookSensitivity(width, height, NaN), normal);
+  }
+  assert.ok(touchLookSensitivity(1, 1) <= 0.005);
+  assert.ok(touchLookSensitivity(4000, 2000) > 0);
+});
 
 test('phones and tablets render at native device resolution without a pixel cap', () => {
   for (const [width, height] of [[360, 800], [844, 390], [1024, 768], [2560, 1600], [3840, 2160]]) {

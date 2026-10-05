@@ -1,0 +1,538 @@
+import type { Field, Lake, LootSpot, MapId, Obstacle, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
+import { SpatialGrid } from './spatial';
+
+/** The island is generated from a fixed seed so every match is played on the same map. */
+export const ISLAND_SEED = 20260;
+export const ISLAND_HALF = 2000;
+
+export const ISLAND_ZONE: ZoneProfile = {
+  start: 2400,
+  radii: [1700, 1100, 700, 420, 220, 90, 0],
+  waits: [40, 40, 35, 30, 25, 20, 10],
+  shrinks: [90, 75, 60, 50, 40, 35, 30],
+};
+
+export const VALLEY_SEED = 71013;
+export const VALLEY_HALF = 500;
+
+export const VALLEY_ZONE: ZoneProfile = {
+  start: 720,
+  radii: [520, 340, 200, 110, 45, 0],
+  waits: [35, 30, 25, 25, 20, 10],
+  shrinks: [50, 45, 40, 35, 30, 25],
+};
+
+/** Everything that differs between the big island and the compact 1 km valley. */
+export interface WorldSpec {
+  id: MapId; half: number; seed: number; zone: ZoneProfile;
+  /** True: the coast fades into open sea. False: a ring of hills closes the map in and there is no sea. */
+  sea: boolean;
+  hills: { wavelength: number; amplitude: number; base: number; ridgeWavelength: number; maskWavelength: number; mountains: number };
+  towns: Array<{ tier: Town['tier']; radius: number; count: number }>;
+  townEdge: number; townGap: number; roadJitter: number; extraRoads: number; extraRoadReach: number;
+  lakes: { count: number; edge: number; radius: [number, number]; height: [number, number]; gap: number };
+  // radius is [minimum, random span]
+  rivers: { count: number; edge: number; start: number };
+  forestScale: number; fieldScale: number; rocks: number; rockEdge: number; wildCaches: number; wildEdge: number;
+  spawnStep: number; spawnEdge: number; carStart: [number, number]; carStep: [number, number];
+}
+
+const ISLAND_SPEC: WorldSpec = {
+  id: 'island', half: ISLAND_HALF, seed: ISLAND_SEED, zone: ISLAND_ZONE, sea: true,
+  hills: { wavelength: 760, amplitude: 84, base: 30, ridgeWavelength: 1100, maskWavelength: 1500, mountains: 80 },
+  towns: [{ tier: 'city', radius: 185, count: 2 }, { tier: 'town', radius: 125, count: 5 }, { tier: 'hamlet', radius: 70, count: 9 }],
+  townEdge: 380, townGap: 260, roadJitter: 160, extraRoads: 4, extraRoadReach: 1300,
+  lakes: { count: 7, edge: 520, radius: [55, 70], height: [8, 52], gap: 160 },
+  rivers: { count: 3, edge: 700, start: 48 },
+  forestScale: 1, fieldScale: 1, rocks: 520, rockEdge: 120, wildCaches: 90, wildEdge: 200,
+  spawnStep: 190, spawnEdge: 260, carStart: [90, 80], carStep: [260, 120],
+};
+
+/** A 1 x 1 km valley ringed by hills: a few settlements, lakes, forest and a bot-heavy fight. */
+const VALLEY_SPEC: WorldSpec = {
+  id: 'valley', half: VALLEY_HALF, seed: VALLEY_SEED, zone: VALLEY_ZONE, sea: false,
+  hills: { wavelength: 320, amplitude: 24, base: 26, ridgeWavelength: 460, maskWavelength: 640, mountains: 16 },
+  towns: [{ tier: 'city', radius: 95, count: 1 }, { tier: 'town', radius: 65, count: 2 }, { tier: 'hamlet', radius: 40, count: 4 }],
+  townEdge: 150, townGap: 70, roadJitter: 60, extraRoads: 2, extraRoadReach: 700,
+  lakes: { count: 3, edge: 150, radius: [24, 12], height: [8, 46], gap: 50 },
+  rivers: { count: 0, edge: 200, start: 40 },
+  forestScale: 2.6, fieldScale: 0.55, rocks: 120, rockEdge: 50, wildCaches: 60, wildEdge: 70,
+  spawnStep: 70, spawnEdge: 100, carStart: [50, 40], carStep: [150, 60],
+};
+
+export const WALL_THICKNESS = 0.4;
+export const HOUSE_HEIGHT = 3.3;
+export const DOOR_WIDTH = 2.6;
+export const DOOR_HEIGHT = 2.5;
+
+export const obstacleBase = (o: Obstacle): number => o.base ?? 0;
+export const obstacleBottom = (o: Obstacle): number => obstacleBase(o) + (o.bottom ?? 0);
+export const obstacleTop = (o: Obstacle): number => obstacleBase(o) + o.height;
+
+export function mulberry32(seed: number): () => number {
+  let state = seed | 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function lattice(ix: number, iz: number, seed: number): number {
+  let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ Math.imul(seed, 1442695041);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+const smooth = (t: number) => t * t * (3 - 2 * t);
+function valueNoise(x: number, z: number, seed: number): number {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  const u = smooth(x - ix), v = smooth(z - iz);
+  const a = lattice(ix, iz, seed), b = lattice(ix + 1, iz, seed), c = lattice(ix, iz + 1, seed), d = lattice(ix + 1, iz + 1, seed);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbm(x: number, z: number, seed: number, octaves: number): number {
+  let amplitude = 0.5, frequency = 1, sum = 0, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += valueNoise(x * frequency, z * frequency, seed + i * 31) * amplitude;
+    norm += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2.03;
+  }
+  return sum / norm;
+}
+/** Where forests grow: used for tree placement and to darken the forest floor. */
+/** Forest patches scale with the map, so a 1 km valley still has woods; set whenever a map is handed out. */
+let activeForestScale = 1;
+export const forestNoise = (x: number, z: number): number => fbm(x * activeForestScale / 420, z * activeForestScale / 420, 203, 3);
+/** Low-frequency noise for ground colour variation (rendering only). */
+export const groundNoise = (x: number, z: number): number => fbm(x / 90, z / 90, 313, 3);
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+const distance = (ax: number, az: number, bx: number, bz: number) => Math.hypot(ax - bx, az - bz);
+
+export const SEA_LEVEL = 0;
+const SEA_FLOOR = -7;
+
+/** 1 well inland, 0 open sea; a wobbling shoreline roughly follows the square border. */
+function coastFor(spec: WorldSpec): (x: number, z: number) => number {
+  if (!spec.sea) return () => 1;
+  return (x, z) => {
+    const edge = 1 - Math.max(Math.abs(x), Math.abs(z)) / spec.half;
+    const wobble = (fbm(x / 520, z / 520, 7, 3) - 0.5) * 0.26;
+    return smooth(clamp01((edge + wobble - 0.05) / 0.15));
+  };
+}
+export const coastMask = coastFor(ISLAND_SPEC);
+
+/** Rolling hills with a few ridged mountains; fading into the sea at the coast, or ringed by hills when there is no sea. */
+function heightFor(spec: WorldSpec, coast: (x: number, z: number) => number): (x: number, z: number) => number {
+  const h = spec.hills;
+  return (x, z) => {
+    const hills = (fbm(x / h.wavelength, z / h.wavelength, 11, 5) - 0.5) * h.amplitude + h.base;
+    const ridge = 1 - Math.abs(2 * fbm(x / h.ridgeWavelength, z / h.ridgeWavelength, 47, 3) - 1);
+    const mask = smooth(clamp01((fbm(x / h.maskWavelength, z / h.maskWavelength, 91, 2) - 0.48) * 5));
+    let land = hills + ridge * ridge * mask * h.mountains;
+    if (!spec.sea) {
+      // No sea: the map edge climbs into hills that wall the valley in.
+      const edge = Math.max(Math.abs(x), Math.abs(z)) / spec.half;
+      land += smooth(clamp01((edge - 0.7) / 0.3)) * (spec.id === 'valley' ? 38 : 55);
+    }
+    const m = coast(x, z);
+    return land * m + SEA_FLOOR * (1 - m);
+  };
+}
+
+const TOWN_NAMES = ['Bến Đá', 'Thung Lũng', 'Cầu Sắt', 'Đồi Thông', 'Mỏ Than', 'Ga Cũ', 'Cảng Nhỏ', 'Suối Cạn', 'Nhà Máy', 'Đèo Gió', 'Chợ Đêm', 'Xóm Cát', 'Trạm Gác', 'Hồ Gương', 'Vườn Cam', 'Cồn Sỏi', 'Lò Gạch', 'Bãi Đá'];
+
+interface Plateau { x: number; z: number; height: number; inner: number; outer: number }
+
+export interface IslandData {
+  world: Omit<WorldConfig, 'obstacles'> & { obstacles: Obstacle[] };
+  terrain: (x: number, z: number) => number;
+}
+
+const cache = new Map<MapId, IslandData>();
+
+function placeTowns(random: () => number, spec: WorldSpec, coast: (x: number, z: number) => number): Town[] {
+  const towns: Town[] = [];
+  let name = 0;
+  for (const { tier, radius, count } of spec.towns) {
+    for (let placed = 0, attempts = 0; placed < count && attempts < 600; attempts++) {
+      const x = (random() * 2 - 1) * (spec.half - spec.townEdge), z = (random() * 2 - 1) * (spec.half - spec.townEdge);
+      if (towns.some(t => distance(x, z, t.x, t.z) < t.radius + radius + spec.townGap)) continue;
+      if (coast(x, z) < 0.995 || coast(x + radius * 2, z) < 0.99 || coast(x - radius * 2, z) < 0.99 || coast(x, z + radius * 2) < 0.99 || coast(x, z - radius * 2) < 0.99) continue;
+      towns.push({ id: `town-${towns.length}`, name: TOWN_NAMES[name++ % TOWN_NAMES.length], x, z, radius, tier });
+      placed++;
+    }
+  }
+  return towns;
+}
+
+/** Wall segment along one axis with rectangular openings (doors and windows) cut out. */
+function wallPieces(
+  id: string, kind: Obstacle['kind'], base: number, axis: 'x' | 'z', fixed: number, from: number, to: number,
+  openings: Array<{ start: number; end: number; low: number; high: number }>,
+): Obstacle[] {
+  const pieces: Obstacle[] = [];
+  const sorted = [...openings].sort((a, b) => a.start - b.start);
+  const push = (a: number, b: number, bottom: number, top: number, suffix: string) => {
+    if (b - a < 0.05 || top - bottom < 0.05) return;
+    const mid = (a + b) / 2, len = b - a;
+    pieces.push(axis === 'x'
+      ? { id: `${id}-${suffix}`, x: mid, z: fixed, width: len, depth: WALL_THICKNESS, height: top, bottom: bottom || undefined, kind, base }
+      : { id: `${id}-${suffix}`, x: fixed, z: mid, width: WALL_THICKNESS, depth: len, height: top, bottom: bottom || undefined, kind, base });
+  };
+  let cursor = from;
+  sorted.forEach((opening, i) => {
+    push(cursor, opening.start, 0, HOUSE_HEIGHT, `s${i}`);
+    push(opening.start, opening.end, 0, opening.low, `l${i}`);
+    push(opening.start, opening.end, opening.high, HOUSE_HEIGHT, `h${i}`);
+    cursor = opening.end;
+  });
+  push(cursor, to, 0, HOUSE_HEIGHT, 'e');
+  return pieces;
+}
+
+interface HouseSpec { x: number; z: number; width: number; depth: number; doorSide: 'n' | 's' | 'e' | 'w'; base: number }
+
+function buildHouse(id: string, spec: HouseSpec, obstacles: Obstacle[]): void {
+  const { x, z, width, depth, doorSide, base } = spec;
+  const x0 = x - width / 2, x1 = x + width / 2, z0 = z - depth / 2, z1 = z + depth / 2;
+  const door = (length: number) => ({ start: length / 2 - DOOR_WIDTH / 2, end: length / 2 + DOOR_WIDTH / 2, low: 0, high: DOOR_HEIGHT });
+  const window = (center: number) => ({ start: center - 0.8, end: center + 0.8, low: 1.0, high: 2.15 });
+  const sides: Array<['n' | 's' | 'e' | 'w', 'x' | 'z', number, number, number]> = [
+    ['s', 'x', z0, x0, x1], ['n', 'x', z1, x0, x1], ['w', 'z', x0, z0, z1], ['e', 'z', x1, z0, z1],
+  ];
+  for (const [side, axis, fixed, from, to] of sides) {
+    const length = to - from;
+    const openings = [] as Array<{ start: number; end: number; low: number; high: number }>;
+    if (side === doorSide) {
+      const d = door(length);
+      openings.push({ ...d, start: from + d.start, end: from + d.end });
+    } else if (length > 7) {
+      const w = window(from + length * 0.5);
+      openings.push({ ...w, start: w.start, end: w.end });
+    }
+    obstacles.push(...wallPieces(`${id}-${side}`, 'wall', base, axis, fixed, from, to, openings));
+  }
+  obstacles.push({ id: `${id}-roof`, x, z, width: width + 0.6, depth: depth + 0.6, height: HOUSE_HEIGHT + 0.35, bottom: HOUSE_HEIGHT, kind: 'roof', base });
+}
+
+function generate(spec: WorldSpec): IslandData {
+  const half = spec.half;
+  const coast = coastFor(spec);
+  const rawHeight = heightFor(spec, coast);
+  const random = mulberry32(spec.seed);
+  const towns = placeTowns(random, spec, coast);
+
+  const obstacles: Obstacle[] = [];
+  const lootSpots: LootSpot[] = [];
+  const roads: RoadSegment[] = [];
+  const nearTown = (x: number, z: number, margin: number) => towns.some(t => distance(x, z, t.x, t.z) < t.radius + margin);
+
+  // Roads: link every town to its nearest already-linked neighbour, then add a few extra loops.
+  const linked = [towns[0]];
+  const pending = towns.slice(1);
+  const addRoad = (a: Town, b: Town) => {
+    const mx = (a.x + b.x) / 2 + (random() - 0.5) * spec.roadJitter, mz = (a.z + b.z) / 2 + (random() - 0.5) * spec.roadJitter;
+    roads.push({ a: { x: a.x, z: a.z }, b: { x: mx, z: mz }, width: 7 }, { a: { x: mx, z: mz }, b: { x: b.x, z: b.z }, width: 7 });
+  };
+  while (pending.length) {
+    let best: [Town, Town] | null = null, bestDistance = Infinity;
+    for (const p of pending) for (const l of linked) {
+      const d = distance(p.x, p.z, l.x, l.z);
+      if (d < bestDistance) { bestDistance = d; best = [l, p]; }
+    }
+    if (!best) break;
+    addRoad(best[0], best[1]);
+    linked.push(best[1]);
+    pending.splice(pending.indexOf(best[1]), 1);
+  }
+  for (let i = 0; i < spec.extraRoads; i++) {
+    const a = towns[Math.floor(random() * towns.length)], b = towns[Math.floor(random() * towns.length)];
+    if (a !== b && distance(a.x, a.z, b.x, b.z) < spec.extraRoadReach) addRoad(a, b);
+  }
+  const roadDistance = (x: number, z: number): number => {
+    let best = Infinity;
+    for (const road of roads) {
+      const dx = road.b.x - road.a.x, dz = road.b.z - road.a.z;
+      const t = clamp01(((x - road.a.x) * dx + (z - road.a.z) * dz) / (dx * dx + dz * dz || 1));
+      best = Math.min(best, distance(x, z, road.a.x + dx * t, road.a.z + dz * t));
+    }
+    return best;
+  };
+
+  // Water. Lakes avoid roads and towns; rivers follow the slope down to the sea and are shallow enough to wade.
+  const segmentDistance = (x: number, z: number, ax: number, az: number, bx: number, bz: number): number => {
+    const dx = bx - ax, dz = bz - az;
+    const t = clamp01(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1));
+    return distance(x, z, ax + dx * t, az + dz * t);
+  };
+  const lakes: Lake[] = [];
+  for (let attempt = 0; attempt < 500 && lakes.length < spec.lakes.count; attempt++) {
+    const x = (random() * 2 - 1) * (half - spec.lakes.edge), z = (random() * 2 - 1) * (half - spec.lakes.edge);
+    const r = spec.lakes.radius[0] + random() * spec.lakes.radius[1];
+    const h = rawHeight(x, z);
+    if (coast(x, z) < 0.99 || h > spec.lakes.height[1] || h < spec.lakes.height[0]) continue;
+    if (towns.some(t => distance(x, z, t.x, t.z) < t.radius * 1.9 + r * 1.6)) continue;
+    if (lakes.some(l => distance(x, z, l.x, l.z) < l.r + r + spec.lakes.gap)) continue;
+    if (roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < r * 1.9 + 14)) continue;
+    lakes.push({ x, z, r, level: h - 0.4 });
+  }
+  const rivers: River[] = [];
+  for (let attempt = 0; attempt < 600 && rivers.length < spec.rivers.count; attempt++) {
+    let x = (random() * 2 - 1) * (half - spec.rivers.edge), z = (random() * 2 - 1) * (half - spec.rivers.edge);
+    if (rawHeight(x, z) < spec.rivers.start || coast(x, z) < 0.99) continue;
+    const points: River['points'] = [];
+    let level = rawHeight(x, z) - 0.8, hx = 0, hz = 0, reachedSea = false;
+    for (let i = 0; i < 220; i++) {
+      const h = rawHeight(x, z);
+      level = Math.min(level - 0.12, h - 0.8);
+      points.push({ x, z, level });
+      if (h < 2.5) { reachedSea = points.length > 25; break; }
+      const gx = (rawHeight(x + 10, z) - rawHeight(x - 10, z)) / 20, gz = (rawHeight(x, z + 10) - rawHeight(x, z - 10)) / 20;
+      const length = Math.hypot(gx, gz) || 1;
+      // Blend steepest descent with the previous heading so the channel meanders smoothly.
+      // A gentle pull toward the nearest shore keeps a river from stalling in a hollow.
+      const pullX = Math.abs(x) > Math.abs(z) ? Math.sign(x) : 0, pullZ = Math.abs(z) >= Math.abs(x) ? Math.sign(z) : 0;
+      hx = hx * 0.55 + (-gx / length) * 0.33 + pullX * 0.12; hz = hz * 0.55 + (-gz / length) * 0.33 + pullZ * 0.12;
+      const hl = Math.hypot(hx, hz) || 1;
+      x += hx / hl * 40; z += hz / hl * 40;
+      if (Math.abs(x) > half - 40 || Math.abs(z) > half - 40) break;
+    }
+    if (!reachedSea) continue;
+    const blocked = points.some(p => towns.some(t => distance(p.x, p.z, t.x, t.z) < t.radius * 1.75 + 25) || lakes.some(l => distance(p.x, p.z, l.x, l.z) < l.r * 1.9 + 30));
+    if (blocked) continue;
+    rivers.push({ points, width: 9 + random() * 6 });
+  }
+  const BANK = 26;
+  interface RiverSegment { ax: number; az: number; bx: number; bz: number; la: number; lb: number; half: number }
+  const riverGrid = new SpatialGrid<RiverSegment>(64);
+  for (const river of rivers) {
+    for (let i = 0; i + 1 < river.points.length; i++) {
+      const a = river.points[i], b = river.points[i + 1], pad = river.width / 2 + BANK;
+      riverGrid.insertBox({ ax: a.x, az: a.z, bx: b.x, bz: b.z, la: a.level, lb: b.level, half: river.width / 2 }, Math.min(a.x, b.x) - pad, Math.min(a.z, b.z) - pad, Math.max(a.x, b.x) + pad, Math.max(a.z, b.z) + pad);
+    }
+  }
+  const carve = (x: number, z: number, natural: number): number => {
+    let height = natural;
+    let strongest = 0;
+    riverGrid.queryBox(x, z, x, z, seg => {
+      const dx = seg.bx - seg.ax, dz = seg.bz - seg.az;
+      const t = clamp01(((x - seg.ax) * dx + (z - seg.az) * dz) / (dx * dx + dz * dz || 1));
+      const d = distance(x, z, seg.ax + dx * t, seg.az + dz * t);
+      if (d > seg.half + BANK) return;
+      const w = 1 - smooth(clamp01((d - seg.half) / BANK));
+      if (w > strongest) { strongest = w; height = natural + (seg.la + (seg.lb - seg.la) * t - 0.55 - natural) * w; }
+    });
+    for (const lake of lakes) {
+      const dx = x - lake.x, dz = z - lake.z;
+      if (Math.abs(dx) > lake.r * 1.9 || Math.abs(dz) > lake.r * 1.9) continue;
+      const d = Math.hypot(dx, dz);
+      if (d >= lake.r * 1.9) continue;
+      const w = 1 - smooth(clamp01((d - lake.r * 0.7) / (lake.r * 1.2)));
+      const bed = d < lake.r * 0.95 ? lake.level - 3.5 * (1 - smooth(d / (lake.r * 0.95))) : lake.level;
+      if (w > strongest) { strongest = w; height = natural + (bed - natural) * w; }
+    }
+    return height;
+  };
+
+  // Towns sit on flattened plateaus so houses, streets and floors share one level.
+  const plateaus: Plateau[] = towns.map(town => ({
+    x: town.x, z: town.z, height: rawHeight(town.x, town.z), inner: town.radius * 0.95, outer: town.radius * 1.7,
+  }));
+  const analytic = (x: number, z: number): number => {
+    let height = carve(x, z, rawHeight(x, z));
+    for (const plateau of plateaus) {
+      const dx = x - plateau.x, dz = z - plateau.z;
+      if (Math.abs(dx) > plateau.outer || Math.abs(dz) > plateau.outer) continue;
+      const d = Math.hypot(dx, dz);
+      if (d >= plateau.outer) continue;
+      const blend = 1 - smooth(clamp01((d - plateau.inner) / (plateau.outer - plateau.inner)));
+      height += (plateau.height - height) * blend;
+    }
+    return height;
+  };
+  // Heights are looked up constantly (movement, line of sight, bullets), so they are served from lazily filled
+  // 64 m tiles on a 2 m lattice with bilinear interpolation instead of re-evaluating the noise each time.
+  const TILE_CELLS = 32, LATTICE = 2, SIDE = TILE_CELLS + 1;
+  const tiles = new Map<number, Float32Array>();
+  const terrain = (x: number, z: number): number => {
+    const fx = x / LATTICE, fz = z / LATTICE;
+    const ix = Math.floor(fx), iz = Math.floor(fz);
+    const tx = Math.floor(ix / TILE_CELLS), tz = Math.floor(iz / TILE_CELLS);
+    const key = (tx + 512) * 1024 + (tz + 512);
+    let tile = tiles.get(key);
+    if (!tile) {
+      tile = new Float32Array(SIDE * SIDE);
+      for (let j = 0; j < SIDE; j++) for (let i = 0; i < SIDE; i++) tile[j * SIDE + i] = analytic((tx * TILE_CELLS + i) * LATTICE, (tz * TILE_CELLS + j) * LATTICE);
+      tiles.set(key, tile);
+    }
+    const lx = ix - tx * TILE_CELLS, lz = iz - tz * TILE_CELLS, u = fx - ix, v = fz - iz;
+    const a = tile[lz * SIDE + lx], b = tile[lz * SIDE + lx + 1], c = tile[(lz + 1) * SIDE + lx], d = tile[(lz + 1) * SIDE + lx + 1];
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+  /** Dry, solid ground clear of the shore and of lakes. */
+  const landOk = (x: number, z: number, margin = 0): boolean => {
+    if (terrain(x, z) < 1.8 + margin * 0.3) return false;
+    return !lakes.some(l => distance(x, z, l.x, l.z) < l.r * 1.15 + margin);
+  };
+  const riverNear = (x: number, z: number, margin: number): boolean => {
+    let near = false;
+    riverGrid.queryBox(x, z, x, z, seg => { if (segmentDistance(x, z, seg.ax, seg.az, seg.bx, seg.bz) < seg.half + margin) { near = true; return true; } });
+    return near;
+  };
+
+  // Town layout: a main street with houses on both sides; cities add taller solid blocks.
+  const tierOf = { city: 3, town: 2, hamlet: 1 } as const;
+  for (const town of towns) {
+    const base = terrain(town.x, town.z);
+    const alongX = random() < 0.5;
+    const rows = town.tier === 'city' ? 3 : town.tier === 'town' ? 2 : 1;
+    let houseIndex = 0;
+    // Street: the main street the houses face (it stays clear of buildings, so cars can start on it).
+    const reach = town.radius * 0.95;
+    roads.push(alongX
+      ? { a: { x: town.x - reach, z: town.z }, b: { x: town.x + reach, z: town.z }, width: 9 }
+      : { a: { x: town.x, z: town.z - reach }, b: { x: town.x, z: town.z + reach }, width: 9 });
+    for (let row = -rows; row <= rows; row++) {
+      if (row === 0) continue;
+      const side = Math.sign(row);
+      const offset = side * (14 + (Math.abs(row) - 1) * 46);
+      for (let along = -town.radius * 0.85; along < town.radius * 0.85;) {
+        const width = 8 + Math.floor(random() * 8), depth = 7 + Math.floor(random() * 7);
+        const cx = alongX ? town.x + along + width / 2 : town.x + offset + side * depth / 2;
+        const cz = alongX ? town.z + offset + side * depth / 2 : town.z + along + width / 2;
+        along += width + 5 + random() * 10;
+        if (Math.hypot(cx - town.x, cz - town.z) > town.radius || random() < 0.12) continue;
+        const id = `${town.id}-h${houseIndex++}`;
+        const solidBlock = town.tier === 'city' && random() < 0.3;
+        const w = alongX ? width : depth, d = alongX ? depth : width;
+        if (solidBlock) {
+          obstacles.push({ id, x: cx, z: cz, width: w + 4, depth: d + 4, height: 9 + Math.floor(random() * 3) * 3, kind: 'building', base });
+          continue;
+        }
+        const doorSide = alongX ? (side > 0 ? 's' : 'n') : (side > 0 ? 'w' : 'e');
+        buildHouse(id, { x: cx, z: cz, width: w, depth: d, doorSide, base }, obstacles);
+        const tier = Math.max(1, Math.min(3, tierOf[town.tier] - (random() < 0.4 ? 1 : 0))) as 1 | 2 | 3;
+        lootSpots.push({ x: cx, z: cz, y: base, tier });
+        if (w * d > 90) lootSpots.push({ x: cx + w * 0.25, z: cz - d * 0.2, y: base, tier });
+        if (random() < 0.5) obstacles.push({ id: `${id}-crate`, x: cx - w * 0.3, z: cz + d * 0.25, width: 1.2, depth: 1.2, height: 1.1, kind: 'crate', base });
+      }
+    }
+    for (let i = 0; i < town.radius / 12; i++) {
+      const angle = random() * Math.PI * 2, r = random() * town.radius * 0.9;
+      const x = town.x + Math.cos(angle) * r, z = town.z + Math.sin(angle) * r;
+      if (Math.abs(alongX ? z - town.z : x - town.x) < 9) continue;
+      if (obstacles.some(o => o.kind === 'roof' && Math.abs(x - o.x) < o.width / 2 + 2 && Math.abs(z - o.z) < o.depth / 2 + 2)) continue;
+      obstacles.push({ id: `${town.id}-c${i}`, x, z, width: 2 + random() * 2, depth: 2 + random() * 2, height: 1.2 + random() * 0.8, kind: 'crate', base });
+      lootSpots.push({ x, z, y: base, tier: 1 });
+    }
+  }
+
+  // Farmland patches near the smaller settlements.
+  const fields: Field[] = [];
+  for (const town of towns) {
+    if (town.tier === 'city') continue;
+    for (let made = 0, tries = 0; made < (town.tier === 'town' ? 3 : 2) && tries < 40; tries++) {
+      const angle = random() * Math.PI * 2, d0 = town.radius * (1.9 + random() * 0.9);
+      const x = town.x + Math.cos(angle) * d0, z = town.z + Math.sin(angle) * d0, w = (55 + random() * 70) * spec.fieldScale, d = (45 + random() * 60) * spec.fieldScale;
+      const corners = [[0, 0], [w / 2, d / 2], [-w / 2, d / 2], [w / 2, -d / 2], [-w / 2, -d / 2]];
+      if (!corners.every(([ox, oz]) => landOk(x + ox, z + oz, 3) && !riverNear(x + ox, z + oz, 10) && !nearTown(x + ox, z + oz, 10))) continue;
+      if (Math.abs(terrain(x + w / 2, z) - terrain(x - w / 2, z)) > 7 || Math.abs(terrain(x, z + d / 2) - terrain(x, z - d / 2)) > 7) continue;
+      if (fields.some(f => Math.abs(f.x - x) < (f.w + w) / 2 + 10 && Math.abs(f.z - z) < (f.d + d) / 2 + 10)) continue;
+      fields.push({ x, z, w, d, crop: Math.floor(random() * 3) as 0 | 1 | 2 });
+      made++;
+    }
+  }
+  const inField = (x: number, z: number, margin: number) => fields.some(f => Math.abs(x - f.x) < f.w / 2 + margin && Math.abs(z - f.z) < f.d / 2 + margin);
+
+  // Wilderness: boulders, forest and lone supply caches.
+  for (let i = 0; i < spec.rocks; i++) {
+    const x = (random() * 2 - 1) * (half - spec.rockEdge), z = (random() * 2 - 1) * (half - spec.rockEdge);
+    if (nearTown(x, z, 20) || roadDistance(x, z) < 8 || !landOk(x, z, 2) || riverNear(x, z, 3)) continue;
+    const w = 3 + random() * 6, d = 3 + random() * 6, h = 1.8 + random() * 3.5;
+    obstacles.push({ id: `rock-${i}`, x, z, width: w, depth: d, height: h, kind: 'rock', base: terrain(x, z) - 0.6 });
+    if (random() < 0.12) lootSpots.push({ x: x + w, z, y: terrain(x + w, z), tier: 1 });
+  }
+  const spacing = 19;
+  for (let gx = -half + 60; gx < half - 60; gx += spacing) {
+    for (let gz = -half + 60; gz < half - 60; gz += spacing) {
+      const forest = fbm(gx * spec.forestScale / 420, gz * spec.forestScale / 420, 203, 3);
+      if (forest < 0.5 || random() > (forest - 0.5) * 3.2) continue;
+      const x = gx + (random() - 0.5) * spacing, z = gz + (random() - 0.5) * spacing;
+      if (nearTown(x, z, 25) || roadDistance(x, z) < 7 || !landOk(x, z, 4) || riverNear(x, z, 4) || inField(x, z, 6)) continue;
+      const height = 7 + random() * 7;
+      obstacles.push({ id: `tree-${obstacles.length}`, x, z, width: 0.8, depth: 0.8, height, kind: 'tree', base: terrain(x, z) - 0.3 });
+    }
+  }
+  for (let i = 0; i < spec.wildCaches; i++) {
+    const x = (random() * 2 - 1) * (half - spec.wildEdge), z = (random() * 2 - 1) * (half - spec.wildEdge);
+    if (!nearTown(x, z, 40) && landOk(x, z, 4) && !riverNear(x, z, 4)) lootSpots.push({ x, z, y: terrain(x, z), tier: random() < 0.3 ? 2 : 1 });
+  }
+
+  // Candidate drop points: a jittered grid, away from towns' centres and the rim.
+  const spawns: Vec3[] = [];
+  const step = spec.spawnStep;
+  for (let gx = -half + spec.spawnEdge; gx <= half - spec.spawnEdge; gx += step) {
+    for (let gz = -half + spec.spawnEdge; gz <= half - spec.spawnEdge; gz += step) {
+      const x = gx + (random() - 0.5) * step * 0.7, z = gz + (random() - 0.5) * step * 0.7;
+      if (!landOk(x, z, 8) || riverNear(x, z, 14) || coast(x, z) < 0.97) continue;
+      if (obstacles.some(o => o.kind !== 'tree' && Math.abs(x - o.x) < o.width / 2 + 4 && Math.abs(z - o.z) < o.depth / 2 + 4)) continue;
+      if (obstacles.some(o => o.kind === 'tree' && Math.abs(x - o.x) < 3 && Math.abs(z - o.z) < 3)) continue;
+      spawns.push({ x, y: terrain(x, z), z });
+    }
+  }
+
+  // Cars wait on roads between towns and in town streets.
+  const vehicleSpawns: VehicleSpawn[] = [];
+  for (const road of roads) {
+    const length = distance(road.a.x, road.a.z, road.b.x, road.b.z);
+    for (let d = spec.carStart[0] + random() * spec.carStart[1]; d < length - 60; d += spec.carStep[0] + random() * spec.carStep[1]) {
+      const t = d / length;
+      const x = road.a.x + (road.b.x - road.a.x) * t, z = road.a.z + (road.b.z - road.a.z) * t;
+      if (!landOk(x + 2, z + 2, 2) || riverNear(x + 2, z + 2, 6)) continue;
+      vehicleSpawns.push({ x: x + 2, z: z + 2, yaw: Math.atan2(road.b.x - road.a.x, road.b.z - road.a.z) });
+    }
+  }
+  for (const town of towns) vehicleSpawns.push({ x: town.x + 4, z: town.z + 4, yaw: random() * Math.PI * 2 });
+
+  return {
+    terrain,
+    world: {
+      id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots,
+      // Without a sea, put the waterline far below any terrain so no shore, beach or open water is ever drawn.
+      water: { seaLevel: spec.sea ? SEA_LEVEL : -60, lakes, rivers }, fields,
+    },
+  };
+}
+
+function dataFor(spec: WorldSpec): IslandData {
+  let data = cache.get(spec.id);
+  if (!data) { data = generate(spec); cache.set(spec.id, data); }
+  return data;
+}
+
+export function createIsland(): IslandData { return dataFor(ISLAND_SPEC); }
+export function createValley(): IslandData { return dataFor(VALLEY_SPEC); }
+/** Generated map data for the open-world maps; the flat arena has none. */
+export function mapData(map: MapId): IslandData | null { return map === 'island' ? createIsland() : map === 'valley' ? createValley() : null; }
+
+
+
+/** Fresh world object per match: static data is shared, the obstacle list can be mutated safely. */
+function freshWorld(data: IslandData, forestScale: number): WorldConfig {
+  activeForestScale = forestScale;
+  const { world } = data;
+  return { ...world, obstacles: world.obstacles.slice(), spawns: world.spawns.map(s => ({ ...s })) };
+}
+export function createIslandWorld(): WorldConfig { return freshWorld(createIsland(), ISLAND_SPEC.forestScale); }
+export function createValleyWorld(): WorldConfig { return freshWorld(createValley(), VALLEY_SPEC.forestScale); }
+
+export function heightAtWorld(world: WorldConfig, x: number, z: number): number {
+  return world.terrain ? world.terrain(x, z) : 0;
+}
+
+export type { Vec2 };

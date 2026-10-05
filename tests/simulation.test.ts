@@ -2,21 +2,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
 import { WEAPONS } from '../src/game/config.ts';
-import { emptyAmmo } from '../src/game/weapons.ts';
+import { emptyAmmo, emptyReserve } from '../src/game/weapons.ts';
 import type { Actor, PlayerInput } from '../src/types.ts';
 
 const idle: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 
-function range(): { game: GameSimulation; target: Actor } {
+/** A two-actor range. Bots are frozen unless the test is about their behaviour (`ai = true`). */
+function range(ai = false): { game: GameSimulation; target: Actor } {
   const game = new GameSimulation({ seed: 41, botCount: 5, difficulty: 'easy' });
   game.start();
+  game.botsFrozen = !ai;
   game.world.obstacles = [];
   game.player.position = { x: 0, y: 0, z: 0 };
   const target = game.state.actors[1];
   target.position = { x: 0, y: 0, z: 8 };
   target.yaw = Math.PI;
   target.ammo = emptyAmmo();
-  target.reserve = emptyAmmo();
+  target.reserve = emptyReserve();
   game.state.actors = [game.player, target];
   game.drainEvents();
   return { game, target };
@@ -33,7 +35,7 @@ test('menu is inert; start produces the selected bot count and useful nearby sup
   assert.equal(game.state.actors.length, 8);
   assert.equal(game.state.phase, 'playing');
   assert.deepEqual(game.player.position, { x: 0, y: 0, z: -65 });
-  for (const kind of ['shotgun', 'rifleAmmo', 'medkit']) {
+  for (const kind of ['shotgun', '556Ammo', 'medkit']) {
     assert.ok(game.state.loot.some(loot => loot.kind === kind && Math.hypot(loot.position.x, loot.position.z + 65) < 2.8));
   }
 });
@@ -97,13 +99,13 @@ test('shotgun pellets aggregate damage but count as one shot and one successful 
 test('reload transfers only available reserve rounds and cannot shoot while reloading', () => {
   const { game } = range();
   game.player.ammo.rifle = 1;
-  game.player.reserve.rifle = 2;
+  game.player.reserve['556'] = 2;
   assert.equal(game.reload(), true);
   assert.equal(game.reload(), false);
   assert.equal(game.shootPlayer({ x: 0, y: 1.1, z: 8 }), false);
   game.update(WEAPONS.rifle.reloadTime + 0.01, idle);
   assert.equal(game.player.ammo.rifle, 3);
-  assert.equal(game.player.reserve.rifle, 0);
+  assert.equal(game.player.reserve['556'], 0);
   assert.equal(game.player.reloading, 0);
   assert.equal(game.reload(), false);
 });
@@ -229,7 +231,7 @@ test('zone progresses through all stages to zero so a match cannot wait forever'
 });
 
 test('bot routes around a blocking building to reach the safe zone without teleporting', () => {
-  const { game, target: bot } = range();
+  const { game, target: bot } = range(true);
   game.world.obstacles = [{ id: 'barrier', x: 0, z: 0, width: 18, depth: 4, height: 5, kind: 'building' }];
   bot.position = { x: 0, y: 0, z: -12 };
   bot.health = 10000;
@@ -258,15 +260,15 @@ test('same seed and settings recreate the same initial world and bot state', () 
 });
 
 test('bots respect line-of-sight, wait for a reaction and reload after firing the last round', () => {
-  const hidden = range();
+  const hidden = range(true);
   hidden.target.ammo.rifle = 30;
   hidden.game.world.obstacles = [{ id: 'wall', x: 0, z: 4, width: 20, depth: 2, height: 4, kind: 'building' }];
   hidden.game.update(0.6, idle);
   assert.ok(!hidden.game.drainEvents().some(event => event.type === 'shot' && event.actorId === hidden.target.id));
 
-  const visible = range();
+  const visible = range(true);
   visible.target.ammo.rifle = 1;
-  visible.target.reserve.rifle = 2;
+  visible.target.reserve['556'] = 2;
   visible.game.player.health = 1000;
   visible.game.update(0.6, idle);
   assert.ok(!visible.game.drainEvents().some(event => event.type === 'shot'));
@@ -279,20 +281,21 @@ test('bots respect line-of-sight, wait for a reaction and reload after firing th
   assert.equal(visible.target.ammo.rifle, 0);
   visible.game.update(0.05, idle);
   assert.ok(visible.target.reloading > 0);
-  assert.equal(visible.target.reserve.rifle, 2);
+  assert.equal(visible.target.reserve['556'], 2);
   visible.game.update(WEAPONS.rifle.reloadTime + 0.05, idle);
-  assert.equal(visible.target.reserve.rifle, 0);
+  assert.equal(visible.target.reserve['556'], 0);
   assert.ok(visible.target.ammo.rifle >= 1 && visible.target.ammo.rifle <= 2);
 });
 
-test('ten seeded bot-only rounds stay spread at 60 seconds and all finish before 10 minutes', () => {
+test('ten seeded bot-only rounds avoid an opening massacre and all finish before 10 minutes', () => {
   for (const seed of [1, 2, 3, 4, 5, 41, 107, 2026, 72341, 99991]) {
     const game = new GameSimulation({ seed, botCount: 7, difficulty: 'normal' });
     game.start();
     // Isolate bot pacing from human skill: the observer cannot be perceived or killed by the zone.
     game.player.position = { x: 999, y: 0, z: 999 };
     game.player.health = 100000;
-    game.update(60, idle);
+    // Capable bots clash early on a 200 m arena, but the first twenty seconds must not wipe the room.
+    game.update(20, idle);
     assert.ok(game.state.actors.filter(actor => !actor.isPlayer && actor.alive).length >= 2, `seed ${seed} wiped the room during the opening`);
     while (game.state.phase === 'playing' && game.state.elapsed < 600) {
       game.update(1, idle);

@@ -1,19 +1,62 @@
-import type { Actor, Difficulty, GameEvent, GamePhase, GameState, Loot, LootKind, Obstacle, PlayerInput, Vec2, Vec3, WeaponType, WorldConfig, ZoneState } from '../types';
-import { ACTOR_HEIGHT, ACTOR_RADIUS, createWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
-import { ammoKindFor, emptyAmmo, isWeaponKind, WEAPON_ORDER, weaponForAmmo } from './weapons';
+import type { Actor, AmmoType, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
+import { ACTOR_HEIGHT, ACTOR_RADIUS, createArenaWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
+import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DURABILITY, ARMOR_NAMES, ARMOR_REDUCTION, armorKind, CORE_WEAPONS, emptyAmmo, emptyReserve, GUNS_BY_CLASS, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPON_ORDER } from './weapons';
+import { SpatialGrid } from './spatial';
+import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
+import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
 
-interface Options { seed?: number; botCount?: 5 | 7; difficulty?: Difficulty }
+interface Options { seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId }
 interface Runtime {
   cooldown: number; weaponCooldowns: Record<WeaponType, number>; velocityY: number; reloadWeapon: WeaponType | null;
   targetId: string | null; reaction: number; memory: number; sightTimer: number;
   goal: Vec2 | null; path: Vec2[]; pathTimer: number; stuck: number;
+  /** Aim convergence on the current target, 0 (just spotted) to 1 (settled). */
+  focus: number; strafeDir: 1 | -1; strafeTimer: number; burstLeft: number; stillTime: number;
+  lastSeen: Vec2 | null; lastSeenAt: number; enemyVel: Vec2; enemyLast: Vec2 | null;
+  heard: Vec2 | null; heardTimer: number;
+  lootRef: Loot | null; lootTimer: number; ignored: Map<string, number>;
+  coverGoal: Vec2 | null; coverTimer: number; weaponTimer: number;
+  visited: Set<string>; townGoal: Vec2 | null;
+  lodAcc: number; lodTier: number; duelUntil: number; detour: number;
+  /** Car the bot is walking to, the destination it will drive on to, and a cooldown between searches. */
+  carTarget: string | null; destination: Vec2 | null; carCooldown: number;
 }
-interface Hit { distance: number; actor?: Actor; head?: boolean }
+interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle }
 
-const ZONE_RADII = [80, 60, 42, 25, 11, 0];
-const ZONE_WAITS = [60, 45, 35, 30, 20, 10];
-const ZONE_SHRINKS = [35, 35, 40, 40, 40, 40];
+/** How often each class turns up at a loot spot of tier 1 (houses), 2 (big houses) and 3 (cities, military). */
+const CLASS_SPAWN: Record<1 | 2 | 3, Partial<Record<WeaponClass, number>>> = {
+  1: { pistol: 0.16, smg: 0.17, shotgun: 0.16, ar: 0.12 },
+  2: { ar: 0.18, smg: 0.08, shotgun: 0.07, br: 0.06, dmr: 0.10, lmg: 0.08, pistol: 0.03 },
+  3: { dmr: 0.11, br: 0.07, sniper: 0.14, amr: 0.08, lmg: 0.09, ar: 0.12, shotgun: 0.01 },
+};
+/** Within a class, a gun of tier t shows up at spot tier s with this weight: rare guns concentrate in the rich spots. */
+const TIER_AFFINITY: Record<1 | 2 | 3, [number, number, number]> = { 1: [1, 0.55, 0.2], 2: [0.3, 1, 0.7], 3: [0.04, 0.4, 1] };
+const GEAR_SPAWN: Record<1 | 2 | 3, Array<[LootKind, number]>> = {
+  1: [['medkit', 0.2], ['helmet1', 0.09], ['vest1', 0.1]],
+  2: [['medkit', 0.17], ['helmet2', 0.11], ['vest2', 0.12]],
+  3: [['medkit', 0.12], ['helmet3', 0.12], ['vest3', 0.14]],
+};
+export const LOOT_TABLES: Record<1 | 2 | 3, Array<[LootKind, number]>> = { 1: [], 2: [], 3: [] };
+for (const tier of [1, 2, 3] as const) {
+  for (const [cls, weight] of Object.entries(CLASS_SPAWN[tier]) as Array<[WeaponClass, number]>) {
+    const guns = GUNS_BY_CLASS[cls];
+    const affinity = guns.map(gun => TIER_AFFINITY[WEAPONS[gun].tier][tier - 1]);
+    const total = affinity.reduce((a, b) => a + b, 0);
+    guns.forEach((gun, i) => LOOT_TABLES[tier].push([gun, weight * affinity[i] / total]));
+  }
+  LOOT_TABLES[tier].push(...GEAR_SPAWN[tier]);
+}
+/** Calibres of the guns people actually start with: spare rounds that always help someone. */
+const COMMON_AMMO: AmmoType[] = ['9mm', '556', '12g', '45acp'];
+
 const ZERO_INPUT: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
+/** Bots closer than this to the player run full AI every step; closer than LOD_NEAR run it a few times a second. */
+const LOD_FULL = 220;
+const LOD_NEAR = 650;
+const VEHICLE_RADIUS = 1.7;
+const VEHICLE_REACH = 4.2;
+const VEHICLE_HEALTH = 300;
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
 const finite = (n: number) => Number.isFinite(n) ? n : 0;
@@ -39,50 +82,109 @@ function rayBox(origin: Vec3, direction: Vec3, min: Vec3, max: Vec3, range: numb
 
 function obstacleHit(origin: Vec3, direction: Vec3, obstacle: Obstacle, range: number, padding = 0): number | null {
   return rayBox(origin, direction,
-    { x: obstacle.x - obstacle.width / 2 - padding, y: 0, z: obstacle.z - obstacle.depth / 2 - padding },
-    { x: obstacle.x + obstacle.width / 2 + padding, y: obstacle.height, z: obstacle.z + obstacle.depth / 2 + padding }, range);
+    { x: obstacle.x - obstacle.width / 2 - padding, y: obstacleBottom(obstacle), z: obstacle.z - obstacle.depth / 2 - padding },
+    { x: obstacle.x + obstacle.width / 2 + padding, y: obstacleTop(obstacle), z: obstacle.z + obstacle.depth / 2 + padding }, range);
 }
 
 export class GameSimulation {
   public world: WorldConfig;
   public state: GameState;
+  /** Dev/test switch: bots stand still and never act. Lets ballistics be tested against fixed targets. */
+  public botsFrozen = false;
   private options: Required<Options>;
   private randomState = 1;
   private events: GameEvent[] = [];
   private runtimes = new Map<string, Runtime>();
   private jumpHeld = false;
   private shrinkStart: { center: Vec2; radius: number } | null = null;
+  private obstacleGrid = new SpatialGrid<Obstacle>(24);
+  private gridSource: Obstacle[] | null = null;
+  private gridCount = -1;
+  private actorGrid = new SpatialGrid<Actor>(32);
+  private actorIndex = new Map<string, Actor>();
+  /** Route searches allowed this step; the rest wait a few frames so a crowd of bots cannot stall one frame. */
+  private pathBudget = 0;
+  private lootGrid = new SpatialGrid<Loot>(16);
+  private lootSource: Loot[] | null = null;
+  private lootCount = -1;
 
   constructor(options: Options = {}) {
-    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal' };
-    this.world = createWorld();
+    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena' };
+    this.world = this.makeWorld();
     this.state = this.makeState('menu');
   }
 
-  get player(): Actor { return this.state.actors[0]; }
-  get lootInReach(): Loot | null {
-    if (this.state.phase !== 'playing') return null;
-    let closest: Loot | null = null;
-    let distance = INTERACTION_RANGE;
-    for (const loot of this.state.loot) {
-      if (!loot.active) continue;
-      const d = Math.hypot(loot.position.x - this.player.position.x, loot.position.y - this.player.position.y, loot.position.z - this.player.position.z);
-      if (d <= distance) { closest = loot; distance = d; }
+  private makeWorld(): WorldConfig {
+    switch (this.options.map) {
+      case 'island': return createIslandWorld();
+      case 'valley': return createValleyWorld();
+      default: return createArenaWorld();
     }
+  }
+
+  /** The island and the valley are open maps (terrain, loot in houses, vehicles); only the small arena is not. */
+  private get openWorld(): boolean {
+    return this.world.id !== 'arena';
+  }
+
+  get player(): Actor { return this.state.actors[0]; }
+
+  /** Ground height under a point; the arena is flat. */
+  heightAt(x: number, z: number): number {
+    return this.world.terrain ? this.world.terrain(x, z) : 0;
+  }
+
+  private obstacles(): SpatialGrid<Obstacle> {
+    const list = this.world.obstacles;
+    if (this.gridSource !== list || this.gridCount !== list.length) {
+      this.obstacleGrid.clear();
+      for (const o of list) this.obstacleGrid.insertBox(o, o.x - o.width / 2, o.z - o.depth / 2, o.x + o.width / 2, o.z + o.depth / 2);
+      this.gridSource = list;
+      this.gridCount = list.length;
+    }
+    return this.obstacleGrid;
+  }
+
+  private lootIndex(): SpatialGrid<Loot> {
+    const list = this.state.loot;
+    if (this.lootSource !== list || this.lootCount !== list.length) {
+      this.lootGrid.clear();
+      for (const loot of list) this.lootGrid.insertPoint(loot, loot.position.x, loot.position.z);
+      this.lootSource = list;
+      this.lootCount = list.length;
+    }
+    return this.lootGrid;
+  }
+
+  /** Nearest active pickup within `radius` of an actor, ignoring items on another floor. */
+  private nearestLoot(from: Vec3, radius: number, accept?: (loot: Loot) => boolean): Loot | null {
+    let closest: Loot | null = null;
+    let best = radius;
+    this.lootIndex().queryCircle(from.x, from.z, radius, loot => {
+      if (!loot.active || (accept && !accept(loot))) return;
+      const d = Math.hypot(loot.position.x - from.x, loot.position.y - from.y, loot.position.z - from.z);
+      if (d <= best) { closest = loot; best = d; }
+    });
     return closest;
+  }
+
+  get lootInReach(): Loot | null {
+    if (this.state.phase !== 'playing' || this.player.vehicleId) return null;
+    return this.nearestLoot(this.player.position, INTERACTION_RANGE);
   }
 
   start(options: Options = {}): void {
     this.options = { ...this.options, ...options };
-    this.world = createWorld();
+    this.world = this.makeWorld();
     this.events = [];
     this.state = this.makeState('playing');
-    this.events.push({ type: 'message', text: 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
+    this.events.push({ type: 'message', text: this.options.map === 'island' ? 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!' : this.options.map === 'valley' ? 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!' : 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
   }
 
-  returnToMenu(): void {
+  returnToMenu(options: Options = {}): void {
+    this.options = { ...this.options, ...options };
     this.events = [];
-    this.world = createWorld();
+    this.world = this.makeWorld();
     this.state = this.makeState('menu');
   }
 
@@ -110,18 +212,18 @@ export class GameSimulation {
   }
 
   shootPlayer(target: Vec3, aimed = false): boolean {
-    if (this.state.phase !== 'playing' || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || ![target.x, target.y, target.z].every(Number.isFinite)) return false;
     return this.fire(this.player, target, 0, aimed);
   }
 
   reload(): boolean {
-    if (this.state.phase !== 'playing') return false;
+    if (this.state.phase !== 'playing' || this.player.vehicleId) return false;
     return this.beginReload(this.player);
   }
 
   switchWeapon(weapon: WeaponType): boolean {
     const actor = this.player;
-    if (this.state.phase !== 'playing' || !actor.ownedWeapons.includes(weapon) || actor.weapon === weapon) return false;
+    if (this.state.phase !== 'playing' || actor.vehicleId || !actor.ownedWeapons.includes(weapon) || actor.weapon === weapon) return false;
     actor.weapon = weapon;
     actor.reloading = 0;
     this.runtime(actor).reloadWeapon = null;
@@ -131,30 +233,95 @@ export class GameSimulation {
   }
 
   heal(): boolean {
-    if (this.state.phase !== 'playing') return false;
+    if (this.state.phase !== 'playing' || this.player.vehicleId) return false;
     return this.beginHeal(this.player);
   }
 
   interact(): boolean {
     const loot = this.lootInReach;
-    if (!loot) return false;
-    const player = this.player;
-    if (isWeaponKind(loot.kind)) {
-      if (!player.ownedWeapons.includes(loot.kind)) {
-        player.ownedWeapons.push(loot.kind);
-        player.ammo[loot.kind] = WEAPONS[loot.kind].magazine;
-      }
-      player.reserve[loot.kind] += WEAPONS[loot.kind].magazine;
-    } else if (loot.kind === 'medkit') {
-      player.medkits++;
-    } else {
-      const weapon = weaponForAmmo(loot.kind);
-      if (!weapon) return false;
-      player.reserve[weapon] += WEAPONS[weapon].ammoPickup;
-    }
-    loot.active = false;
+    if (!loot || !this.collectLoot(this.player, loot)) return false;
     this.events.push({ type: 'pickup', kind: loot.kind });
     return true;
+  }
+
+  /**
+   * Give an actor the item and retire it from the world. Loadout rules: two main guns and one sidearm; a full group
+   * swaps out the gun in hand (or the weakest). Armour only replaces a lower tier, and the old piece is dropped.
+   */
+  private collectLoot(actor: Actor, loot: Loot): boolean {
+    const kind = loot.kind;
+    if (isWeaponKind(kind)) {
+      if (actor.ownedWeapons.includes(kind)) {
+        actor.reserve[WEAPONS[kind].ammoType] += WEAPONS[kind].magazine;
+      } else {
+        const sidearm = isSidearm(kind);
+        const group = actor.ownedWeapons.filter(w => isSidearm(w) === sidearm);
+        let equip = false;
+        if (group.length >= (sidearm ? 1 : PRIMARY_SLOTS)) {
+          const out = group.includes(actor.weapon) ? actor.weapon : weakestWeapon(group);
+          equip = out === actor.weapon;
+          this.dropWeapon(actor, out);
+        }
+        actor.ownedWeapons.push(kind);
+        actor.ammo[kind] = WEAPONS[kind].magazine;
+        actor.reserve[WEAPONS[kind].ammoType] += WEAPONS[kind].magazine;
+        // Taking a gun while the matching slot was empty keeps the weapon in hand; a swap equips the new one.
+        if (equip && actor.isPlayer) { actor.weapon = kind; actor.reloading = 0; this.runtime(actor).reloadWeapon = null; }
+        else if (equip) this.botSwitch(actor, kind);
+      }
+    } else if (kind === 'medkit') {
+      actor.medkits++;
+    } else if (isArmorKind(kind)) {
+      const { slot, level } = parseArmor(kind);
+      if (level <= actor[slot]) {
+        if (actor.isPlayer) this.events.push({ type: 'message', text: `Bạn đã có ${ARMOR_NAMES[slot].toLowerCase()} tốt hơn.` });
+        return false;
+      }
+      if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 0.9);
+      actor[slot] = level;
+      actor[`${slot}Hp`] = ARMOR_DURABILITY[level];
+    } else {
+      const ammo = ammoTypeOf(kind);
+      if (!ammo) return false;
+      actor.reserve[ammo] += AMMO_PICKUP[ammo];
+    }
+    loot.active = false;
+    return true;
+  }
+
+  private dropCounter = 0;
+
+  /** Place an item on the ground beside an actor. */
+  private dropLoot(actor: Actor, kind: LootKind, offset: number): void {
+    const angle = (this.dropCounter * 2.399) % (Math.PI * 2);
+    const x = actor.position.x + Math.cos(angle) * offset, z = actor.position.z + Math.sin(angle) * offset;
+    const spot = this.walkable({ x, z }, 0.05) ? { x, z } : { x: actor.position.x, z: actor.position.z };
+    this.state.loot.push({ id: `drop-${actor.id}-${this.dropCounter++}`, kind, position: { x: spot.x, y: this.heightAt(spot.x, spot.z), z: spot.z }, active: true });
+  }
+
+  /** Remove a gun from a loadout. Its loaded rounds return to the ammunition pool so nothing is lost. */
+  private dropWeapon(actor: Actor, weapon: WeaponType): void {
+    actor.ownedWeapons = actor.ownedWeapons.filter(w => w !== weapon);
+    actor.reserve[WEAPONS[weapon].ammoType] += actor.ammo[weapon];
+    actor.ammo[weapon] = 0;
+    this.dropLoot(actor, weapon, 0.8);
+    if (actor.weapon === weapon && actor.ownedWeapons.length) actor.weapon = actor.ownedWeapons[0];
+  }
+
+  /** Armour soaks part of a hit and wears down; a broken piece disappears. */
+  private absorb(victim: Actor, amount: number, head: boolean): number {
+    const slot: ArmorSlot = head ? 'helmet' : 'vest';
+    const level = victim[slot];
+    if (!level) return amount;
+    const key = `${slot}Hp` as const;
+    const absorbed = Math.min(amount * ARMOR_REDUCTION[level], victim[key]);
+    victim[key] -= absorbed;
+    if (victim[key] <= 1e-6) {
+      victim[slot] = 0;
+      victim[key] = 0;
+      if (victim.isPlayer) this.events.push({ type: 'message', text: `${ARMOR_NAMES[slot]} đã bị phá hỏng!` });
+    }
+    return amount - absorbed;
   }
 
   private random(): number {
@@ -170,17 +337,31 @@ export class GameSimulation {
     this.runtimes.clear();
     this.jumpHeld = false;
     this.shrinkStart = null;
-    const actors: Actor[] = this.world.spawns.slice(0, this.options.botCount + 1).map((spawn, index) => {
-      const botWeapons: WeaponType[] = ['rifle', 'smg', 'shotgun', 'dmr', this.options.seed % 2 === 0 ? 'heavySniper' : 'sniper', 'pistol', 'lmg'];
-      const weapon: WeaponType = index === 0 ? 'rifle' : botWeapons[index - 1];
+    const island = this.openWorld;
+    const count = this.options.botCount + 1;
+    let spawns = this.world.spawns;
+    if (island) {
+      // Scatter everyone across the map: a seeded shuffle of the candidate drop points.
+      spawns = this.world.spawns.slice();
+      for (let i = spawns.length - 1; i > 0; i--) {
+        const j = Math.floor(this.random() * (i + 1));
+        [spawns[i], spawns[j]] = [spawns[j], spawns[i]];
+      }
+    }
+    const actors: Actor[] = spawns.slice(0, count).map((spawn, index) => {
+      const botWeapons: WeaponType[] = island
+        ? ['pistol']
+        : ['rifle', 'smg', 'shotgun', 'dmr', this.options.seed % 2 === 0 ? 'heavySniper' : 'sniper', 'pistol', 'lmg'];
+      // On the island everyone drops in with a sidearm and has to loot the rest.
+      const weapon: WeaponType = index === 0 ? (island ? 'pistol' : 'rifle') : botWeapons[(index - 1) % botWeapons.length];
       const ammo = emptyAmmo();
-      const reserve = emptyAmmo();
+      const reserve = emptyReserve();
       ammo[weapon] = WEAPONS[weapon].magazine;
-      reserve[weapon] = index === 0 ? 60 : WEAPONS[weapon].ammoPickup * 3;
+      reserve[WEAPONS[weapon].ammoType] = index === 0 ? (island ? WEAPONS.pistol.ammoPickup : 60) : WEAPONS[weapon].ammoPickup * (island ? 1 : 3);
       const actor: Actor = {
         id: index === 0 ? 'player' : `bot-${index}`, name: index === 0 ? 'Bạn' : `Đối thủ ${index}`,
-        isPlayer: index === 0, position: { ...spawn }, yaw: index === 0 ? 0 : this.random() * Math.PI * 2,
-        health: 100, alive: true, weapon, ownedWeapons: index === 0 ? ['rifle'] : [weapon],
+        isPlayer: index === 0, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: index === 0 ? 0 : this.random() * Math.PI * 2,
+        health: 100, alive: true, weapon, ownedWeapons: [weapon], helmet: 0, vest: 0, helmetHp: 0, vestHp: 0,
         ammo, reserve,
         reloading: 0, healing: 0, medkits: index === 0 ? 1 : 1, hurtTimer: 0,
       };
@@ -188,40 +369,91 @@ export class GameSimulation {
       return actor;
     });
     const loot: Loot[] = [];
-    const add = (kind: LootKind, x: number, z: number) => loot.push({ id: `loot-${loot.length}`, kind, position: { x, y: 0, z }, active: true });
-    add('shotgun', -1.6, -64.3); add('rifleAmmo', 1.6, -64.3); add('medkit', 0, -66.7); add('shotgunAmmo', 2.3, -66);
+    const add = (kind: LootKind, x: number, z: number, y = 0) => loot.push({ id: `loot-${loot.length}`, kind, position: { x, y, z }, active: true });
+    if (island) this.scatterIslandLoot(add);
+    else this.scatterArenaLoot(add);
+    const profile = this.world.zone;
+    const zone: ZoneState = {
+      center: { x: 0, z: 0 }, radius: profile.start, nextCenter: { x: 0, z: 0 }, nextRadius: profile.radii[0],
+      stage: 0, timeRemaining: profile.waits[0], isShrinking: false,
+    };
+    zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
+    const vehicles: Vehicle[] = this.world.vehicleSpawns.map((spawn, index) => ({
+      id: `car-${index}`, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: spawn.yaw, speed: 0,
+      health: VEHICLE_HEALTH, driverId: null, colorIndex: index % 5, hitTimer: 0,
+    }));
+    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0 };
+  }
+
+  /** Weighted gear tables: later tiers (cities, big houses) hold the heavy weapons. */
+  private scatterIslandLoot(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
+    const tables = LOOT_TABLES;
+    for (const spot of this.world.lootSpots) {
+      const table = tables[spot.tier];
+      for (let pick = 0; pick < 2; pick++) {
+        let roll = this.random();
+        let kind: LootKind = table[0][0];
+        for (const [candidate, weight] of table) { kind = candidate; if ((roll -= weight) < 0) break; }
+        const x = spot.x + (this.random() - 0.5) * 2.4, z = spot.z + (this.random() - 0.5) * 2.4;
+        add(kind, x, z, spot.y);
+        if (isWeaponKind(kind)) add(ammoKindFor(kind), x + 0.7, z + 0.5, spot.y);
+        else if (this.random() < 0.5) add(ammoKindOf(COMMON_AMMO[Math.floor(this.random() * COMMON_AMMO.length)]), x + 0.7, z + 0.5, spot.y);
+      }
+    }
+  }
+
+  private scatterArenaLoot(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
+    add('shotgun', -1.6, -64.3); add('556Ammo', 1.6, -64.3); add('medkit', 0, -66.7); add('12gAmmo', 2.3, -66);
     // A labelled eight-weapon cache at spawn lets players try every gun without searching the map.
-    const weaponCache: Record<WeaponType, Vec2> = {
+    const weaponCache: Record<string, Vec2> = {
       rifle: { x: -3, z: -62.5 }, shotgun: { x: -1.6, z: -64.3 },
       smg: { x: -1, z: -62.5 }, pistol: { x: 1, z: -62.5 }, dmr: { x: 3, z: -62.5 },
       sniper: { x: -3, z: -66 }, heavySniper: { x: -1, z: -66 }, lmg: { x: 3, z: -64.5 },
     };
-    WEAPON_ORDER.forEach((weapon, index) => {
-      if (weapon !== 'shotgun') add(weapon, weaponCache[weapon].x, weaponCache[weapon].z);
-      add(ammoKindFor(weapon), (index - 3.5) * 2, -70);
-    });
+    CORE_WEAPONS.forEach(weapon => { if (weapon !== 'shotgun') add(weapon, weaponCache[weapon].x, weaponCache[weapon].z); });
+    AMMO_ORDER.forEach((ammo, index) => add(ammoKindOf(ammo), (index - 3.5) * 2, -70));
+    this.layOutArmoury(add);
     const cachePositions = [
       [-22, -42], [19, -41], [-12, -29], [19, -17], [-27, 8], [23, 12],
       [-5, 20], [18, 42], [-33, 51], [-52, -28], [52, -43], [-62, 15], [55, 50], [0, 68],
     ];
     for (let i = 0; i < cachePositions.length; i++) {
       const [x, z] = cachePositions[i];
-      const weapon = WEAPON_ORDER[i % WEAPON_ORDER.length];
+      const weapon = CORE_WEAPONS[i % CORE_WEAPONS.length];
       add(ammoKindFor(weapon), x, z);
       add(i % 3 === 0 ? 'medkit' : weapon, x + 1.2, z + 0.8);
     }
-    const zone: ZoneState = {
-      center: { x: 0, z: 0 }, radius: 98, nextCenter: { x: 0, z: 0 }, nextRadius: ZONE_RADII[0],
-      stage: 0, timeRemaining: ZONE_WAITS[0], isShrinking: false,
-    };
-    zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
-    return { phase, elapsed: 0, actors, loot, zone, kills: 0, shots: 0, hits: 0 };
+  }
+
+  /** Every gun not in the spawn cache, racked by class behind the spawn point so they can all be handled in the arena. */
+  private layOutArmoury(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
+    const core = new Set<string>(CORE_WEAPONS);
+    const columns = 15;
+    let index = 0;
+    for (const guns of Object.values(GUNS_BY_CLASS)) {
+      for (const gun of guns) {
+        if (core.has(gun)) continue;
+        add(gun, (index % columns - (columns - 1) / 2) * 1.7, -74 - Math.floor(index / columns) * 1.7);
+        index++;
+      }
+      // Each class starts on a fresh row so the rows read as shelves.
+      index = Math.ceil(index / columns) * columns;
+    }
   }
 
   private runtime(actor: Actor): Runtime {
     let runtime = this.runtimes.get(actor.id);
     if (!runtime) {
-      runtime = { cooldown: 0, weaponCooldowns: emptyAmmo(), velocityY: 0, reloadWeapon: null, targetId: null, reaction: 0, memory: 0, sightTimer: 0, goal: null, path: [], pathTimer: 0, stuck: 0 };
+      runtime = {
+        cooldown: 0, weaponCooldowns: emptyAmmo(), velocityY: 0, reloadWeapon: null, targetId: null, reaction: 0, memory: 0, sightTimer: 0,
+        goal: null, path: [], pathTimer: 0, stuck: 0,
+        focus: 0, strafeDir: 1, strafeTimer: 0, burstLeft: 0, stillTime: 0,
+        lastSeen: null, lastSeenAt: -Infinity, enemyVel: { x: 0, z: 0 }, enemyLast: null,
+        heard: null, heardTimer: 0,
+        lootRef: null, lootTimer: 0, ignored: new Map(), coverGoal: null, coverTimer: 0, weaponTimer: 0,
+        visited: new Set(), townGoal: null,
+        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0,
+      };
       this.runtimes.set(actor.id, runtime);
     }
     return runtime;
@@ -235,16 +467,17 @@ export class GameSimulation {
       if (!actor.alive) continue;
       const runtime = this.runtime(actor);
       runtime.cooldown = Math.max(0, runtime.cooldown - dt);
-      for (const weapon of WEAPON_ORDER) runtime.weaponCooldowns[weapon] = Math.max(0, runtime.weaponCooldowns[weapon] - dt);
+      for (const weapon of actor.ownedWeapons) runtime.weaponCooldowns[weapon] = Math.max(0, runtime.weaponCooldowns[weapon] - dt);
       actor.hurtTimer = Math.max(0, actor.hurtTimer - dt);
       if (actor.reloading > 0) {
         actor.reloading = Math.max(0, actor.reloading - dt);
         if (actor.reloading < 1e-7) {
           actor.reloading = 0;
           const weapon = runtime.reloadWeapon ?? actor.weapon;
-          const amount = Math.min(WEAPONS[weapon].magazine - actor.ammo[weapon], actor.reserve[weapon]);
+          const ammoType = WEAPONS[weapon].ammoType;
+          const amount = Math.min(WEAPONS[weapon].magazine - actor.ammo[weapon], actor.reserve[ammoType]);
           actor.ammo[weapon] += amount;
-          actor.reserve[weapon] -= amount;
+          actor.reserve[ammoType] -= amount;
           runtime.reloadWeapon = null;
         }
       }
@@ -260,19 +493,36 @@ export class GameSimulation {
         }
       }
     }
-    if (jumpPressed && this.player.position.y <= 1e-6) {
-      this.runtime(this.player).velocityY = 6.7;
-      this.cancelHeal(this.player);
+    const player = this.player;
+    if (!player.vehicleId) this.walkPlayer(dt, input, jumpPressed);
+    this.rebuildActorGrid();
+    this.pathBudget = 3;
+    this.updateBots(dt);
+    this.stepVehicles(dt, input);
+    this.applyZone(dt);
+    this.checkEnd();
+  }
+
+  private walkPlayer(dt: number, input: PlayerInput, jumpPressed: boolean): void {
+    const player = this.player;
+    if (jumpPressed && player.position.y <= this.heightAt(player.position.x, player.position.z) + 1e-6) {
+      this.runtime(player).velocityY = 6.7;
+      this.cancelHeal(player);
     }
-    this.moveActor(this.player, input.moveX, input.moveZ, input.sprint ? 8.1 : 5.2, dt);
-    const playerRuntime = this.runtime(this.player);
-    if (this.player.position.y > 0 || playerRuntime.velocityY > 0) {
+    this.moveActor(player, input.moveX, input.moveZ, input.sprint ? 8.1 : 5.2, dt);
+    const playerRuntime = this.runtime(player);
+    const ground = this.heightAt(player.position.x, player.position.z);
+    if (player.position.y > ground || playerRuntime.velocityY > 0) {
       playerRuntime.velocityY -= 18 * dt;
-      this.player.position.y = Math.max(0, this.player.position.y + playerRuntime.velocityY * dt);
-      if (this.player.position.y === 0) playerRuntime.velocityY = 0;
-      this.resolvePenetration(this.player);
-    }
-    for (const actor of this.state.actors) if (!actor.isPlayer && actor.alive && this.state.phase === 'playing') this.updateBot(actor, dt);
+      player.position.y = Math.max(ground, player.position.y + playerRuntime.velocityY * dt);
+      // On rolling terrain, stay glued to the ground when walking downhill instead of hopping.
+      if (this.world.terrain && playerRuntime.velocityY <= 0 && player.position.y - ground < 0.35) player.position.y = ground;
+      if (player.position.y === ground) playerRuntime.velocityY = 0;
+      this.resolvePenetration(player);
+    } else player.position.y = ground;
+  }
+
+  private applyZone(dt: number): void {
     for (const actor of this.state.actors) {
       if (!actor.alive || this.state.phase !== 'playing') continue;
       if (distance2(actor.position, this.state.zone.center) > this.state.zone.radius) {
@@ -283,9 +533,268 @@ export class GameSimulation {
     this.checkEnd();
   }
 
+  // -------------------------------------------------------------------------------------------------------------
+  // Vehicles: a kinematic car (throttle, steering, drag, slope), crashes that hurt, bullets that wreck it, and bots
+  // that walk to a nearby car when their destination is far and drive there on a simple autopilot.
+  // -------------------------------------------------------------------------------------------------------------
+
+  private vehicle(id: string | null | undefined): Vehicle | undefined {
+    return id ? this.state.vehicles.find(v => v.id === id) : undefined;
+  }
+
+  private vehicleDriver(v: Vehicle): Actor | undefined {
+    return v.driverId ? this.state.actors.find(a => a.id === v.driverId) : undefined;
+  }
+
+  /** The nearest empty, working car within arm's reach of the player. */
+  get vehicleInReach(): Vehicle | null {
+    if (this.state.phase !== 'playing' || this.player.vehicleId) return null;
+    let best = null as Vehicle | null;
+    let nearest = VEHICLE_REACH;
+    for (const v of this.state.vehicles) {
+      if (v.driverId || v.health <= 0) continue;
+      const d = distance2(v.position, this.player.position);
+      if (d < nearest) { best = v; nearest = d; }
+    }
+    return best;
+  }
+
+  /** Get into the nearest car, or out of the one being driven. */
+  useVehicle(): boolean {
+    if (this.state.phase !== 'playing') return false;
+    if (this.player.vehicleId) { this.exitVehicle(this.player); return true; }
+    const car = this.vehicleInReach;
+    return car ? this.enterVehicle(this.player, car) : false;
+  }
+
+  private enterVehicle(actor: Actor, v: Vehicle): boolean {
+    if (v.driverId || v.health <= 0 || actor.vehicleId) return false;
+    this.cancelHeal(actor);
+    actor.reloading = 0;
+    this.runtime(actor).reloadWeapon = null;
+    actor.vehicleId = v.id;
+    v.driverId = actor.id;
+    actor.position = { x: v.position.x, y: v.position.y + 0.3, z: v.position.z };
+    if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đang lái xe. Nhấn F để xuống xe.' });
+    return true;
+  }
+
+  private exitVehicle(actor: Actor): void {
+    const v = this.vehicle(actor.vehicleId);
+    actor.vehicleId = null;
+    if (!v) return;
+    v.driverId = null;
+    // Step out on whichever side is free, a little way from the doors.
+    const right = { x: Math.cos(v.yaw), z: -Math.sin(v.yaw) };
+    let spot = { x: v.position.x, z: v.position.z };
+    search: for (const distance of [2.7, 3.6, 4.6]) {
+      for (const side of [-1, 1]) {
+        const candidate = { x: v.position.x + right.x * distance * side, z: v.position.z + right.z * distance * side };
+        if (this.walkable(candidate)) { spot = candidate; break search; }
+      }
+    }
+    actor.position = { x: spot.x, y: this.heightAt(spot.x, spot.z), z: spot.z };
+    actor.yaw = v.yaw;
+    const runtime = this.runtime(actor);
+    runtime.path = [];
+    runtime.pathTimer = 0;
+    if (actor.isPlayer) this.events.push({ type: 'message', text: 'Đã xuống xe.' });
+  }
+
+  private stepVehicles(dt: number, input: PlayerInput): void {
+    for (const v of this.state.vehicles) {
+      v.hitTimer = Math.max(0, v.hitTimer - dt);
+      if (v.health <= 0) continue;
+      let driver = this.vehicleDriver(v);
+      if (v.driverId && (!driver || !driver.alive)) { v.driverId = null; driver = undefined; }
+      let throttle = 0, steer = 0, brake = false;
+      if (driver?.isPlayer) {
+        throttle = clamp(finite(input.throttle ?? 0), -1, 1);
+        steer = clamp(finite(input.steer ?? 0), -1, 1);
+        brake = input.jump;
+      } else if (driver) ({ throttle, steer, brake } = this.autopilot(v, driver, dt));
+      this.driveVehicle(v, throttle, steer, brake, dt);
+      if (v.health <= 0) continue;
+      if (driver && driver.vehicleId === v.id) {
+        driver.position = { x: v.position.x, y: v.position.y + 0.3, z: v.position.z };
+        driver.yaw = v.yaw;
+      }
+      this.runOver(v, driver);
+    }
+  }
+
+  private driveVehicle(v: Vehicle, throttle: number, steer: number, brake: boolean, dt: number): void {
+    const maxForward = 30, maxReverse = 9;
+    if (Math.abs(throttle) > 0.02) {
+      const target = throttle > 0 ? maxForward * throttle : maxReverse * throttle;
+      const braking = (throttle > 0 && v.speed < -0.3) || (throttle < 0 && v.speed > 0.3);
+      v.speed += clamp(target - v.speed, braking ? -18 * dt : -6 * dt, braking ? 18 * dt : 9 * dt);
+    } else v.speed *= Math.exp(-0.45 * dt);
+    if (brake) v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 22 * dt);
+    // Slopes pull on the car: climbing bleeds speed, descending adds some.
+    const sx = Math.sin(v.yaw), cz = Math.cos(v.yaw);
+    const rise = (this.heightAt(v.position.x + sx * 2, v.position.z + cz * 2) - this.heightAt(v.position.x - sx * 2, v.position.z - cz * 2)) / 4;
+    v.speed = clamp(v.speed - rise * 9.81 * 0.35 * dt, -maxReverse * 1.2, maxForward * 1.1);
+    // Bicycle steering: tighter at low speed, calmer when fast.
+    const lock = 0.6 / (1 + Math.abs(v.speed) * 0.05);
+    v.yaw = wrapAngle(v.yaw + (v.speed / 2.9) * Math.tan(steer * lock) * dt);
+    const distance = v.speed * dt;
+    const pieces = Math.max(1, Math.ceil(Math.abs(distance) / 0.8));
+    for (let i = 0; i < pieces; i++) {
+      const next = { x: v.position.x + Math.sin(v.yaw) * distance / pieces, z: v.position.z + Math.cos(v.yaw) * distance / pieces };
+      if (!this.walkable(next, VEHICLE_RADIUS, v.position.y)) { this.crash(v); break; }
+      v.position.x = next.x;
+      v.position.z = next.z;
+      v.position.y = this.heightAt(next.x, next.z);
+    }
+  }
+
+  private crash(v: Vehicle): void {
+    const impact = Math.abs(v.speed);
+    v.speed = -v.speed * 0.2;
+    if (impact < 3) return;
+    this.events.push({ type: 'crash', vehicleId: v.id, strength: impact, position: { ...v.position } });
+    v.health -= impact * impact * 0.35;
+    const driver = this.vehicleDriver(v);
+    if (driver && impact > 9) this.damage(driver, (impact - 9) * 2.2);
+    if (v.health <= 0) this.explode(v);
+  }
+
+  private explode(v: Vehicle): void {
+    v.health = 0;
+    v.speed = 0;
+    const driver = this.vehicleDriver(v);
+    if (driver) { this.exitVehicle(driver); this.damage(driver, 25); }
+    v.driverId = null;
+    this.events.push({ type: 'explosion', position: { ...v.position } });
+    for (const actor of this.state.actors) {
+      if (!actor.alive || actor.vehicleId) continue;
+      const d = distance2(actor.position, v.position);
+      if (d < 7) this.damage(actor, 70 * (1 - d / 7));
+    }
+    const lengthwise = Math.abs(Math.sin(v.yaw)) > 0.7;
+    this.world.obstacles.push({
+      id: `wreck-${v.id}`, x: v.position.x, z: v.position.z, width: lengthwise ? 4.2 : 2.2, depth: lengthwise ? 2.2 : 4.2,
+      height: 1.4, kind: 'wreck', base: v.position.y,
+    });
+  }
+
+  /** A moving car hurts anyone it hits, and loses a little speed doing so. */
+  private runOver(v: Vehicle, driver: Actor | undefined): void {
+    if (!driver || Math.abs(v.speed) < 5 || v.hitTimer > 0) return;
+    this.actorGrid.queryCircle(v.position.x, v.position.z, 2.6, other => {
+      if (other === driver || !other.alive || other.vehicleId || distance2(other.position, v.position) > 2.3) return;
+      this.damage(other, Math.min(110, Math.abs(v.speed) * 5), driver.id);
+      v.hitTimer = 0.45;
+      v.speed *= 0.82;
+    });
+  }
+
+  /** Shots wreck a car; the driver takes a little of every hit. */
+  private damageVehicle(v: Vehicle, amount: number, sourceId: string): void {
+    if (v.health <= 0) return;
+    v.health -= amount * 0.55;
+    const driver = this.vehicleDriver(v);
+    if (driver && driver.id !== sourceId) this.damage(driver, amount * 0.08, sourceId);
+    if (v.health <= 0) this.explode(v);
+  }
+
+  /** Steer a bot-driven car toward the bot's goal, swerving around obstacles and backing out when stuck. */
+  private autopilot(v: Vehicle, driver: Actor, dt: number): { throttle: number; steer: number; brake: boolean } {
+    const runtime = this.runtime(driver);
+    const goal = runtime.goal;
+    if (!goal) return { throttle: 0, steer: 0, brake: true };
+    const dx = goal.x - v.position.x, dz = goal.z - v.position.z;
+    const distance = Math.hypot(dx, dz);
+    let diff = wrapAngle(Math.atan2(dx, dz) - v.yaw);
+    if (runtime.detour > 0) {
+      runtime.detour -= dt;
+      return { throttle: -0.8, steer: -clamp(diff * 1.8, -1, 1), brake: false };
+    }
+    const look = clamp(7 + Math.abs(v.speed) * 0.7, 9, 26);
+    const clear = (angle: number) => this.walkable({ x: v.position.x + Math.sin(v.yaw + angle) * look, z: v.position.z + Math.cos(v.yaw + angle) * look }, VEHICLE_RADIUS, v.position.y);
+    const front = clear(0), left = clear(-0.45), right = clear(0.45);
+    let throttle = distance < 14 ? 0 : 0.9;
+    if (!front) {
+      diff = left && !right ? -0.9 : right && !left ? 0.9 : diff >= 0 ? 0.9 : -0.9;
+      throttle = 0.4;
+    } else if (!left && right) diff += 0.3;
+    else if (!right && left) diff -= 0.3;
+    if (Math.abs(diff) > 1.1) throttle *= 0.45;
+    runtime.stuck = throttle > 0 && Math.abs(v.speed) < 0.6 ? runtime.stuck + dt : 0;
+    if (runtime.stuck > 1.6) { runtime.detour = 1.4; runtime.stuck = 0; }
+    return { throttle, steer: clamp(diff * 1.8, -1, 1), brake: false };
+  }
+
+  /** Bots with a faraway destination walk to a free car within reach and take it. */
+  private boardCheck(actor: Actor, runtime: Runtime, dt: number): void {
+    if (actor.vehicleId || this.state.vehicles.length === 0) return;
+    runtime.carCooldown = Math.max(0, runtime.carCooldown - dt);
+    let target = this.vehicle(runtime.carTarget);
+    if (target && (target.driverId || target.health <= 0)) { target = undefined; runtime.carTarget = null; }
+    if (!target) {
+      if (runtime.carCooldown > 0 || !runtime.goal || distance2(actor.position, runtime.goal) < 260) return;
+      let best = null as Vehicle | null;
+      let nearest = 80;
+      for (const v of this.state.vehicles) {
+        if (v.driverId || v.health <= 0) continue;
+        const d = distance2(actor.position, v.position);
+        if (d < nearest) { best = v; nearest = d; }
+      }
+      runtime.carCooldown = 15;
+      if (!best) return;
+      target = best;
+      runtime.carTarget = best.id;
+      runtime.destination = { ...runtime.goal };
+    }
+    if (distance2(actor.position, target.position) < 3.4) {
+      runtime.carTarget = null;
+      if (this.enterVehicle(actor, target)) { runtime.goal = runtime.destination; runtime.path = []; }
+      return;
+    }
+    runtime.goal = { x: target.position.x, z: target.position.z };
+  }
+
+  /** A bot at the wheel only decides where to go and when to get out; the autopilot does the driving. */
+  private botDriving(actor: Actor, runtime: Runtime, evacuating: boolean): void {
+    const car = this.vehicle(actor.vehicleId);
+    if (!car) { actor.vehicleId = null; return; }
+    this.pickGoal(actor, runtime, evacuating, false);
+    const goal = runtime.goal;
+    if (!goal || distance2(car.position, goal) < 28 || car.health < 90) {
+      this.exitVehicle(actor);
+      runtime.destination = null;
+    }
+  }
+
+  /**
+   * Level of detail: on the large map only bots near the player run the full routine every step;
+   * mid-range bots run it a few times a second and distant bots run the abstract routine once a second.
+   */
+  private updateBots(dt: number): void {
+    if (this.botsFrozen) return;
+    const lod = this.openWorld;
+    const player = this.player.position;
+    for (const actor of this.state.actors) {
+      if (actor.isPlayer || !actor.alive || this.state.phase !== 'playing') continue;
+      if (!lod) { this.updateBot(actor, dt); continue; }
+      const runtime = this.runtime(actor);
+      const d = distance2(actor.position, player);
+      const tier = d < LOD_FULL ? 0 : d < LOD_NEAR ? 1 : 2;
+      if (tier < 2 && runtime.lodTier === 2) { this.resolvePenetration(actor); runtime.path = []; runtime.pathTimer = 0; }
+      runtime.lodTier = tier;
+      runtime.lodAcc += dt;
+      const interval = tier === 0 ? 0 : tier === 1 ? 0.15 : 1;
+      if (runtime.lodAcc < interval) continue;
+      const elapsed = runtime.lodAcc;
+      runtime.lodAcc = 0;
+      if (tier === 2) this.updateFarBot(actor, elapsed); else this.updateBot(actor, elapsed);
+    }
+  }
+
   private beginReload(actor: Actor): boolean {
     const weapon = actor.weapon;
-    if (!actor.alive || actor.reloading > 0 || actor.ammo[weapon] >= WEAPONS[weapon].magazine || actor.reserve[weapon] <= 0) return false;
+    if (!actor.alive || actor.reloading > 0 || actor.ammo[weapon] >= WEAPONS[weapon].magazine || actor.reserve[WEAPONS[weapon].ammoType] <= 0) return false;
     this.cancelHeal(actor);
     actor.reloading = WEAPONS[weapon].reloadTime;
     this.runtime(actor).reloadWeapon = weapon;
@@ -328,20 +837,28 @@ export class GameSimulation {
     const damageByActor = new Map<Actor, number>();
     let visualHit: Hit = { distance: weapon.range };
     let visualDirection = direction;
-    const muzzleBlocked = this.world.obstacles.some(obstacle => obstacleHit(chest, { x: Math.sin(actor.yaw), y: 0, z: Math.cos(actor.yaw) }, obstacle, 0.45) !== null);
+    const muzzleDirection = { x: Math.sin(actor.yaw), y: 0, z: Math.cos(actor.yaw) };
+    let muzzleBlocked = false;
+    this.obstacles().queryCircle(chest.x, chest.z, 1, obstacle => {
+      if (obstacleHit(chest, muzzleDirection, obstacle, 0.45) !== null) { muzzleBlocked = true; return true; }
+    });
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) + extraSpread);
       const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id);
       if (pellet === 0 || (!visualHit.actor && hit.actor)) { visualHit = hit; visualDirection = ray; }
+      if (hit.vehicle) this.damageVehicle(hit.vehicle, weapon.damage, actor.id);
       if (hit.actor) {
         anyHit = true;
         // Shotguns lose damage gradually beyond their useful close-range distance.
-        const falloff = actor.weapon === 'shotgun' ? clamp(1 - Math.max(0, hit.distance - 12) / 45, 0.45, 1) : 1;
-        damageByActor.set(hit.actor, (damageByActor.get(hit.actor) ?? 0) + weapon.damage * falloff * (hit.head ? 1.65 : 1));
+        const falloff = weapon.kind === 'shotgun' ? clamp(1 - Math.max(0, hit.distance - 12) / 45, 0.45, 1) : 1;
+        const raw = weapon.damage * falloff * (hit.head ? 1.65 : 1);
+        damageByActor.set(hit.actor, (damageByActor.get(hit.actor) ?? 0) + this.absorb(hit.actor, raw, !!hit.head));
       }
     }
     const to = { x: from.x + visualDirection.x * visualHit.distance, y: from.y + visualDirection.y * visualHit.distance, z: from.z + visualDirection.z * visualHit.distance };
     this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to, ...(visualHit.actor ? { hitId: visualHit.actor.id } : {}) });
+    // On the cramped arena everyone would hear everything; halve the range there.
+    this.alertNearby(actor, gunshotLoudness(actor.weapon) * (this.openWorld ? 1 : 0.45));
     if (actor.isPlayer && anyHit) this.state.hits++;
     for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id);
     this.checkEnd();
@@ -363,14 +880,53 @@ export class GameSimulation {
     return { x: ray.x / length, y: ray.y / length, z: ray.z / length };
   }
 
+  /** Distance at which a ray first dips below the terrain, or null. Marches in short steps then bisects. */
+  private terrainHit(origin: Vec3, direction: Vec3, range: number): number | null {
+    const terrain = this.world.terrain;
+    if (!terrain) return null;
+    const horizontal = Math.hypot(direction.x, direction.z);
+    // A ray climbing steeply from above the surface cannot re-enter it within a short range.
+    const step = 3;
+    let previous = 0;
+    for (let d = step; ; d += step) {
+      const distance = Math.min(d, range);
+      const x = origin.x + direction.x * distance, z = origin.z + direction.z * distance;
+      const y = origin.y + direction.y * distance;
+      if (y < terrain(x, z)) {
+        let low = previous, high = distance;
+        for (let i = 0; i < 7; i++) {
+          const mid = (low + high) / 2;
+          if (origin.y + direction.y * mid < terrain(origin.x + direction.x * mid, origin.z + direction.z * mid)) high = mid; else low = mid;
+        }
+        return high;
+      }
+      if (distance >= range) return null;
+      if (horizontal < 1e-6 && direction.y > 0) return null;
+      previous = distance;
+    }
+  }
+
   private raycast(origin: Vec3, direction: Vec3, range: number, ignoreId: string): Hit {
     let closest: Hit = { distance: range };
-    for (const obstacle of this.world.obstacles) {
+    this.obstacles().querySegment(origin.x, origin.z, origin.x + direction.x * range, origin.z + direction.z * range, obstacle => {
       const hit = obstacleHit(origin, direction, obstacle, closest.distance);
       if (hit !== null && hit <= closest.distance) closest = { distance: hit };
+    });
+    const ground = this.terrainHit(origin, direction, closest.distance);
+    if (ground !== null && ground < closest.distance) closest = { distance: ground };
+    for (const car of this.state.vehicles) {
+      if (car.health <= 0) continue;
+      const dx = origin.x - car.position.x, dz = origin.z - car.position.z;
+      if (Math.hypot(dx, dz) > closest.distance + 4) continue;
+      // Rotate the ray into the car's own frame (x to its right, z forward) and test an upright box.
+      const c = Math.cos(car.yaw), s = Math.sin(car.yaw);
+      const localOrigin = { x: dx * c - dz * s, y: origin.y, z: dx * s + dz * c };
+      const localDirection = { x: direction.x * c - direction.z * s, y: direction.y, z: direction.x * s + direction.z * c };
+      const hit = rayBox(localOrigin, localDirection, { x: -0.95, y: car.position.y + 0.25, z: -2.1 }, { x: 0.95, y: car.position.y + 1.7, z: 2.1 }, closest.distance);
+      if (hit !== null && hit < closest.distance) closest = { distance: hit, vehicle: car };
     }
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.id === ignoreId) continue;
+      if (!actor.alive || actor.id === ignoreId || actor.vehicleId) continue;
       const p = actor.position;
       const body = rayBox(origin, direction, { x: p.x - 0.37, y: p.y + 0.12, z: p.z - 0.37 }, { x: p.x + 0.37, y: p.y + 1.42, z: p.z + 0.37 }, closest.distance);
       const head = rayBox(origin, direction, { x: p.x - 0.24, y: p.y + 1.42, z: p.z - 0.24 }, { x: p.x + 0.24, y: p.y + ACTOR_HEIGHT, z: p.z + 0.24 }, closest.distance);
@@ -391,6 +947,7 @@ export class GameSimulation {
       this.events.push({ type: 'damage', actorId: actor.id, amount: actual, sourceId });
     }
     if (actor.health <= 1e-7) {
+      if (actor.vehicleId) this.exitVehicle(actor);
       actor.health = 0;
       actor.alive = false;
       actor.reloading = 0;
@@ -399,12 +956,16 @@ export class GameSimulation {
       this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}) });
       if (!actor.isPlayer) {
         const dropPosition = (offset: number): Vec3 => {
-          const position = { x: actor.position.x + offset, y: 0, z: actor.position.z };
-          return this.walkable(position, 0.05) ? position : { ...actor.position, y: 0 };
+          const x = actor.position.x + offset;
+          const position = { x, y: this.heightAt(x, actor.position.z), z: actor.position.z };
+          return this.walkable(position, 0.05) ? position : { ...actor.position, y: this.heightAt(actor.position.x, actor.position.z) };
         };
         this.state.loot.push({ id: `drop-${actor.id}-weapon`, kind: actor.weapon, position: dropPosition(-0.7), active: true });
         this.state.loot.push({ id: `drop-${actor.id}-ammo`, kind: ammoKindFor(actor.weapon), position: dropPosition(0), active: true });
         if (actor.medkits) this.state.loot.push({ id: `drop-${actor.id}-medkit`, kind: 'medkit', position: dropPosition(0.7), active: true });
+        // Everything else the bot carried: spare guns and armour, so a fallen enemy is worth searching.
+        actor.ownedWeapons.filter(w => w !== actor.weapon).forEach(w => this.dropLoot(actor, w, 1.1));
+        for (const slot of ['helmet', 'vest'] as const) if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 1.4);
       }
     }
   }
@@ -421,17 +982,26 @@ export class GameSimulation {
   }
 
   private nextZoneCenter(center: Vec2, radius: number, nextRadius: number): Vec2 {
-    const angle = this.random() * Math.PI * 2;
-    const offset = Math.sqrt(this.random()) * Math.max(0, radius - nextRadius) * 0.48;
-    return { x: center.x + Math.cos(angle) * offset, z: center.z + Math.sin(angle) * offset };
+    let result = center;
+    // On the island the safe circle must close in on dry land, not on open water.
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const angle = this.random() * Math.PI * 2;
+      const offset = Math.sqrt(this.random()) * Math.max(0, radius - nextRadius) * 0.48;
+      result = { x: center.x + Math.cos(angle) * offset, z: center.z + Math.sin(angle) * offset };
+      if (!this.world.water) break;
+      const ground = this.heightAt(result.x, result.z);
+      if (ground > 4 && !this.deepWater(result.x, result.z, ground)) break;
+    }
+    return result;
   }
 
   private advanceZone(dt: number): void {
     const zone = this.state.zone;
-    if (zone.stage >= ZONE_RADII.length) return;
+    const profile = this.world.zone;
+    if (zone.stage >= profile.radii.length) return;
     zone.timeRemaining = Math.max(0, zone.timeRemaining - dt);
     if (zone.isShrinking && this.shrinkStart) {
-      const progress = clamp(1 - zone.timeRemaining / ZONE_SHRINKS[zone.stage], 0, 1);
+      const progress = clamp(1 - zone.timeRemaining / profile.shrinks[zone.stage], 0, 1);
       zone.radius = this.shrinkStart.radius + (zone.nextRadius - this.shrinkStart.radius) * progress;
       zone.center = {
         x: this.shrinkStart.center.x + (zone.nextCenter.x - this.shrinkStart.center.x) * progress,
@@ -441,7 +1011,7 @@ export class GameSimulation {
     if (zone.timeRemaining > 1e-7) return;
     if (!zone.isShrinking) {
       zone.isShrinking = true;
-      zone.timeRemaining = ZONE_SHRINKS[zone.stage];
+      zone.timeRemaining = profile.shrinks[zone.stage];
       this.shrinkStart = { center: { ...zone.center }, radius: zone.radius };
       this.events.push({ type: 'message', text: 'Vòng bo đang thu! Hãy vào vùng an toàn.' });
     } else {
@@ -450,10 +1020,10 @@ export class GameSimulation {
       zone.stage++;
       zone.isShrinking = false;
       this.shrinkStart = null;
-      if (zone.stage < ZONE_RADII.length) {
-        zone.nextRadius = ZONE_RADII[zone.stage];
+      if (zone.stage < profile.radii.length) {
+        zone.nextRadius = profile.radii[zone.stage];
         zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
-        zone.timeRemaining = ZONE_WAITS[zone.stage];
+        zone.timeRemaining = profile.waits[zone.stage];
       } else { zone.timeRemaining = 0; zone.nextRadius = 0; }
     }
   }
@@ -465,134 +1035,429 @@ export class GameSimulation {
     const scale = speed * dt / Math.max(1, length);
     const previous = { ...actor.position };
     const edge = this.world.halfSize - ACTOR_RADIUS;
-    actor.position.x = clamp(actor.position.x + moveX * scale, -edge, edge);
-    if (!this.walkable(actor.position, ACTOR_RADIUS, actor.position.y)) actor.position.x = previous.x;
-    actor.position.z = clamp(actor.position.z + moveZ * scale, -edge, edge);
-    if (!this.walkable(actor.position, ACTOR_RADIUS, actor.position.y)) actor.position.z = previous.z;
-    if (!actor.isPlayer) actor.yaw = Math.atan2(moveX, moveZ);
+    // Walkers track the terrain; only the player can leave it (jumping), so bots always stand on the ground.
+    const feet = () => actor.isPlayer ? actor.position.y : this.heightAt(actor.position.x, actor.position.z);
+    // Long strides (low-detail bots) are split so a thin wall can never be stepped over.
+    const pieces = Math.max(1, Math.ceil(Math.hypot(moveX, moveZ) * scale / 0.45));
+    for (let piece = 0; piece < pieces; piece++) {
+      const before = { x: actor.position.x, z: actor.position.z };
+      actor.position.x = clamp(actor.position.x + moveX * scale / pieces, -edge, edge);
+      if (!this.walkable(actor.position, ACTOR_RADIUS, feet())) actor.position.x = before.x;
+      actor.position.z = clamp(actor.position.z + moveZ * scale / pieces, -edge, edge);
+      if (!this.walkable(actor.position, ACTOR_RADIUS, feet())) actor.position.z = before.z;
+    }
+    if (!actor.isPlayer) {
+      actor.yaw = Math.atan2(moveX, moveZ);
+      actor.position.y = this.heightAt(actor.position.x, actor.position.z);
+    }
     return distance2(actor.position, previous);
   }
 
-  private walkable(point: Vec2, padding = ACTOR_RADIUS + 0.15, feet = 0): boolean {
+  /** True when a body of the given radius, standing with its feet at the given height (default: ground), clears every obstacle. */
+  /** Sea and lakes are too deep to wade; rivers are shallow by construction. */
+  private deepWater(x: number, z: number, ground: number): boolean {
+    const water = this.world.water;
+    if (!water) return false;
+    if (ground < water.seaLevel - 1) return true;
+    for (const lake of water.lakes) {
+      const dx = x - lake.x, dz = z - lake.z;
+      if (Math.abs(dx) < lake.r && Math.abs(dz) < lake.r && ground < lake.level - 1 && dx * dx + dz * dz < lake.r * lake.r) return true;
+    }
+    return false;
+  }
+
+  private walkable(point: Vec2, padding = ACTOR_RADIUS + 0.15, standing?: number): boolean {
     const edge = this.world.halfSize - padding;
     if (Math.abs(point.x) > edge || Math.abs(point.z) > edge) return false;
-    return !this.world.obstacles.some(obstacle => feet < obstacle.height && point.x > obstacle.x - obstacle.width / 2 - padding && point.x < obstacle.x + obstacle.width / 2 + padding && point.z > obstacle.z - obstacle.depth / 2 - padding && point.z < obstacle.z + obstacle.depth / 2 + padding);
+    const ground = this.heightAt(point.x, point.z);
+    if (this.world.water && this.deepWater(point.x, point.z, ground)) return false;
+    const feet = standing ?? ground;
+    let free = true;
+    this.obstacles().queryBox(point.x - padding, point.z - padding, point.x + padding, point.z + padding, obstacle => {
+      if (feet < obstacleTop(obstacle) && feet + ACTOR_HEIGHT > obstacleBottom(obstacle)
+        && point.x > obstacle.x - obstacle.width / 2 - padding && point.x < obstacle.x + obstacle.width / 2 + padding
+        && point.z > obstacle.z - obstacle.depth / 2 - padding && point.z < obstacle.z + obstacle.depth / 2 + padding) { free = false; return true; }
+    });
+    return free;
   }
 
   private resolvePenetration(actor: Actor): void {
-    for (const obstacle of this.world.obstacles) {
-      if (actor.position.y >= obstacle.height) continue;
+    const p = actor.position;
+    this.obstacles().queryCircle(p.x, p.z, 8, obstacle => {
+      if (p.y >= obstacleTop(obstacle) || p.y + ACTOR_HEIGHT <= obstacleBottom(obstacle)) return;
       const left = obstacle.x - obstacle.width / 2 - ACTOR_RADIUS;
       const right = obstacle.x + obstacle.width / 2 + ACTOR_RADIUS;
       const back = obstacle.z - obstacle.depth / 2 - ACTOR_RADIUS;
       const front = obstacle.z + obstacle.depth / 2 + ACTOR_RADIUS;
-      const p = actor.position;
-      if (p.x <= left || p.x >= right || p.z <= back || p.z >= front) continue;
+      if (p.x <= left || p.x >= right || p.z <= back || p.z >= front) return;
       const exits = [Math.abs(p.x - left), Math.abs(right - p.x), Math.abs(p.z - back), Math.abs(front - p.z)];
       const side = exits.indexOf(Math.min(...exits));
       if (side === 0) p.x = left - 0.001;
       else if (side === 1) p.x = right + 0.001;
       else if (side === 2) p.z = back - 0.001;
       else p.z = front + 0.001;
-    }
+    });
   }
 
-  private canSee(actor: Actor, enemy: Actor): boolean {
-    const from = { x: actor.position.x, y: actor.position.y + 1.35, z: actor.position.z };
-    const target = { x: enemy.position.x, y: enemy.position.y + 1.15, z: enemy.position.z };
+  /** Line of sight between chest-height points, blocked by obstacles and by terrain crests. */
+  private lineClear(from: Vec3, target: Vec3): boolean {
     const distance = Math.hypot(target.x - from.x, target.y - from.y, target.z - from.z);
     if (distance < 0.01) return true;
     const direction = { x: (target.x - from.x) / distance, y: (target.y - from.y) / distance, z: (target.z - from.z) / distance };
-    return !this.world.obstacles.some(obstacle => obstacleHit(from, direction, obstacle, distance) !== null);
+    let clear = true;
+    this.obstacles().querySegment(from.x, from.z, target.x, target.z, obstacle => {
+      if (obstacleHit(from, direction, obstacle, distance) !== null) { clear = false; return true; }
+    });
+    return clear && this.terrainHit(from, direction, distance) === null;
   }
 
-  private updateBot(actor: Actor, dt: number): void {
-    const runtime = this.runtime(actor);
-    runtime.sightTimer -= dt;
-    runtime.pathTimer -= dt;
-    runtime.reaction = Math.max(0, runtime.reaction - dt);
-    runtime.memory = Math.max(0, runtime.memory - dt);
-    const easy = this.options.difficulty === 'easy';
-    const detection = easy ? 27 : 34;
-    if (runtime.sightTimer <= 0) {
-      runtime.sightTimer = 0.24 + this.random() * 0.1;
-      let closest: Actor | null = null;
-      let closestDistance = detection;
-      for (const enemy of this.state.actors) {
-        if (!enemy.alive || enemy.id === actor.id) continue;
-        const distance = distance2(actor.position, enemy.position);
-        // Close enemies are heard; distant detection respects the bot's facing direction.
-        const directionYaw = Math.atan2(enemy.position.x - actor.position.x, enemy.position.z - actor.position.z);
-        const facing = Math.cos(directionYaw - actor.yaw) > -0.2 || distance < 12;
-        if (distance < closestDistance && facing && this.canSee(actor, enemy)) { closest = enemy; closestDistance = distance; }
+  private canSee(actor: Actor, enemy: Actor): boolean {
+    return this.lineClear(
+      { x: actor.position.x, y: actor.position.y + 1.35, z: actor.position.z },
+      { x: enemy.position.x, y: enemy.position.y + 1.15, z: enemy.position.z });
+  }
+
+  private rebuildActorGrid(): void {
+    this.actorGrid.clear();
+    this.actorIndex.clear();
+    for (const actor of this.state.actors) {
+      this.actorIndex.set(actor.id, actor);
+      if (actor.alive) this.actorGrid.insertPoint(actor, actor.position.x, actor.position.z);
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------------------------
+  // Bot brain. Near the player a bot runs the full routine below; beyond LOD_NEAR it runs the cheap abstract
+  // routine (`updateFarBot`) that keeps the same goals and inventory but resolves fights statistically.
+  // -------------------------------------------------------------------------------------------------------------
+
+  private detectionRange(actor: Actor, easy: boolean): number {
+    const scoped: Partial<Record<WeaponType, number>> = { dmr: 34, sniper: 60, heavySniper: 75 };
+    // Optics only pay off in open country; on the 200 m arena the bonus would let snipers see across the whole map.
+    const open = this.openWorld ? 1 : 0.3;
+    return (easy ? 27 : 34) + (scoped[actor.weapon] ?? 0) * (easy ? 0.7 : 1) * open;
+  }
+
+  private perceive(actor: Actor, runtime: Runtime, easy: boolean): void {
+    runtime.sightTimer = 0.24 + this.random() * 0.1;
+    const detection = this.detectionRange(actor, easy);
+    let closest = null as Actor | null;
+    let closestDistance = detection;
+    this.actorGrid.queryCircle(actor.position.x, actor.position.z, detection, enemy => {
+      if (!enemy.alive || enemy.id === actor.id) return;
+      const distance = distance2(actor.position, enemy.position);
+      if (distance >= closestDistance) return;
+      // Close enemies are heard; distant detection respects the bot's facing direction.
+      const directionYaw = Math.atan2(enemy.position.x - actor.position.x, enemy.position.z - actor.position.z);
+      const facing = Math.cos(directionYaw - actor.yaw) > -0.2 || distance < 12;
+      if (facing && this.canSee(actor, enemy)) { closest = enemy; closestDistance = distance; }
+    });
+    if (closest) {
+      const spotted: Actor = closest;
+      if (runtime.targetId !== spotted.id) {
+        runtime.reaction = (easy ? 1.2 : 0.65) + this.random() * 0.5 + (WEAPONS[actor.weapon].fireMode === 'bolt' ? 0.65 : 0);
+        runtime.focus = 0;
+        runtime.enemyLast = null;
+        runtime.enemyVel = { x: 0, z: 0 };
       }
-      if (closest) {
-        if (runtime.targetId !== closest.id) runtime.reaction = (easy ? 1.2 : 0.65) + this.random() * 0.5 + (WEAPONS[actor.weapon].fireMode === 'bolt' ? 0.65 : 0);
-        runtime.targetId = closest.id;
-        runtime.memory = 4;
-        runtime.goal = { x: closest.position.x, z: closest.position.z };
-      } else if (runtime.memory === 0) runtime.targetId = null;
+      runtime.targetId = spotted.id;
+      runtime.memory = 6;
+      runtime.lastSeen = { x: spotted.position.x, z: spotted.position.z };
+      runtime.lastSeenAt = this.state.elapsed;
+      runtime.heard = null;
+    } else if (runtime.memory === 0) runtime.targetId = null;
+  }
+
+  /** Smoothed velocity of the tracked enemy, used to model how a human aim lags behind a moving target. */
+  private trackEnemy(runtime: Runtime, enemy: Actor, dt: number): void {
+    const last = runtime.enemyLast;
+    if (last && dt > 1e-4) {
+      const vx = clamp((enemy.position.x - last.x) / dt, -9, 9), vz = clamp((enemy.position.z - last.z) / dt, -9, 9);
+      runtime.enemyVel.x += (vx - runtime.enemyVel.x) * 0.35;
+      runtime.enemyVel.z += (vz - runtime.enemyVel.z) * 0.35;
     }
-    const enemy = this.state.actors.find(candidate => candidate.id === runtime.targetId && candidate.alive);
-    if (!enemy) runtime.targetId = null;
+    runtime.enemyLast = { x: enemy.position.x, z: enemy.position.z };
+  }
+
+  private botShoot(actor: Actor, runtime: Runtime, enemy: Actor, easy: boolean, retreating: boolean): void {
+    const weapon = WEAPONS[actor.weapon];
+    if (runtime.reaction > 0) return;
+    // Bolt-action shooters settle before firing instead of spraying on the move.
+    if (weapon.fireMode === 'bolt' && (runtime.stillTime < 0.45 || runtime.focus < 0.4)) return;
+    const speed = Math.hypot(runtime.enemyVel.x, runtime.enemyVel.z);
+    // Bullets are instant, so a bot does not lead: it lags behind a moving target, which strafing exploits.
+    const lag = (easy ? 0.28 : 0.16) * (1 - 0.6 * runtime.focus);
+    const aim = { x: enemy.position.x - runtime.enemyVel.x * lag, y: enemy.position.y + 1.12, z: enemy.position.z - runtime.enemyVel.z * lag };
+    const base = (easy ? 0.08 : 0.05) * (weapon.fireMode === 'bolt' ? 0.7 : 1);
+    const spread = base * (1 - 0.6 * runtime.focus) * (1 + Math.min(1, speed / 6) * 0.6) * (runtime.stillTime < 0.2 ? 1.25 : 1) * (retreating ? 1.4 : 1);
+    if (!this.fire(actor, aim, spread, true)) return;
+    if (weapon.fireMode === 'auto') {
+      if (runtime.burstLeft <= 0) runtime.burstLeft = 3 + Math.floor(this.random() * 5);
+      runtime.burstLeft--;
+      if (runtime.burstLeft <= 0) runtime.cooldown = Math.max(runtime.cooldown, (0.25 + this.random() * 0.45) * (easy ? 1.8 : 1));
+    } else runtime.cooldown = Math.max(runtime.cooldown, weapon.fireInterval * (easy ? 1.8 : 1.15) + this.random() * 0.2);
+  }
+
+  private botSwitch(actor: Actor, weapon: WeaponType): void {
+    const runtime = this.runtime(actor);
+    actor.weapon = weapon;
+    actor.reloading = 0;
+    runtime.reloadWeapon = null;
+    this.cancelHeal(actor);
+    runtime.cooldown = Math.max(runtime.cooldown, 0.45);
+  }
+
+  /** A point within reach that the enemy cannot see (behind an obstacle or a terrain crest). */
+  private findCover(actor: Actor, enemy: Actor): Vec2 | null {
+    const eye = { x: enemy.position.x, y: enemy.position.y + 1.35, z: enemy.position.z };
+    let best: Vec2 | null = null;
+    let bestScore = Infinity;
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2 + this.random() * 0.4;
+      const radius = 6 + this.random() * 16;
+      const point = { x: actor.position.x + Math.cos(angle) * radius, z: actor.position.z + Math.sin(angle) * radius };
+      if (!this.walkable(point)) continue;
+      if (this.lineClear(eye, { x: point.x, y: this.heightAt(point.x, point.z) + 1.2, z: point.z })) continue;
+      const score = radius - 0.15 * distance2(point, enemy.position);
+      if (score < bestScore) { best = point; bestScore = score; }
+    }
+    return best;
+  }
+
+  /** Alert bots that can plausibly hear this shot. Some ignore it; nearer shots are more convincing. */
+  private alertNearby(shooter: Actor, loudness: number): void {
+    this.actorGrid.queryCircle(shooter.position.x, shooter.position.z, loudness, other => {
+      if (other === shooter || !other.alive || other.isPlayer) return;
+      const runtime = this.runtime(other);
+      if (runtime.targetId && runtime.memory > 0) return;
+      const d = distance2(other.position, shooter.position);
+      if (d > loudness || d < 8 || runtime.heardTimer > 6.5) return;
+      if (this.random() > 0.3 + (1 - d / loudness) * 0.5) return;
+      runtime.heard = { x: shooter.position.x + (this.random() - 0.5) * d * 0.3, z: shooter.position.z + (this.random() - 0.5) * d * 0.3 };
+      runtime.heardTimer = 9;
+    });
+  }
+
+  /** Walk to the most valuable nearby pickup. Returns true when a pickup is the current goal. */
+  private seekLoot(actor: Actor, runtime: Runtime): boolean {
+    const now = this.state.elapsed;
+    if (runtime.lootRef && (!runtime.lootRef.active || lootUtility(actor, runtime.lootRef.kind) <= 0)) runtime.lootRef = null;
+    if (!runtime.lootRef && runtime.lootTimer <= 0) {
+      runtime.lootTimer = 0.8 + this.random() * 0.5;
+      const zone = this.state.zone;
+      let best = null as Loot | null;
+      let bestScore = 0;
+      this.lootIndex().queryCircle(actor.position.x, actor.position.z, this.openWorld ? 75 : 55, loot => {
+        if (!loot.active) return;
+        const until = runtime.ignored.get(loot.id);
+        if (until !== undefined && until > now) return;
+        const utility = lootUtility(actor, loot.kind);
+        if (utility <= 0 || distance2(loot.position, zone.center) > zone.radius - 8) return;
+        const score = utility / (1 + Math.hypot(loot.position.x - actor.position.x, loot.position.z - actor.position.z) / 25);
+        if (score > bestScore) { best = loot; bestScore = score; }
+      });
+      runtime.lootRef = best;
+    }
+    const target = runtime.lootRef;
+    if (!target) return false;
+    if (Math.hypot(target.position.x - actor.position.x, target.position.y - actor.position.y, target.position.z - actor.position.z) <= 1.5) {
+      this.collectLoot(actor, target);
+      runtime.lootRef = null;
+      runtime.lootTimer = 0.25;
+      return false;
+    }
+    runtime.goal = { x: target.position.x, z: target.position.z };
+    return true;
+  }
+
+  private nextTownGoal(actor: Actor, runtime: Runtime): Vec2 | null {
     const zone = this.state.zone;
-    const outside = distance2(actor.position, zone.center) > Math.max(0, zone.radius - 5);
-    const futureUnsafe = zone.isShrinking && distance2(actor.position, zone.nextCenter) > Math.max(0, zone.nextRadius - 7);
-    const evacuating = outside || futureUnsafe;
-    if (actor.ammo[actor.weapon] === 0) this.beginReload(actor);
-    if (actor.healing > 0) {
-      if (enemy && this.canSee(actor, enemy) || evacuating) this.cancelHeal(actor);
-      else return;
+    let best = null as Town | null;
+    let bestScore = 0;
+    for (const town of this.world.towns) {
+      if (runtime.visited.has(town.id) || distance2(town, zone.center) > zone.radius - town.radius * 0.3 - 30) continue;
+      const weight = town.tier === 'city' ? 1.6 : town.tier === 'town' ? 1.2 : 1;
+      const score = weight / (distance2(actor.position, town) + 150) * (0.6 + this.random() * 0.8);
+      if (score > bestScore) { best = town; bestScore = score; }
     }
-    if (!enemy && !evacuating && actor.health < 45 && actor.medkits > 0 && actor.reloading === 0) {
-      this.beginHeal(actor);
-      return;
-    }
-    let moving = true;
+    if (!best) { runtime.visited.clear(); return null; }
+    runtime.visited.add(best.id);
+    return { x: best.x + (this.random() - 0.5) * best.radius * 0.6, z: best.z + (this.random() - 0.5) * best.radius * 0.6 };
+  }
+
+  /**
+   * Choose where a calm bot goes next and how fast: out of the zone first, then toward gunfire it heard,
+   * then pickups, then a patrol (town to town on the island, local rounds in the arena).
+   */
+  private pickGoal(actor: Actor, runtime: Runtime, evacuating: boolean, allowLoot = true): number {
+    const zone = this.state.zone;
     if (evacuating) {
+      runtime.lootRef = null;
       const destination = zone.isShrinking ? zone.nextCenter : zone.center;
       const safeRadius = Math.max(0, (zone.isShrinking ? zone.nextRadius : zone.radius) - 10);
       // Enter the nearest safe part of the circle instead of sending every bot to its center.
       const index = Number(actor.id.split('-')[1]) || 1;
       const angle = Math.atan2(actor.position.z - destination.z, actor.position.x - destination.x) + Math.sin(index * 2.4) * 0.08;
       runtime.goal = { x: destination.x + Math.cos(angle) * safeRadius, z: destination.z + Math.sin(angle) * safeRadius };
-    } else if (enemy) {
-      const visible = this.canSee(actor, enemy);
-      const distance = distance2(actor.position, enemy.position);
-      const weaponConfig = WEAPONS[actor.weapon];
-      const preferredRange = weaponConfig.preferredRange;
-      if (visible && distance <= WEAPONS[actor.weapon].range * 0.85) {
-        actor.yaw = Math.atan2(enemy.position.x - actor.position.x, enemy.position.z - actor.position.z);
-        const extraSpread = (easy ? 0.08 : 0.045) * (weaponConfig.fireMode === 'bolt' ? 0.7 : 1);
-        if (runtime.reaction <= 0 && this.fire(actor, { x: enemy.position.x, y: enemy.position.y + 1.12, z: enemy.position.z }, extraSpread, true)) runtime.cooldown = Math.max(runtime.cooldown, easy ? 0.65 : 0.38);
-        if (distance < preferredRange) moving = false;
-      }
-      if (visible) runtime.goal = { x: enemy.position.x, z: enemy.position.z };
-    } else if (!runtime.goal || distance2(actor.position, runtime.goal) < 3) {
-      // Local patrols keep the opening spread across the map; later circles bring opponents together.
-      const spawn = this.world.spawns[Number(actor.id.split('-')[1])] ?? actor.position;
-      const anchor = distance2(spawn, zone.center) < zone.radius - 15 ? spawn : actor.position;
+      return 6.1;
+    }
+    if (runtime.heard && actor.health >= 45) {
+      if (distance2(actor.position, runtime.heard) < 10) { runtime.heard = null; runtime.heardTimer = 0; }
+      else { runtime.goal = { ...runtime.heard }; return 4.2; }
+    }
+    if (allowLoot && this.seekLoot(actor, runtime)) return 3.9;
+    if (!runtime.goal || distance2(actor.position, runtime.goal) < (this.world.towns.length ? 8 : 3)) {
       runtime.goal = null;
-      for (let attempt = 0; attempt < 8; attempt++) {
-        const angle = this.random() * Math.PI * 2;
-        const radius = 5 + this.random() * 12;
-        const point = { x: anchor.x + Math.cos(angle) * radius, z: anchor.z + Math.sin(angle) * radius };
-        if (this.walkable(point) && distance2(point, zone.center) < Math.max(0, zone.radius - 7)) { runtime.goal = point; break; }
+      if (this.world.towns.length) {
+        runtime.goal = this.nextTownGoal(actor, runtime);
+        if (!runtime.goal) {
+          const angle = this.random() * Math.PI * 2, radius = Math.sqrt(this.random()) * zone.radius * 0.6;
+          const point = { x: zone.center.x + Math.cos(angle) * radius, z: zone.center.z + Math.sin(angle) * radius };
+          if (this.walkable(point)) runtime.goal = point;
+        }
+      } else {
+        // Local patrols keep the opening spread across the map; later circles bring opponents together.
+        const spawn = this.world.spawns[Number(actor.id.split('-')[1])] ?? actor.position;
+        const anchor = distance2(spawn, zone.center) < zone.radius - 15 ? spawn : actor.position;
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const angle = this.random() * Math.PI * 2;
+          const radius = 5 + this.random() * 12;
+          const point = { x: anchor.x + Math.cos(angle) * radius, z: anchor.z + Math.sin(angle) * radius };
+          if (this.walkable(point) && distance2(point, zone.center) < Math.max(0, zone.radius - 7)) { runtime.goal = point; break; }
+        }
       }
     }
-    if (!moving || !runtime.goal || this.state.phase !== 'playing') return;
+    return 3.6;
+  }
+
+  private updateBot(actor: Actor, dt: number): void {
+    const runtime = this.runtime(actor);
+    const now = this.state.elapsed;
+    const easy = this.options.difficulty === 'easy';
+    runtime.sightTimer -= dt;
+    runtime.pathTimer -= dt;
+    runtime.lootTimer -= dt;
+    runtime.weaponTimer -= dt;
+    runtime.coverTimer -= dt;
+    runtime.strafeTimer -= dt;
+    runtime.reaction = Math.max(0, runtime.reaction - dt);
+    runtime.memory = Math.max(0, runtime.memory - dt);
+    runtime.heardTimer = Math.max(0, runtime.heardTimer - dt);
+    if (runtime.heardTimer === 0) runtime.heard = null;
+    if (runtime.sightTimer <= 0) this.perceive(actor, runtime, easy);
+    const enemy = runtime.targetId ? this.actorIndex.get(runtime.targetId) ?? null : null;
+    if (!enemy || !enemy.alive) runtime.targetId = null;
+    const target = enemy && enemy.alive ? enemy : null;
+    const visible = !!target && this.canSee(actor, target);
+    const zone = this.state.zone;
+    const outside = distance2(actor.position, zone.center) > Math.max(0, zone.radius - 5);
+    const futureUnsafe = zone.isShrinking && distance2(actor.position, zone.nextCenter) > Math.max(0, zone.nextRadius - 7);
+    const evacuating = outside || futureUnsafe;
+    if (actor.vehicleId) { this.botDriving(actor, runtime, evacuating); return; }
+    if (actor.ammo[actor.weapon] === 0) this.beginReload(actor);
+    if (runtime.weaponTimer <= 0 && actor.reloading === 0 && actor.healing === 0) {
+      runtime.weaponTimer = 1 + this.random() * 0.6;
+      const best = chooseWeapon(actor, target ? distance2(actor.position, target.position) : 28);
+      if (best !== actor.weapon) this.botSwitch(actor, best);
+    }
+    if (actor.healing > 0) {
+      if (visible || evacuating) this.cancelHeal(actor);
+      else return;
+    }
+    const exposed = !!target && (visible || now - runtime.lastSeenAt < 2.5);
+    if (!exposed && !evacuating && actor.health < 55 && actor.medkits > 0 && actor.reloading === 0) {
+      this.beginHeal(actor);
+      return;
+    }
+
+    let direct: { dx: number; dz: number; speed: number } | null = null;
+    let hold = false;
+    let speed = 3.6;
+    const lowHealth = actor.health < 38 && (actor.medkits > 0 || actor.health < 22);
+    if (target) {
+      const dx = target.position.x - actor.position.x, dz = target.position.z - actor.position.z;
+      const distance = Math.hypot(dx, dz);
+      const weapon = WEAPONS[actor.weapon];
+      if (visible) {
+        runtime.focus = Math.min(1, runtime.focus + dt / (easy ? 2.6 : 1.6));
+        runtime.lastSeen = { x: target.position.x, z: target.position.z };
+        runtime.lastSeenAt = now;
+        this.trackEnemy(runtime, target, dt);
+        if (distance <= weapon.range * 0.85) {
+          actor.yaw = Math.atan2(dx, dz);
+          this.botShoot(actor, runtime, target, easy, evacuating || lowHealth);
+        }
+      } else runtime.focus = Math.max(0, runtime.focus - dt * 0.6);
+      if (evacuating) speed = this.pickGoal(actor, runtime, true);
+      else if (lowHealth && exposed) {
+        if (runtime.coverTimer <= 0) { runtime.coverTimer = 1.5; runtime.coverGoal = this.findCover(actor, target); }
+        if (runtime.coverGoal && distance2(actor.position, runtime.coverGoal) > 1.5) { runtime.goal = runtime.coverGoal; speed = 5; }
+        else if (runtime.coverGoal) hold = true;
+        else if (distance > 0.1) direct = { dx: -dx / distance, dz: -dz / distance, speed: 4.5 };
+      } else if (visible) {
+        const scoped = weapon.fireMode === 'bolt' || weapon.zoom >= 4;
+        if (scoped && distance > 22) hold = true;
+        else if (distance > weapon.preferredRange * 1.4) { runtime.goal = { x: target.position.x, z: target.position.z }; speed = 4.4; }
+        else {
+          if (runtime.strafeTimer <= 0) { runtime.strafeDir = this.random() < 0.5 ? 1 : -1; runtime.strafeTimer = 0.7 + this.random() * 1.4; }
+          // Circle-strafe the target while drifting toward the gun's preferred range.
+          const radial = clamp((distance - weapon.preferredRange) / Math.max(1, weapon.preferredRange), -0.6, 0.6);
+          const fx = dx / Math.max(distance, 0.01), fz = dz / Math.max(distance, 0.01);
+          direct = { dx: fz * runtime.strafeDir + fx * radial, dz: -fx * runtime.strafeDir + fz * radial, speed: 2.7 };
+        }
+      } else {
+        const memory = runtime.lastSeen ?? target.position;
+        runtime.goal = { x: memory.x, z: memory.z };
+        speed = 3.6;
+      }
+    } else {
+      runtime.coverGoal = null;
+      speed = this.pickGoal(actor, runtime, evacuating);
+      this.boardCheck(actor, runtime, dt);
+    }
+
+    let moved = 0;
+    if (hold) moved = 0;
+    else if (direct) {
+      moved = this.moveActor(actor, direct.dx, direct.dz, direct.speed, dt);
+      if (moved < direct.speed * dt * 0.3) { runtime.strafeDir = runtime.strafeDir === 1 ? -1 : 1; runtime.strafeTimer = 0.8; }
+    } else moved = this.followPath(actor, runtime, speed, dt);
+    runtime.stillTime = moved < Math.max(1e-4, speed * dt * 0.1) ? runtime.stillTime + dt : 0;
+    if (visible && target) actor.yaw = Math.atan2(target.position.x - actor.position.x, target.position.z - actor.position.z);
+  }
+
+  /** Walk the A* path toward `runtime.goal`, replanning on a timer and sidestepping when stuck. */
+  private followPath(actor: Actor, runtime: Runtime, speed: number, dt: number): number {
+    const goal = runtime.goal;
+    if (!goal || this.state.phase !== 'playing') return 0;
+    if ((runtime.pathTimer <= 0 || !runtime.path.length) && this.pathBudget <= 0) {
+      // Out of search budget this step: keep walking toward the goal and plan again shortly.
+      runtime.pathTimer = Math.min(runtime.pathTimer, 0) + 0.05;
+      const dx = goal.x - actor.position.x, dz = goal.z - actor.position.z, length = Math.hypot(dx, dz) || 1;
+      return this.moveActor(actor, dx / length, dz / length, speed, dt);
+    }
     if (runtime.pathTimer <= 0 || !runtime.path.length) {
-      runtime.path = this.findPath(actor.position, runtime.goal);
+      this.pathBudget--;
+      runtime.path = this.findPath(actor.position, goal);
       runtime.pathTimer = 1 + this.random() * 0.5;
+      if (!runtime.path.length) {
+        // No route (a pickup sealed behind walls, say): give up on it for a while.
+        if (runtime.lootRef) { runtime.ignored.set(runtime.lootRef.id, this.state.elapsed + 120); runtime.lootRef = null; }
+        runtime.goal = null;
+        return 0;
+      }
     }
     while (runtime.path.length && distance2(actor.position, runtime.path[0]) < 0.7) runtime.path.shift();
     const waypoint = runtime.path[0];
-    if (!waypoint) { runtime.goal = null; return; }
+    if (!waypoint) {
+      if (distance2(actor.position, goal) < 2) runtime.goal = null; else runtime.pathTimer = 0;
+      return 0;
+    }
     const dx = waypoint.x - actor.position.x;
     const dz = waypoint.z - actor.position.z;
     const distance = Math.hypot(dx, dz);
-    const travel = this.moveActor(actor, dx / distance, dz / distance, evacuating ? 6.1 : 3.6, dt);
-    runtime.stuck = travel < 0.006 ? runtime.stuck + dt : 0;
+    const travel = this.moveActor(actor, dx / distance, dz / distance, speed, dt);
+    runtime.stuck = travel < speed * dt * 0.1 ? runtime.stuck + dt : 0;
     if (runtime.stuck > 0.8) {
       this.resolvePenetration(actor);
       runtime.path = [];
@@ -604,35 +1469,158 @@ export class GameSimulation {
       if (detour) runtime.path.push({ x: actor.position.x + detour.x, z: actor.position.z + detour.z });
       else runtime.goal = null;
     }
+    return travel;
+  }
+
+  /**
+   * Cheap routine for bots far from the player: same goals and inventory, straight-line movement
+   * (collisions still apply) and statistical duels instead of ballistics.
+   */
+  private updateFarBot(actor: Actor, dt: number): void {
+    const runtime = this.runtime(actor);
+    const now = this.state.elapsed;
+    if (runtime.duelUntil > now) return;
+    runtime.lootTimer -= dt;
+    runtime.weaponTimer -= dt;
+    runtime.heardTimer = Math.max(0, runtime.heardTimer - dt);
+    if (runtime.heardTimer === 0) runtime.heard = null;
+    if (actor.healing > 0) return;
+    const farZone = this.state.zone;
+    const farEvacuating = distance2(actor.position, farZone.center) > Math.max(0, farZone.radius - 5) || (farZone.isShrinking && distance2(actor.position, farZone.nextCenter) > Math.max(0, farZone.nextRadius - 7));
+    if (actor.vehicleId) { this.botDriving(actor, runtime, farEvacuating); return; }
+    if (actor.ammo[actor.weapon] === 0) this.beginReload(actor);
+    if (runtime.weaponTimer <= 0 && actor.reloading === 0) {
+      runtime.weaponTimer = 4;
+      const best = chooseWeapon(actor, 28);
+      if (best !== actor.weapon) this.botSwitch(actor, best);
+    }
+    const zone = this.state.zone;
+    const outside = distance2(actor.position, zone.center) > Math.max(0, zone.radius - 5);
+    const futureUnsafe = zone.isShrinking && distance2(actor.position, zone.nextCenter) > Math.max(0, zone.nextRadius - 7);
+    const evacuating = outside || futureUnsafe;
+    if (!evacuating && actor.health < 60 && actor.medkits > 0 && actor.reloading === 0) { this.beginHeal(actor); return; }
+    const rival = this.nearestRival(actor, 45);
+    if (rival && this.random() < 0.55) { this.resolveDuel(actor, rival); return; }
+    const speed = this.pickGoal(actor, runtime, evacuating);
+    this.boardCheck(actor, runtime, dt);
+    const goal = runtime.goal;
+    if (!goal) return;
+    const dx = goal.x - actor.position.x, dz = goal.z - actor.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 1) { runtime.goal = null; return; }
+    const moved = this.moveActor(actor, dx / distance, dz / distance, speed, dt);
+    runtime.stuck = moved < speed * dt * 0.35 ? runtime.stuck + dt : 0;
+    if (runtime.stuck > 2.5) {
+      // A wall or thicket is in the way: sidestep instead of pushing against it.
+      const side = this.random() < 0.5 ? 1 : -1;
+      if (runtime.lootRef) { runtime.ignored.set(runtime.lootRef.id, now + 300); runtime.lootRef = null; }
+      runtime.goal = { x: actor.position.x - dz / distance * side * 30 + dx / distance * 12, z: actor.position.z + dx / distance * side * 30 + dz / distance * 12 };
+      runtime.stuck = 0;
+    }
+  }
+
+  private nearestRival(actor: Actor, radius: number): Actor | null {
+    const now = this.state.elapsed;
+    let best = null as Actor | null;
+    let bestDistance = radius;
+    this.actorGrid.queryCircle(actor.position.x, actor.position.z, radius, other => {
+      if (other === actor || !other.alive || other.isPlayer) return;
+      const runtime = this.runtime(other);
+      if (runtime.lodTier < 2 || runtime.duelUntil > now) return;
+      const d = distance2(actor.position, other.position);
+      if (d < bestDistance) { best = other; bestDistance = d; }
+    });
+    return best;
+  }
+
+  /** Off-screen firefight: the stronger bot (gun at this range, health, a little luck) wins and pays for it. */
+  private resolveDuel(a: Actor, b: Actor): void {
+    const d = distance2(a.position, b.position);
+    const powerA = duelPower(a, d) * (0.7 + this.random() * 0.6);
+    const powerB = duelPower(b, d) * (0.7 + this.random() * 0.6);
+    const [winner, loser, winnerPower, loserPower] = powerA >= powerB ? [a, b, powerA, powerB] : [b, a, powerB, powerA];
+    const cost = clamp(loserPower / winnerPower, 0.2, 0.95) * (25 + this.random() * 45);
+    winner.health = Math.max(5, winner.health - cost);
+    for (const actor of [winner, loser]) {
+      const used = Math.floor(5 + this.random() * 15);
+      actor.ammo[actor.weapon] = Math.max(0, actor.ammo[actor.weapon] - used);
+      this.runtime(actor).duelUntil = this.state.elapsed + 5 + this.random() * 5;
+    }
+    this.damage(loser, loser.health + 1, winner.id);
   }
 
   private clearPath(from: Vec2, to: Vec2): boolean {
     const distance = distance2(from, to);
     if (distance < 0.01) return this.walkable(to);
-    const direction = { x: (to.x - from.x) / distance, y: 0, z: (to.z - from.z) / distance };
-    const origin = { x: from.x, y: 0.05, z: from.z };
-    return this.walkable(to) && !this.world.obstacles.some(obstacle => obstacleHit(origin, direction, obstacle, distance, ACTOR_RADIUS + 0.18) !== null);
+    if (!this.walkable(to)) return false;
+    const padding = ACTOR_RADIUS + 0.18;
+    const ankle = this.heightAt(from.x, from.z) + 0.05;
+    const dx = to.x - from.x, dz = to.z - from.z;
+    let clear = true;
+    this.obstacles().queryBox(Math.min(from.x, to.x) - padding, Math.min(from.z, to.z) - padding, Math.max(from.x, to.x) + padding, Math.max(from.z, to.z) + padding, obstacle => {
+      // Roofs are overhead and walls are judged at ankle height, so slopes never turn a clear route into a blocked one.
+      if (ankle < obstacleBottom(obstacle) || ankle > obstacleTop(obstacle)) return;
+      // Slab test of the segment against the obstacle grown by the walker's radius.
+      const x0 = obstacle.x - obstacle.width / 2 - padding, x1 = obstacle.x + obstacle.width / 2 + padding;
+      const z0 = obstacle.z - obstacle.depth / 2 - padding, z1 = obstacle.z + obstacle.depth / 2 + padding;
+      let near = 0, far = 1;
+      if (Math.abs(dx) < 1e-9) { if (from.x < x0 || from.x > x1) return; }
+      else { let a = (x0 - from.x) / dx, b = (x1 - from.x) / dx; if (a > b) { const t = a; a = b; b = t; } near = Math.max(near, a); far = Math.min(far, b); if (near > far) return; }
+      if (Math.abs(dz) < 1e-9) { if (from.z < z0 || from.z > z1) return; }
+      else { let a = (z0 - from.z) / dz, b = (z1 - from.z) / dz; if (a > b) { const t = a; a = b; b = t; } near = Math.max(near, a); far = Math.min(far, b); if (near > far) return; }
+      clear = false;
+      return true;
+    });
+    return clear;
   }
 
-  /** Small deterministic A* grid with line-of-sight smoothing; diagonal corners cannot be cut. */
-  private findPath(from: Vec2, goal: Vec2): Vec2[] {
-    if (this.clearPath(from, goal)) return [{ ...goal }];
-    const cell = 4;
-    const edge = this.world.halfSize - 2;
-    const size = Math.floor(edge * 2 / cell) + 1;
-    const coordinates = (index: number): Vec2 => ({ x: -edge + (index % size) * cell, z: -edge + Math.floor(index / size) * cell });
-    const nearest = (point: Vec2) => {
-      let best = -1;
-      let distance = Infinity;
-      for (let index = 0; index < size * size; index++) {
-        const position = coordinates(index);
-        const d = distance2(position, point);
-        if (d < distance && this.walkable(position)) { best = index; distance = d; }
+  /** Nearest walkable lattice point to `point`, searching outward in rings. */
+  private snapWalkable(point: Vec2, cell: number): Vec2 | null {
+    const cx = Math.round(point.x / cell), cz = Math.round(point.z / cell);
+    let best: Vec2 | null = null;
+    let bestDistance = Infinity;
+    for (let ring = 0; ring <= 4; ring++) {
+      for (let dx = -ring; dx <= ring; dx++) {
+        for (let dz = -ring; dz <= ring; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+          const candidate = { x: (cx + dx) * cell, z: (cz + dz) * cell };
+          const d = distance2(candidate, point);
+          if (d < bestDistance && this.walkable(candidate)) { best = candidate; bestDistance = d; }
+        }
       }
-      return best;
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /**
+   * Local A* on a lattice window around the start and goal, with line-of-sight smoothing; diagonal corners
+   * cannot be cut. Far goals are approached in legs, so cost stays bounded on a 4 km map.
+   */
+  private findPath(from: Vec2, goal: Vec2): Vec2[] {
+    const leg = this.openWorld ? 48 : 120;
+    const travel = distance2(from, goal);
+    let target = goal;
+    if (travel > leg) {
+      const t = leg / travel;
+      const lead = { x: from.x + (goal.x - from.x) * t, z: from.z + (goal.z - from.z) * t };
+      target = this.walkable(lead) ? lead : this.snapWalkable(lead, 2) ?? lead;
+    }
+    if (this.clearPath(from, target)) return [{ ...target }];
+    const cell = this.openWorld ? 2 : 4;
+    const margin = this.openWorld ? 14 : 24;
+    const i0 = Math.floor((Math.min(from.x, target.x) - margin) / cell), i1 = Math.ceil((Math.max(from.x, target.x) + margin) / cell);
+    const j0 = Math.floor((Math.min(from.z, target.z) - margin) / cell), j1 = Math.ceil((Math.max(from.z, target.z) + margin) / cell);
+    const width = i1 - i0 + 1, height = j1 - j0 + 1;
+    const coordinates = (index: number): Vec2 => ({ x: (i0 + (index % width)) * cell, z: (j0 + Math.floor(index / width)) * cell });
+    const indexOf = (point: Vec2) => {
+      const snapped = this.snapWalkable(point, cell);
+      if (!snapped) return -1;
+      const i = Math.round(snapped.x / cell) - i0, j = Math.round(snapped.z / cell) - j0;
+      return i < 0 || j < 0 || i >= width || j >= height ? -1 : j * width + i;
     };
-    const start = nearest(from);
-    const finish = nearest(goal);
+    const start = indexOf(from);
+    const finish = indexOf(target);
     if (start < 0 || finish < 0) return [];
     const open = new Set([start]);
     const closed = new Set<number>();
@@ -646,7 +1634,7 @@ export class GameSimulation {
       if (current === finish) {
         const path: Vec2[] = [coordinates(current)];
         while (previous.has(current)) { current = previous.get(current)!; path.unshift(coordinates(current)); }
-        if (this.clearPath(path[path.length - 1], goal)) path.push({ ...goal });
+        if (this.clearPath(path[path.length - 1], target)) path.push({ ...target });
         const smooth: Vec2[] = [];
         let anchor = { ...from };
         for (let i = 0; i < path.length;) {
@@ -661,13 +1649,13 @@ export class GameSimulation {
       }
       open.delete(current);
       closed.add(current);
-      const column = current % size;
-      const row = Math.floor(current / size);
+      const column = current % width;
+      const row = Math.floor(current / width);
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
         const x = column + dx;
         const z = row + dz;
-        if (x < 0 || z < 0 || x >= size || z >= size) continue;
-        const neighbor = z * size + x;
+        if (x < 0 || z < 0 || x >= width || z >= height) continue;
+        const neighbor = z * width + x;
         if (closed.has(neighbor) || !this.clearPath(coordinates(current), coordinates(neighbor))) continue;
         const cost = (costs.get(current) ?? Infinity) + cell * Math.hypot(dx, dz);
         if (cost >= (costs.get(neighbor) ?? Infinity)) continue;

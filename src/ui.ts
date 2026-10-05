@@ -1,5 +1,7 @@
-import type { GameSettings, GameState, WeaponType, WorldConfig } from './types';
-import { WEAPON_ORDER, WEAPONS } from './game/weapons';
+import type { AmmoType, ArmorSlot, GameSettings, GameState, MapId, WeaponType, WorldConfig } from './types';
+import { mapData } from './game/world';
+import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
+import { weaponHudIcon } from './hud-icons';
 
 type Callbacks = {
   onStart: (settings: GameSettings) => void;
@@ -8,9 +10,18 @@ type Callbacks = {
   onMenu: () => void;
   onSettings: (settings: GameSettings) => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
+  onTouchOverlayChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 5, volume: 0.6, quality: 'high', sensitivity: 1 };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1 };
+const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
+const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
+const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
+  island: { title: 'ĐẢO LASTLIGHT', blurb: 'Sông, hồ, thị trấn và rừng. Lục nhà tìm súng, giáp; lái xe vượt đảo trước khi bo khép lại.', size: '4 × 4 KM', time: '≈ 10 PHÚT' },
+  valley: { title: 'ĐẤU TRƯỜNG THUNG LŨNG', blurb: 'Một thung lũng khép kín, đông bot, bo thu nhanh. Giao tranh liên tục từ giây đầu tiên.', size: '1 × 1 KM', time: '≈ 6 PHÚT' },
+  arena: { title: 'SÂN TẬP', blurb: 'Bản đồ nhỏ có sẵn đủ 8 loại súng quanh điểm xuất phát. Hợp để thử súng và luyện ngắm.', size: '200 M', time: '≈ 7 PHÚT' },
+};
+const readMap = (value: unknown): MapId => value === 'arena' ? 'arena' : value === 'valley' ? 'valley' : 'island';
 const SETTINGS_KEY = 'lastlight.settings.v1';
 const BEST_KEY = 'lastlight.best.v1';
 const FIRE_MODE_LABELS = { auto: 'TỰ ĐỘNG', semi: 'BÁN TỰ ĐỘNG', bolt: 'LÊN ĐẠN TỪNG PHÁT' } as const;
@@ -39,9 +50,11 @@ function readSettings(): GameSettings {
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
+  const map = readMap(raw.map);
   return {
     difficulty: raw.difficulty === 'easy' ? 'easy' : 'normal',
-    botCount: raw.botCount === 7 ? 7 : 5,
+    map,
+    botCount: BOT_CHOICES[map].includes(raw.botCount as number) ? raw.botCount as number : defaultBots(map),
     quality: raw.quality === 'low' || raw.quality === 'high' ? raw.quality : defaults.quality,
     volume: clamp(raw.volume, 0, 1, DEFAULT_SETTINGS.volume),
     sensitivity: clamp(raw.sensitivity, 0.35, 2, DEFAULT_SETTINGS.sensitivity),
@@ -81,32 +94,54 @@ export class GameUI {
     this.root = root;
     root.innerHTML = `
       <div id="damage-vignette" class="damage-vignette" aria-hidden="true"></div>
-      <section id="menu-screen" class="menu-screen">
-        <header class="menu-header"><a class="wordmark" href="#" aria-label="LASTLIGHT, màn hình chính"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>SINGLE PLAYER · WEB EDITION</small></span></a><div class="build-badge"><span></span>CHIẾN TRƯỜNG 01</div></header>
-        <div class="menu-body">
-          <div class="menu-left">
-            <nav class="menu-tabs" aria-label="Màn hình chính"><button id="tab-play" class="tab active" type="button">TÁC CHIẾN</button><button id="tab-settings" class="tab" type="button">THIẾT LẬP</button></nav>
-            <div id="play-panel" class="hero-panel">
-              <div class="eyebrow"><span class="orange-dash"></span>ĐƠN ĐỘC. CHƯA BAO GIỜ AN TOÀN.</div>
-              <h1>LAST<span>LIGHT</span></h1>
-              <p class="hero-subtitle">VÙNG SỐNG CUỐI CÙNG</p>
-              <p class="hero-copy">8 dòng súng. Áp sát hoặc ngắm xa với ống ngắm đến 8×.<br>Giữ mình trong vòng bo. Chỉ một người được ở lại.</p>
-              <div class="deployment-settings"><label>ĐỘ KHÓ<select id="difficulty" aria-label="Độ khó"><option value="normal">Tiêu chuẩn</option><option value="easy">Dễ · làm quen</option></select></label><label>ĐỐI THỦ<select id="bot-count" aria-label="Số lượng bot"><option value="5">5 bot</option><option value="7">7 bot</option></select></label></div>
-              <button id="start-button" class="button button-primary start-button" type="button"><span>${icon('target')}BẮT ĐẦU TRẬN</span>${icon('arrow')}</button>
-              <div class="solo-note"><span></span>CHƠI NGAY · KHÔNG CẦN TÀI KHOẢN</div>
-              <div class="personal-record"><div><strong id="best-wins">0</strong><span>CHIẾN THẮNG</span></div><div><strong id="best-kills">0</strong><span>KỶ LỤC HẠ GỤC</span></div><div><strong id="best-time">00:00</strong><span>SỐNG SÓT LÂU NHẤT</span></div></div>
+      <section id="menu-screen" class="menu-screen lobby">
+        <header class="lobby-top">
+          <a class="wordmark" href="#" aria-label="LASTLIGHT, màn hình chính"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>VÙNG SỐNG CUỐI CÙNG</small></span></a>
+          <nav class="lobby-nav" aria-label="Màn hình chính"><button id="tab-play" class="tab active" type="button">CHIẾN ĐẤU</button><button id="tab-settings" class="tab" type="button">THIẾT LẬP</button></nav>
+          <div class="profile-chip" aria-label="Thành tích của bạn">
+            <div class="profile-id"><i>${icon('shield')}</i><span><b>NGƯỜI SINH TỒN</b><small>CHƠI NGAY · KHÔNG CẦN TÀI KHOẢN</small></span></div>
+            <dl><div><dt>THẮNG</dt><dd id="best-wins">0</dd></div><div><dt>HẠ GỤC</dt><dd id="best-kills">0</dd></div><div><dt>SỐNG LÂU NHẤT</dt><dd id="best-time">00:00</dd></div></dl>
+          </div>
+        </header>
+        <div class="lobby-stage">
+          <div class="lobby-spot" aria-hidden="true"><span class="spot-tag">SẴN SÀNG</span><span class="spot-name">BẠN</span></div>
+          <aside class="lobby-panel">
+            <div id="play-panel" class="panel-play">
+              <div class="panel-title"><span>CHỌN CHIẾN TRƯỜNG</span><em>ĐƠN · ĐẤU BOT</em></div>
+              <div id="map-choice" class="map-tabs" role="radiogroup" aria-label="Bản đồ">
+                <button type="button" role="radio" data-value="island"><b>ĐẢO</b><small>4 × 4 km</small></button>
+                <button type="button" role="radio" data-value="valley"><b>ĐẤU TRƯỜNG</b><small>1 × 1 km</small></button>
+                <button type="button" role="radio" data-value="arena"><b>SÂN TẬP</b><small>200 m</small></button>
+              </div>
+              <div class="mode-card">
+                <div class="mode-map"><canvas id="menu-map" width="320" height="320" aria-label="Bản đồ chiến trường"></canvas></div>
+                <div class="mode-info">
+                  <h2 id="preview-title">ĐẢO LASTLIGHT</h2>
+                  <p id="preview-blurb"></p>
+                  <ul class="mode-tags"><li id="preview-size">4 × 4 KM</li><li><span id="brief-bots">100</span> BOT</li><li id="preview-time">≈ 10 PHÚT</li></ul>
+                </div>
+              </div>
+              <div class="panel-row">
+                <div class="setting-group"><span class="group-label">SỐ ĐỐI THỦ</span><div id="bot-choice" class="seg seg-compact" role="radiogroup" aria-label="Số lượng bot"></div></div>
+                <div class="setting-group"><span class="group-label">ĐỘ KHÓ</span><div id="difficulty-choice" class="seg seg-compact" role="radiogroup" aria-label="Độ khó"><button type="button" role="radio" data-value="normal"><b>Tiêu chuẩn</b></button><button type="button" role="radio" data-value="easy"><b>Dễ</b></button></div></div>
+              </div>
+              <button id="start-button" class="start-button" type="button"><span class="start-label">${icon('target')}<span><b>BẮT ĐẦU TRẬN</b><small id="start-sub">100 đối thủ · ≈ 10 phút</small></span></span>${icon('arrow')}</button>
             </div>
             <div id="settings-panel" class="settings-panel" hidden>
-              <div class="eyebrow"><span class="orange-dash"></span>CHUẨN BỊ TRƯỚC KHI VÀO TRẬN</div><h2>THIẾT LẬP</h2><p class="settings-copy">Điều chỉnh để chơi thoải mái trên máy của bạn.</p>
+              <div class="panel-title"><span>CHUẨN BỊ TRƯỚC KHI VÀO TRẬN</span><em>THIẾT LẬP</em></div>
+              <p class="settings-copy">Điều chỉnh để chơi thoải mái trên máy của bạn.</p>
               <label class="setting-row"><span>${icon('sound')}<span>Âm lượng<small>Tiếng súng và âm thanh trong trận</small></span></span><output id="volume-value">60%</output><input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Âm lượng"></label>
               <label class="setting-row"><span>${icon('target')}<span>Độ nhạy chuột<small>Giá trị thấp giúp ngắm chính xác hơn</small></span></span><output id="sensitivity-value">1.00×</output><input id="sensitivity" type="range" min="0.35" max="2" step="0.05" aria-label="Độ nhạy chuột"></label>
               <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
-              <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ TÁC CHIẾN ${icon('arrow')}</button>
+              <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
             </div>
-          </div>
-          <aside class="mission-card" aria-label="Thông tin chiến trường"><div class="mission-top"><span>ĐỊA ĐIỂM / 01</span><span class="mission-number">01</span></div><div class="mission-horizon"><span>VÙNG HOANG PHẾ</span></div><div class="mission-description"><div class="eyebrow">NHIỆM VỤ SINH TỒN</div><h2>Không còn<br>đường lui.</h2><p>8 dòng súng, ống ngắm đến 8×.<br>Giữ vị trí trong vòng bo và<br>chọn thời điểm ra đòn.</p></div><dl><div><dt>CHẾ ĐỘ</dt><dd>SOLO / BOT</dd></div><div><dt>CHIẾN TRƯỜNG</dt><dd>1 NGƯỜI + <span id="brief-bots">5</span> BOT</dd></div><div><dt>MỤC TIÊU</dt><dd>NGƯỜI SỐNG CUỐI</dd></div></dl><div class="mission-footer">${icon('shield')}MỖI TRẬN LÀ MỘT CƠ HỘI MỚI</div></aside>
+          </aside>
         </div>
-        <footer class="control-guide"><div class="guide-title">LÀM CHỦ CHIẾN TRƯỜNG</div><div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>SHIFT</kbd>Chạy</span><span><kbd>SPACE</kbd>Nhảy</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>R</kbd>Nạp đạn</span><span><kbd>H</kbd>Hồi máu</span><span><kbd>1 – 8</kbd>Chọn súng</span><span><kbd>Q / CUỘN</kbd>Đổi súng</span><span><kbd>ESC</kbd>Tạm dừng</span></div><span class="guide-tip desktop-controls">Giữ chuột phải để ngắm / mở ống ngắm · Q hoặc cuộn chuột để đổi súng đã nhặt</span><div class="touch-guide"><span><b>NGÓN TRÁI</b>Kéo cần để di chuyển</span><span><b>NGÓN PHẢI</b>Vuốt vùng trống để xoay camera</span><span><b>NÚT NGẮM</b>Chạm để bật / tắt ống ngắm</span><small>Giữ nút Bắn với súng tự động; chạm từng phát với súng bán tự động và súng ngắm.</small></div><div class="touch-orientation-note">Xoay điện thoại ngang để chơi thoải mái.</div></footer>
+        <footer class="lobby-foot">
+          <div class="guide-keys desktop-controls"><span><kbd>W A S D</kbd>Di chuyển</span><span><kbd>CHUỘT</kbd>Ngắm / bắn</span><span><kbd>E</kbd>Nhặt đồ</span><span><kbd>F</kbd>Lên / xuống xe</span><span><kbd>1 – 3</kbd>Chọn súng</span><span><kbd>M</kbd>Bản đồ lớn</span><span><kbd>ESC</kbd>Tạm dừng</span></div>
+          <div class="touch-guide"><span><b>NGÓN TRÁI</b>Kéo cần để di chuyển</span><span><b>NGÓN PHẢI</b>Vuốt để xoay camera</span><span><b>NÚT NGẮM</b>Bật / tắt ống ngắm</span></div>
+          <div class="touch-orientation-note">Xoay điện thoại ngang để chơi thoải mái.</div>
+        </footer>
       </section>
       <div id="scope-overlay" class="scope-overlay" aria-label="Ống ngắm" hidden>
         <div class="scope-lens">
@@ -127,23 +162,28 @@ export class GameUI {
         <div class="compass"><div class="compass-needle"></div><div id="compass-labels" class="compass-labels"></div><span id="compass-degrees" class="compass-degrees">000°</span></div>
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
-        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div>
+        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
-        <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
-        <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="8 ô vũ khí; chọn súng đã nhặt">${WEAPON_ORDER.map((weapon, index) => `<button id="${weapon}-slot" class="weapon-slot unowned" type="button" data-weapon="${weapon}" aria-label="${WEAPONS[weapon].label}, ${WEAPONS[weapon].category}" aria-pressed="false" disabled title="${index + 1} · ${WEAPONS[weapon].label} · ${WEAPONS[weapon].category}" style="--weapon-color:${WEAPONS[weapon].color}"><kbd>${index + 1}</kbd><span>${WEAPONS[weapon].label}</span><i>—</i></button>`).join('')}</div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1–8 · CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
+        <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
+        <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="Vũ khí đang mang"></div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1 · 2 · 3 CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
         <div class="minimap-panel"><div class="map-header"><span>BẢN ĐỒ</span><span id="map-stage">VÒNG 1</span></div><canvas id="minimap" width="208" height="208" aria-label="Bản đồ: vị trí của bạn, địa hình và vùng an toàn"></canvas><div class="map-footer"><span><i></i>Vùng an toàn</span><span class="map-north">N ↑</span></div></div>
         <div class="pause-tip"><kbd>ESC</kbd> TẠM DỪNG</div>
         <div class="orientation-hint">Xoay điện thoại ngang để chơi</div>
       </section>
       <section id="pause-screen" class="overlay-screen" aria-labelledby="pause-title" hidden><div class="dialog pause-dialog"><div class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU ĐÃ TẠM DỪNG</div><h2 id="pause-title">NGHỈ MỘT NHỊP.</h2><p>Chiến trường đang chờ bạn quay lại.</p><button id="resume-button" class="button button-primary" type="button">TIẾP TỤC TRẬN ${icon('arrow')}</button><button id="pause-restart" class="button button-secondary" type="button">CHƠI LẠI</button><button id="pause-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button><small class="dialog-hint">Nhấn ESC để tiếp tục</small></div></section>
       <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
-      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span></div></div></section><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
     `;
     root.querySelectorAll<HTMLElement>('[id]').forEach(element => this.elements.set(element.id, element));
-    this.el('difficulty').addEventListener('change', () => this.changeSettings({ difficulty: (this.el('difficulty') as HTMLSelectElement).value === 'easy' ? 'easy' : 'normal' }));
-    this.el('bot-count').addEventListener('change', () => this.changeSettings({ botCount: (this.el('bot-count') as HTMLSelectElement).value === '7' ? 7 : 5 }));
+    const choose = (id: string, handler: (value: string) => void) => this.el(id).addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-value]');
+      if (button) handler(button.dataset.value!);
+    });
+    choose('difficulty-choice', value => this.changeSettings({ difficulty: value === 'easy' ? 'easy' : 'normal' }));
+    choose('bot-choice', value => this.changeSettings({ botCount: Number(value) }));
+    choose('map-choice', value => { const map = readMap(value); this.changeSettings({ map, botCount: defaultBots(map) }); });
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
     this.el('volume').addEventListener('input', () => this.changeSettings({ volume: Number((this.el('volume') as HTMLInputElement).value) }));
     this.el('sensitivity').addEventListener('input', () => this.changeSettings({ sensitivity: Number((this.el('sensitivity') as HTMLInputElement).value) }));
@@ -160,13 +200,33 @@ export class GameUI {
     this.el('touch-inventory-toggle').addEventListener('click', () => {
       const open = this.el('weapon-panel').classList.toggle('touch-picker-open');
       this.el('touch-inventory-toggle').setAttribute('aria-expanded', `${open}`);
+      this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
     });
-    for (const weapon of WEAPON_ORDER) {
-      this.el(`${weapon}-slot`).addEventListener('click', () => {
-        this.callbacks.onSelectWeapon?.(weapon);
-        this.closeInventory();
-      });
-    }
+    this.el('weapon-inventory').addEventListener('click', event => {
+      const card = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-weapon]');
+      if (!card) return;
+      this.callbacks.onSelectWeapon?.(card.dataset.weapon as WeaponType);
+      this.closeInventory();
+    });
+    this.el('map-screen').addEventListener('click', event => {
+      if (event.target === this.el('map-screen')) this.toggleMap(false);
+    });
+    const mapClose = document.createElement('button');
+    mapClose.id = 'map-close';
+    mapClose.className = 'map-close';
+    mapClose.type = 'button';
+    mapClose.setAttribute('aria-label', 'Đóng bản đồ');
+    mapClose.textContent = '×';
+    mapClose.addEventListener('click', () => this.toggleMap(false));
+    root.querySelector('.map-card-head')?.appendChild(mapClose);
+    const minimap = root.querySelector<HTMLElement>('.minimap-panel')!;
+    minimap.setAttribute('role', 'button');
+    minimap.setAttribute('tabindex', '0');
+    minimap.setAttribute('aria-label', 'Mở bản đồ');
+    minimap.addEventListener('click', () => this.toggleMap(true));
+    minimap.addEventListener('keydown', event => {
+      if (event.code === 'Enter' || event.code === 'Space') { event.preventDefault(); event.stopPropagation(); this.toggleMap(true); }
+    });
     if (this.touchMode) {
       this.el('sensitivity').setAttribute('aria-label', 'Độ nhạy vuốt camera');
       const sensitivityLabel = this.el('sensitivity').closest('label')?.querySelector('span > span');
@@ -194,8 +254,26 @@ export class GameUI {
     this.callbacks.onSettings({ ...this.settings });
   }
   private syncSettings(): void {
-    (this.el('difficulty') as HTMLSelectElement).value = this.settings.difficulty;
-    (this.el('bot-count') as HTMLSelectElement).value = `${this.settings.botCount}`;
+    const mark = (id: string, value: string) => this.el(id).querySelectorAll<HTMLButtonElement>('button[data-value]').forEach(button => {
+      const on = button.dataset.value === value;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-checked', `${on}`);
+    });
+    const choices = BOT_CHOICES[this.settings.map];
+    const bots = this.el('bot-choice');
+    if (bots.children.length !== choices.length || (bots.children[0] as HTMLElement).dataset.value !== `${choices[0]}`) {
+      bots.innerHTML = choices.map(n => `<button type="button" role="radio" data-value="${n}"><b>${n}</b><small>bot</small></button>`).join('');
+    }
+    mark('map-choice', this.settings.map);
+    mark('bot-choice', `${this.settings.botCount}`);
+    mark('difficulty-choice', this.settings.difficulty);
+    const info = MAP_INFO[this.settings.map];
+    this.text('preview-title', info.title);
+    this.text('preview-blurb', info.blurb);
+    this.text('start-sub', `${this.settings.botCount} đối thủ · ${info.time.replace('≈ ', '≈ ').toLowerCase()}`);
+    this.text('preview-size', info.size);
+    this.text('preview-time', info.time);
+    this.drawMenuMap();
     (this.el('quality') as HTMLSelectElement).value = this.settings.quality;
     (this.el('volume') as HTMLInputElement).value = `${this.settings.volume}`;
     (this.el('sensitivity') as HTMLInputElement).value = `${this.settings.sensitivity}`;
@@ -217,6 +295,11 @@ export class GameUI {
   private closeInventory(): void {
     this.el('weapon-panel').classList.remove('touch-picker-open');
     this.el('touch-inventory-toggle').setAttribute('aria-expanded', 'false');
+    this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
+  }
+
+  public get touchOverlayOpen(): boolean {
+    return this.touchMode && (this.mapOpen || this.el('weapon-panel').classList.contains('touch-picker-open'));
   }
 
   public update(state: GameState, world: WorldConfig, hint: string): void {
@@ -232,6 +315,7 @@ export class GameUI {
       this.hide('scope-overlay', true);
       this.aimStateKey = '';
       this.closeInventory();
+      if (state.phase !== 'playing') this.toggleMap(false);
       if (state.phase === 'playing') { this.resultSaved = false; this.lastHits = state.hits; }
       if (state.phase === 'menu') this.showSettings(false);
       const focusId = state.phase === 'menu' ? 'start-button' : state.phase === 'paused' ? 'resume-button' : results ? 'restart-button' : null;
@@ -257,27 +341,19 @@ export class GameUI {
     this.el('health-bar').style.transform = `scaleX(${Math.max(0, Math.min(1, player.health / 100))})`;
     this.el('health-bar').classList.toggle('low', player.health < 35);
     this.text('medkits', `${player.medkits}`);
+    this.el('health-bar').classList.toggle('mid', player.health >= 35 && player.health < 65);
     this.text('health-status', player.healing > 0 ? 'ĐANG HỒI MÁU' : player.health < 35 ? 'CẦN HỒI MÁU' : 'SẴN SÀNG');
     const weaponConfig = WEAPONS[player.weapon];
     this.text('weapon-name', weaponConfig.label);
     this.text('weapon-mode', `${FIRE_MODE_LABELS[weaponConfig.fireMode]} · ${weaponConfig.zoom}×`);
     this.text('weapon-category', weaponConfig.category);
     this.text('ammo-loaded', `${player.ammo[player.weapon]}`);
-    this.text('ammo-reserve', `${player.reserve[player.weapon]}`);
+    this.text('ammo-reserve', `${player.reserve[weaponConfig.ammoType]}`);
     this.text('ammo-message', player.reloading > 0 ? `ĐANG NẠP ĐẠN · ${player.reloading.toFixed(1)}s` : player.ammo[player.weapon] === 0 ? this.touchMode ? 'HẾT ĐẠN · CHẠM NẠP' : 'HẾT ĐẠN · NHẤN R' : this.touchMode ? 'ĐẠN SẴN SÀNG' : 'R · NẠP ĐẠN');
     this.el('weapon-panel').classList.toggle('empty', player.ammo[player.weapon] === 0);
-    for (const weapon of WEAPON_ORDER) {
-      const slot = this.el(`${weapon}-slot`) as HTMLButtonElement;
-      const owned = player.ownedWeapons.includes(weapon);
-      slot.classList.toggle('active', player.weapon === weapon);
-      slot.classList.toggle('unowned', !owned);
-      if (slot.disabled === owned) slot.disabled = !owned;
-      const pressed = `${player.weapon === weapon}`;
-      if (slot.getAttribute('aria-pressed') !== pressed) slot.setAttribute('aria-pressed', pressed);
-      const marker = slot.querySelector('i');
-      const markerText = owned ? '●' : '—';
-      if (marker && marker.textContent !== markerText) marker.textContent = markerText;
-    }
+    this.renderLoadout(player.ownedWeapons, player.weapon, player.ammo, player.reserve);
+    this.renderArmor(player);
+    this.expireKillFeed(now);
     this.text('interaction-hint', this.touchMode ? hint.replace('[E]', 'CHẠM NHẶT ·') : hint);
     this.hide('interaction-hint', !hint);
     this.hide('action-progress', player.reloading <= 0 && player.healing <= 0);
@@ -289,9 +365,13 @@ export class GameUI {
     this.text('zone-time', formatTime(state.zone.timeRemaining));
     this.text('map-stage', `VÒNG ${state.zone.stage + 1}`);
     this.updateCompass(player.yaw);
+    this.lastState = state;
+    this.lastWorld = world;
+    this.text('bigmap-stage', `VÒNG ${state.zone.stage + 1}`);
     if (now - this.lastMapDraw > 90 || phaseChanged) {
       this.lastMapDraw = now;
       this.drawMinimap(state, world);
+      if (this.mapOpen) this.drawBigMap(state, world);
     }
   }
 
@@ -332,8 +412,172 @@ export class GameUI {
     }
   }
 
-  private drawMinimap(state: GameState, world: WorldConfig): void {
-    const canvas = this.el('minimap') as HTMLCanvasElement;
+  private loadoutKey = '';
+  private armorKey = '';
+  private killLines: Array<{ element: HTMLElement; until: number }> = [];
+  private damageUntil = 0;
+
+  /** Only the guns actually carried are shown: slots 1 and 2 hold main guns, slot 3 the sidearm. */
+  private renderLoadout(owned: readonly WeaponType[], current: WeaponType, ammo: Record<WeaponType, number>, reserve: Record<AmmoType, number>): void {
+    const slots = slotOrder(owned);
+    const key = slots.join(',');
+    const container = this.el('weapon-inventory');
+    if (key !== this.loadoutKey) {
+      this.loadoutKey = key;
+      container.innerHTML = slots.map((weapon, index) => {
+        const config = WEAPONS[weapon];
+        const slotNumber = isSidearm(weapon) ? 3 : index + 1;
+        return `<button type="button" class="weapon-slot" data-weapon="${weapon}" aria-label="Ô ${slotNumber}: ${config.label}, ${config.category}" data-tier="${config.tier}" style="--weapon-color:${config.color}"><kbd>${slotNumber}</kbd>${weaponHudIcon(weapon)}<span class="slot-name">${config.label}<small>${config.category}</small></span><i data-ammo="${weapon}"></i></button>`;
+      }).join('');
+      this.hide('touch-inventory-toggle', slots.length < 2);
+    }
+    for (const card of container.querySelectorAll<HTMLButtonElement>('button[data-weapon]')) {
+      const weapon = card.dataset.weapon as WeaponType;
+      card.classList.toggle('active', weapon === current);
+      card.setAttribute('aria-pressed', `${weapon === current}`);
+      const label = card.querySelector('i');
+      const text = `${ammo[weapon]} / ${reserve[WEAPONS[weapon].ammoType]}`;
+      if (label && label.textContent !== text) label.textContent = text;
+    }
+  }
+
+  /** Helmet and vest are listed only while worn, each with its tier and remaining durability. */
+  private renderArmor(player: { helmet: number; vest: number; helmetHp: number; vestHp: number }): void {
+    const slots: ArmorSlot[] = ['helmet', 'vest'];
+    const key = slots.map(slot => `${player[slot]}:${Math.ceil(player[`${slot}Hp` as const] / 5)}`).join('|');
+    if (key === this.armorKey) return;
+    this.armorKey = key;
+    const icons: Record<ArmorSlot, string> = { helmet: '<path d="M4 15a8 8 0 0 1 16 0v2H4zM4 17h16M12 7v3"/>', vest: '<path d="M8 4 4 7v13h16V7l-4-3-2 2h-4zM12 6v14"/>' };
+    this.el('armor-row').innerHTML = slots.filter(slot => player[slot] > 0).map(slot => {
+      const level = player[slot], hp = player[`${slot}Hp` as const];
+      const percent = Math.max(0, Math.min(100, hp / ARMOR_DURABILITY[level] * 100));
+      return `<div class="armor-chip tier-${level}" title="${ARMOR_NAMES[slot]} cấp ${level}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[slot]}</svg><b>${level}</b><span><i style="width:${percent}%"></i></span></div>`;
+    }).join('');
+  }
+
+  /** Kill feed: newest line first, each fading after a few seconds. */
+  public pushKill(killer: string, victim: string, weapon: string, involvesPlayer: boolean): void {
+    const line = document.createElement('div');
+    line.className = involvesPlayer ? 'kill-line mine' : 'kill-line';
+    line.innerHTML = `<b></b><em>${weapon}</em><span></span>`;
+    (line.querySelector('b') as HTMLElement).textContent = killer;
+    (line.querySelector('span') as HTMLElement).textContent = victim;
+    const feed = this.el('kill-feed');
+    feed.prepend(line);
+    this.killLines.unshift({ element: line, until: performance.now() + 5500 });
+    while (this.killLines.length > 5) this.killLines.pop()?.element.remove();
+  }
+
+  private expireKillFeed(now: number): void {
+    while (this.killLines.length && this.killLines[this.killLines.length - 1].until < now) this.killLines.pop()?.element.remove();
+  }
+
+  /** Red wedge around the crosshair pointing at whoever hit you; `angle` is relative to where you are facing. */
+  public showDamageFrom(angle: number): void {
+    const indicator = this.el('damage-dir');
+    indicator.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+    indicator.classList.remove('flash');
+    void indicator.offsetWidth;
+    indicator.classList.add('flash');
+    this.damageUntil = performance.now() + 900;
+  }
+
+  /** Speedometer and car condition while driving; pass null on foot. */
+  public setVehicle(info: { speed: number; health: number } | null): void {
+    this.hide('vehicle-hud', !info);
+    this.root.dataset.driving = info ? 'true' : 'false';
+    if (!info) return;
+    this.text('vehicle-speed', `${Math.round(Math.abs(info.speed) * 3.6)}`);
+    const bar = this.el('vehicle-health-bar');
+    bar.style.transform = `scaleX(${Math.max(0, Math.min(1, info.health))})`;
+    bar.classList.toggle('low', info.health < 0.3);
+  }
+
+  public toggleMap(show?: boolean): void {
+    const open = show ?? this.el('map-screen').hidden;
+    if (open && this.phase !== 'playing') return;
+    if (open) this.closeInventory();
+    this.hide('map-screen', !open);
+    this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
+    this.root.querySelector('.minimap-panel')?.setAttribute('aria-expanded', String(open));
+    if (open && this.lastState) this.drawBigMap(this.lastState, this.lastWorld!);
+  }
+  public get mapOpen(): boolean { return !this.el('map-screen').hidden; }
+
+  private lastState: GameState | null = null;
+  private lastWorld: WorldConfig | null = null;
+
+  /** The menu's preview of the chosen battleground. */
+  private drawMenuMap(): void {
+    const canvas = this.el('menu-map') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const data = mapData(this.settings.map);
+    if (data) { ctx.drawImage(this.islandBackdrop(canvas.width, data.world, data.terrain), 0, 0); return; }
+    ctx.fillStyle = '#1a2a24'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#ffffff14';
+    for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i * canvas.width / 8, 0); ctx.lineTo(i * canvas.width / 8, canvas.height); ctx.moveTo(0, i * canvas.height / 8); ctx.lineTo(canvas.width, i * canvas.height / 8); ctx.stroke(); }
+    ctx.fillStyle = '#6b7a6a';
+    for (const [x, y, w, h] of [[60, 70, 70, 50], [190, 60, 60, 60], [40, 150, 65, 80], [200, 160, 72, 52], [120, 230, 76, 52]]) ctx.fillRect(x, y, w, h);
+  }
+
+  private islandMaps = new Map<number, HTMLCanvasElement>();
+
+  /** Shaded relief, roads and towns of the island, rendered once and reused for every minimap frame. */
+  private islandBackdrop(size: number, world: Pick<WorldConfig, 'id' | 'halfSize' | 'roads' | 'towns' | 'water'>, terrain: (x: number, z: number) => number): HTMLCanvasElement {
+    const cacheKey = size * 10 + (world.id === 'valley' ? 1 : 0);
+    const cached = this.islandMaps.get(cacheKey);
+    if (cached) return cached;
+    const sea = world.water?.seaLevel ?? 0;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const pad = 9, span = size - pad * 2, cell = world.halfSize * 2 / span;
+    ctx.fillStyle = '#182723'; ctx.fillRect(0, 0, size, size);
+    const image = ctx.createImageData(span, span);
+    for (let py = 0; py < span; py++) {
+      for (let px = 0; px < span; px++) {
+        const x = -world.halfSize + (px + 0.5) * cell, z = world.halfSize - (py + 0.5) * cell;
+        const h = terrain(x, z);
+        const light = (terrain(x - cell, z + cell) - terrain(x + cell, z - cell)) / (cell * 2);
+        const shade = Math.max(0.55, Math.min(1.3, 1 + light * 1.4));
+        const t = Math.max(0, Math.min(1, (h - 20) / 110));
+        const i = (py * span + px) * 4;
+        if (h < sea + 0.3) {
+          // Open sea: deeper water reads darker.
+          const depth = Math.max(0, Math.min(1, (sea - h) / 7));
+          image.data[i] = 44 - depth * 16; image.data[i + 1] = 108 - depth * 30; image.data[i + 2] = 142 - depth * 30;
+        } else if (h < sea + 3.4) {
+          image.data[i] = 196 * shade; image.data[i + 1] = 180 * shade; image.data[i + 2] = 130 * shade;
+        } else {
+          image.data[i] = (70 + t * 90) * shade; image.data[i + 1] = (98 + t * 55) * shade; image.data[i + 2] = (68 + t * 70) * shade;
+        }
+        image.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(image, pad, pad);
+    const toX = (x: number) => pad + (x + world.halfSize) / cell, toY = (z: number) => pad + (world.halfSize - z) / cell;
+    // Lakes and rivers on top of the relief.
+    ctx.fillStyle = '#2c6a8c';
+    for (const lake of world.water?.lakes ?? []) { ctx.beginPath(); ctx.arc(toX(lake.x), toY(lake.z), Math.max(1.5, lake.r / cell), 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = '#3d86ad'; ctx.lineWidth = Math.max(1, size / 260);
+    for (const river of world.water?.rivers ?? []) { ctx.beginPath(); river.points.forEach((p, i) => (i ? ctx.lineTo(toX(p.x), toY(p.z)) : ctx.moveTo(toX(p.x), toY(p.z)))); ctx.stroke(); }
+    ctx.strokeStyle = '#d8d2b0aa'; ctx.lineWidth = 1;
+    for (const road of world.roads) { ctx.beginPath(); ctx.moveTo(toX(road.a.x), toY(road.a.z)); ctx.lineTo(toX(road.b.x), toY(road.b.z)); ctx.stroke(); }
+    for (const town of world.towns) {
+      const r = town.tier === 'city' ? 4 : town.tier === 'town' ? 3 : 2;
+      ctx.fillStyle = '#f1e8c8'; ctx.strokeStyle = '#151b17'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.rect(toX(town.x) - r, toY(town.z) - r, r * 2, r * 2); ctx.fill(); ctx.stroke();
+    }
+    this.islandMaps.set(cacheKey, canvas);
+    return canvas;
+  }
+
+  private drawBigMap(state: GameState, world: WorldConfig): void { this.drawMinimap(state, world, 'bigmap', true); }
+
+  private drawMinimap(state: GameState, world: WorldConfig, canvasId = 'minimap', big = false): void {
+    const canvas = this.el(canvasId) as HTMLCanvasElement;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const size = canvas.width;
@@ -342,6 +586,8 @@ export class GameUI {
     const mapX = (x: number) => size / 2 + x * scale;
     const mapY = (z: number) => size / 2 - z * scale;
     ctx.clearRect(0, 0, size, size);
+    if (world.id !== 'arena' && world.terrain) ctx.drawImage(this.islandBackdrop(size, world, world.terrain), 0, 0);
+    else {
     ctx.fillStyle = '#182723'; ctx.fillRect(0, 0, size, size);
     ctx.strokeStyle = '#ffffff09'; ctx.lineWidth = 1;
     for (let i = 0; i <= 6; i++) {
@@ -352,6 +598,7 @@ export class GameUI {
     for (const obstacle of world.obstacles) {
       ctx.fillStyle = obstacle.kind === 'building' ? '#58645c' : obstacle.kind === 'rock' ? '#374c42' : '#93815d';
       ctx.fillRect(mapX(obstacle.x - obstacle.width / 2), mapY(obstacle.z + obstacle.depth / 2), obstacle.width * scale, obstacle.depth * scale);
+    }
     }
     // Tint terrain outside the safe circle. Enemy positions are deliberately omitted.
     ctx.fillStyle = '#4898ce25';
@@ -364,10 +611,15 @@ export class GameUI {
     ctx.strokeStyle = '#eef0d88a'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.arc(mapX(state.zone.nextCenter.x), mapY(state.zone.nextCenter.z), state.zone.nextRadius * scale, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
+    if (big && world.id !== 'arena') {
+      ctx.font = '600 15px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#0b100dcc'; ctx.fillStyle = '#f4efd8';
+      for (const town of world.towns) { const x = mapX(town.x), y = mapY(town.z) - (town.tier === 'city' ? 12 : 9); ctx.strokeText(town.name, x, y); ctx.fillText(town.name, x, y); }
+    }
     const player = state.actors.find(actor => actor.isPlayer);
     if (player) {
-      ctx.save(); ctx.translate(mapX(player.position.x), mapY(player.position.z)); ctx.rotate(player.yaw);
-      ctx.fillStyle = '#ffad65'; ctx.strokeStyle = '#151b17'; ctx.lineWidth = 1.5;
+      const k = big ? 1.9 : 1;
+      ctx.save(); ctx.translate(mapX(player.position.x), mapY(player.position.z)); ctx.rotate(player.yaw); ctx.scale(k, k);
+      ctx.fillStyle = '#ffc233'; ctx.strokeStyle = '#151b17'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 5); ctx.lineTo(0, 3); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
     }
     ctx.strokeStyle = '#ffffff20'; ctx.lineWidth = 1; ctx.strokeRect(padding, padding, size - padding * 2, size - padding * 2);

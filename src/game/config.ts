@@ -1,4 +1,4 @@
-import type { WorldConfig } from '../types';
+import type { WorldConfig, ZoneProfile } from '../types';
 export { WEAPONS } from './weapons';
 
 export const ACTOR_RADIUS = 0.42;
@@ -7,10 +7,19 @@ export const INTERACTION_RANGE = 2.8;
 export const HEAL_TIME = 3;
 export const HEAL_AMOUNT = 60;
 
+export const ARENA_ZONE: ZoneProfile = {
+  start: 98,
+  radii: [80, 60, 42, 25, 11, 0],
+  waits: [60, 45, 35, 30, 20, 10],
+  shrinks: [35, 35, 40, 40, 40, 40],
+};
+
 /** All buildings are solid exterior cover; no inaccessible interior loot. */
-export function createWorld(): WorldConfig {
+export function createArenaWorld(): WorldConfig {
   return {
+    id: 'arena',
     halfSize: 100,
+    zone: ARENA_ZONE, towns: [], roads: [], vehicleSpawns: [], lootSpots: [],
     obstacles: [
       { id: 'depot-west', x: -32, z: -42, width: 16, depth: 12, height: 8, kind: 'building' },
       { id: 'depot-east', x: 30, z: -43, width: 14, depth: 14, height: 7, kind: 'building' },
@@ -38,3 +47,6 @@ export function createWorld(): WorldConfig {
     ],
   };
 }
+
+/** Back-compatible default: the original 200 m arena. */
+export const createWorld = createArenaWorld;

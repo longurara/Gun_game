@@ -42,13 +42,13 @@ type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'ful
 type PointerRole =
   | { kind: 'look'; target: HTMLElement; x: number; y: number }
   | { kind: 'joystick'; target: HTMLElement; centerX: number; centerY: number; radius: number }
-  | { kind: 'fire' | 'jump'; target: HTMLButtonElement }
+  | { kind: 'fire' | 'jump'; target: HTMLButtonElement; x: number; y: number }
   | { kind: 'action'; target: HTMLButtonElement; action: Action };
 
 const ICONS = {
-  fire: '<path d="m8 4 6 6-5 5-6-6zm5 6 7 7-3 3-7-7M5 15l-3 3m5-1-3 3"/>',
+  fire: '<path d="m5 17 10-10 4 4L9 21zm10-10 3-4 3 3-2 5M8 14l4 4M4 20l2 2"/>',
   aim: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>',
-  jump: '<path d="m6 10 6-6 6 6m-6-6v14M5 21h14"/>',
+  jump: '<circle cx="13" cy="4" r="2"/><path d="m5 10 6-3 5 2 4-3M11 7l-2 7 5 1 4 6M9 14l-5 6"/>',
   reload: '<path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/>',
   interact: '<path d="M5 9h14v12H5zm0 0 7-6 7 6m-7 1v7m-3-3 3 3 3-3"/>',
   heal: '<path d="M4 6h16v15H4zm5 0V3h6v3m-3 5v6m-3-3h6"/>',
@@ -86,12 +86,13 @@ export class MobileControls {
     this.root.setAttribute('aria-label', 'Điều khiển cảm ứng');
     this.root.style.pointerEvents = 'none';
     this.root.style.touchAction = 'none';
-    const button = (id: keyof typeof ICONS, label: string, extra = '') =>
-      `<button id="touch-${id}" class="touch-button ${extra}" type="button" aria-label="${label}">${icon(id)}<span>${label}</span></button>`;
+    const button = (id: keyof typeof ICONS, label: string, extra = '', elementId: string = id) =>
+      `<button id="touch-${elementId}" class="touch-button ${extra}" type="button" aria-label="${label}">${icon(id)}<span>${label}</span></button>`;
     this.root.innerHTML = `
       <div id="touch-joystick" class="touch-joystick" role="group" aria-label="Kéo để di chuyển, kéo hết cỡ để chạy">
         <span class="touch-joystick-label">DI CHUYỂN</span><div id="touch-stick" class="touch-stick"></div>
       </div>
+      ${button('fire', 'Bắn bên trái', 'touch-fire-left', 'fire-left')}
       <div class="touch-primary-actions touch-combat-cluster">
         ${button('fire', 'Bắn', 'touch-fire')}
         ${button('aim', 'Ngắm', 'touch-aim')}
@@ -124,12 +125,13 @@ export class MobileControls {
         if (!this.enabled || buttonElement.disabled || event.detail !== 0) return;
         if (performance.now() - (this.pointerClicks.get(buttonElement) ?? -Infinity) < 800) return;
         const action = buttonElement.id.slice('touch-'.length);
-        if (action === 'fire' || action === 'jump') return;
+        if (action === 'fire' || action === 'fire-left' || action === 'jump') return;
         this.perform(action as Action);
       });
       buttonElement.addEventListener('pointerdown', this.onButtonDown);
     });
     this.buttons.get('touch-aim')!.setAttribute('aria-pressed', 'false');
+    for (const id of ['touch-fire', 'touch-fire-left']) this.buttons.get(id)!.setAttribute('aria-description', 'Giữ để bắn, kéo để xoay góc nhìn');
     this.buttons.get('touch-fullscreen')!.hidden = typeof document.documentElement.requestFullscreen !== 'function';
     this.joystick.addEventListener('pointerdown', this.onJoystickDown);
     this.canvas.addEventListener('pointerdown', this.onCanvasDown);
@@ -156,7 +158,7 @@ export class MobileControls {
   cancelFire(): void {
     const firePointers = [...this.pointers.entries()].filter(([, role]) => role.kind === 'fire');
     for (const [id] of firePointers) this.pointers.delete(id);
-    this.buttons.get('touch-fire')?.classList.remove('is-pressed', 'is-active');
+    for (const id of ['touch-fire', 'touch-fire-left']) this.buttons.get(id)?.classList.remove('is-pressed', 'is-active');
     for (const [id, role] of firePointers) {
       if (role.kind === 'fire') this.pointerClicks.set(role.target, performance.now());
       this.releaseCapture(role.target, id);
@@ -245,11 +247,11 @@ export class MobileControls {
     event.stopPropagation();
     const name = button.id.slice('touch-'.length);
     this.pointerClicks.set(button, performance.now());
-    const kind = name === 'fire' || name === 'jump' ? name : 'action';
+    const kind = name === 'fire' || name === 'fire-left' ? 'fire' : name === 'jump' ? 'jump' : 'action';
     const alreadyHeld = this.hasKind(kind);
     const role: PointerRole = kind === 'action'
       ? { kind, target: button, action: name as Action }
-      : { kind, target: button };
+      : { kind, target: button, x: event.clientX, y: event.clientY };
     this.pointers.set(event.pointerId, role);
     button.classList.add('is-pressed');
     if (kind !== 'action') button.classList.add('is-active');
@@ -263,7 +265,7 @@ export class MobileControls {
     if (!this.enabled || !role) return;
     event.preventDefault();
     if (role.kind === 'joystick') this.moveJoystick(role, event.clientX, event.clientY);
-    else if (role.kind === 'look') {
+    else if (role.kind === 'look' || role.kind === 'fire') {
       const dx = event.clientX - role.x;
       const dy = event.clientY - role.y;
       role.x = event.clientX;
@@ -292,7 +294,7 @@ export class MobileControls {
       role.target.classList.toggle('is-pressed', buttonStillHeld);
       if (role.kind === 'fire' || role.kind === 'jump') {
         const held = this.hasKind(role.kind);
-        role.target.classList.toggle('is-active', held);
+        role.target.classList.toggle('is-active', buttonStillHeld);
         if (role.kind === 'fire' && !held) this.callbacks.onFire(false);
         if (role.kind === 'jump' && !held) this.callbacks.onJump(false);
       } else if (role.kind === 'action' && !cancelled && !role.target.disabled) {
