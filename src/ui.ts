@@ -499,9 +499,10 @@ export class GameUI {
   public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number } | null): void {
     this.hide('air-hud', !info);
     const mode = info?.mode ?? '';
-    if (this.root.dataset.air !== mode) {
-      this.root.dataset.air = mode;
-      if (mode) document.documentElement.dataset.air = mode; else delete document.documentElement.dataset.air;
+    // The attribute must disappear on the ground: an empty `data-air` would still match the CSS that hides the gun HUD.
+    if ((this.root.dataset.air ?? '') !== mode) {
+      if (mode) { this.root.dataset.air = mode; document.documentElement.dataset.air = mode; }
+      else { delete this.root.dataset.air; delete document.documentElement.dataset.air; }
     }
     if (!info) return;
     const touch = this.touchMode;

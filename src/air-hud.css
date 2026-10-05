@@ -10,7 +10,7 @@
 @keyframes air-pulse { 50% { background: #5a3f17d6; } }
 
 /* No weapons or gun HUD while hanging in the sky. */
-[data-air] #crosshair, [data-air] #hit-marker, [data-air] .weapon-panel, [data-air] .health-panel, [data-air] .zone-banner { display: none; }
+:is([data-air="plane"], [data-air="freefall"], [data-air="chute"]) :is(#crosshair, #hit-marker, .weapon-panel, .health-panel, .zone-banner) { display: none; }
 [data-air="plane"] .air-stage { background: #3a2a12cc; border-color: #f0b45a88; color: #ffe2ae; }
 
 /* Phones: a compact one-row readout, with the jump button lit while it matters. */
