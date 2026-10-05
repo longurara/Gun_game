@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "tsx --test tests/e2e/*.e2e.ts",
     "test:scenarios": "tsx tests/match-scenarios.ts"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "jsdom": "^29.1.1",
+    "playwright-core": "^1.63.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.2"
