@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
-import { ammoKindFor, emptyAmmo, WEAPON_ORDER, WEAPONS } from '../src/game/weapons.ts';
+import { AMMO_ORDER, AMMO_PICKUP, ammoKindFor, CORE_WEAPONS, emptyAmmo, emptyReserve, WEAPON_ORDER, WEAPONS } from '../src/game/weapons.ts';
 import { WEAPONS as LEGACY_WEAPONS } from '../src/game/config.ts';
 import type { Actor, PlayerInput, WeaponType } from '../src/types.ts';
 
@@ -10,6 +10,7 @@ const idle: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 function shootingRange(weapon: WeaponType = 'rifle', distance = 8): { game: GameSimulation; target: Actor } {
   const game = new GameSimulation({ seed: 41, botCount: 7, difficulty: 'easy' });
   game.start();
+  game.botsFrozen = true;
   game.world.obstacles = [];
   game.world.halfSize = 400;
   game.player.position = { x: 0, y: 0, z: 0 };
@@ -21,7 +22,7 @@ function shootingRange(weapon: WeaponType = 'rifle', distance = 8): { game: Game
   target.health = 10000;
   target.yaw = Math.PI;
   target.ammo = emptyAmmo();
-  target.reserve = emptyAmmo();
+  target.reserve = emptyReserve();
   game.state.actors = [game.player, target];
   game.drainEvents();
   return { game, target };
@@ -31,16 +32,19 @@ test('the legacy weapon export is the central catalogue and all loot stays outsi
   assert.equal(LEGACY_WEAPONS, WEAPONS);
   const game = new GameSimulation();
   game.start({ botCount: 7 });
-  assert.equal(Object.keys(game.player.ammo).length, 8);
-  assert.equal(Object.keys(game.player.reserve).length, 8);
+  assert.equal(Object.keys(game.player.ammo).length, WEAPON_ORDER.length);
+  assert.deepEqual(Object.keys(game.player.reserve).sort(), [...AMMO_ORDER].sort());
   assert.ok(new Set(game.state.actors.filter(actor => !actor.isPlayer).map(actor => actor.weapon)).size >= 6);
-  for (const weapon of WEAPON_ORDER) {
+  for (const weapon of CORE_WEAPONS) {
     assert.ok(game.state.loot.some(loot => loot.kind === weapon && Math.abs(loot.position.x) <= 3 && loot.position.z >= -66 && loot.position.z <= -62), `${weapon} is missing from the spawn cache`);
     assert.ok(game.state.loot.some(loot => loot.kind === ammoKindFor(weapon) && loot.position.z > -60), `${weapon} has no ammo elsewhere on the map`);
   }
+  // The armoury lets a player handle every gun, and each calibre has a pile at the spawn.
+  for (const weapon of WEAPON_ORDER) assert.ok(game.state.loot.some(loot => loot.kind === weapon), `${weapon} is missing from the arena`);
+  for (const ammo of AMMO_ORDER) assert.ok(game.state.loot.some(loot => loot.kind === `${ammo}Ammo`), `no ${ammo} ammunition`);
   for (const actor of game.state.actors) {
     assert.deepEqual(Object.keys(actor.ammo).sort(), [...WEAPON_ORDER].sort());
-    assert.deepEqual(Object.keys(actor.reserve).sort(), [...WEAPON_ORDER].sort());
+    assert.deepEqual(Object.keys(actor.reserve).sort(), [...AMMO_ORDER].sort());
   }
   for (const loot of game.state.loot) {
     assert.ok(!game.world.obstacles.some(obstacle => Math.abs(loot.position.x - obstacle.x) < obstacle.width / 2 && Math.abs(loot.position.z - obstacle.z) < obstacle.depth / 2), `${loot.id} is inside an obstacle`);
@@ -48,11 +52,11 @@ test('the legacy weapon export is the central catalogue and all loot stays outsi
 });
 
 for (const weapon of WEAPON_ORDER) {
-  test(`${weapon}: actual weapon and ammo pickups unlock, load and refill the matching gun only`, () => {
+  test(`${weapon}: actual weapon and ammo pickups unlock, load and refill the shared calibre pool only`, () => {
     const game = new GameSimulation({ seed: 41 });
     game.start();
     // Keep AI unarmed so this inventory test does not depend on combat timing.
-    for (const actor of game.state.actors) if (!actor.isPlayer) { actor.ammo = emptyAmmo(); actor.reserve = emptyAmmo(); }
+    for (const actor of game.state.actors) if (!actor.isPlayer) { actor.ammo = emptyAmmo(); actor.reserve = emptyReserve(); }
     const gun = game.state.loot.find(loot => loot.kind === weapon)!;
     game.player.position = { ...gun.position };
     assert.equal(game.lootInReach?.id, gun.id);
@@ -66,19 +70,20 @@ for (const weapon of WEAPON_ORDER) {
     const ammo = game.state.loot.find(loot => loot.kind === ammoKindFor(weapon))!;
     game.player.position = { ...ammo.position };
     const reserves = { ...game.player.reserve };
+    const calibre = WEAPONS[weapon].ammoType;
     assert.equal(game.interact(), true);
-    assert.equal(game.player.reserve[weapon], reserves[weapon] + WEAPONS[weapon].ammoPickup);
-    for (const other of WEAPON_ORDER) if (other !== weapon) assert.equal(game.player.reserve[other], reserves[other]);
+    assert.equal(game.player.reserve[calibre], reserves[calibre] + AMMO_PICKUP[calibre]);
+    for (const other of AMMO_ORDER) if (other !== calibre) assert.equal(game.player.reserve[other], reserves[other]);
 
     if (weapon !== 'rifle') assert.equal(game.switchWeapon(weapon), true);
     game.update(0.3, idle);
-    game.player.ammo[weapon] = 1;
-    game.player.reserve[weapon] = 2;
+    game.player.ammo[weapon] = 0;
+    game.player.reserve[calibre] = 2;
     assert.equal(game.reload(), true);
     assert.equal(game.shootPlayer({ x: 0, y: 1.1, z: 0 }, true), false);
     game.update(WEAPONS[weapon].reloadTime + 0.05, idle);
-    assert.equal(game.player.ammo[weapon], 3);
-    assert.equal(game.player.reserve[weapon], 0);
+    assert.equal(game.player.ammo[weapon], 2);
+    assert.equal(game.player.reserve[calibre], 0);
     assert.equal(game.player.reloading, 0);
     assert.equal(game.reload(), false);
   });
@@ -166,7 +171,7 @@ test('bot death drops its actual new weapon and matching ammunition that the pla
   target.weapon = 'dmr';
   target.ownedWeapons = ['dmr'];
   target.health = 10;
-  const sentinel = { ...target, id: 'sentinel', position: { x: 90, y: 0, z: 90 }, health: 100, ammo: emptyAmmo(), reserve: emptyAmmo() };
+  const sentinel = { ...target, id: 'sentinel', position: { x: 90, y: 0, z: 90 }, health: 100, ammo: emptyAmmo(), reserve: emptyReserve() };
   game.state.actors.push(sentinel);
   game.shootPlayer({ x: 0, y: 1.1, z: 8 }, true);
   assert.equal(target.alive, false);
@@ -174,26 +179,24 @@ test('bot death drops its actual new weapon and matching ammunition that the pla
   const weapon = game.state.loot.find(loot => loot.id === `drop-${target.id}-weapon`)!;
   const ammo = game.state.loot.find(loot => loot.id === `drop-${target.id}-ammo`)!;
   assert.equal(weapon.kind, 'dmr');
-  assert.equal(ammo.kind, 'dmrAmmo');
+  assert.equal(ammo.kind, '762Ammo');
   game.player.position = { ...weapon.position };
   assert.equal(game.interact(), true);
   assert.ok(game.player.ownedWeapons.includes('dmr'));
   assert.equal(game.player.ammo.dmr, WEAPONS.dmr.magazine);
   game.player.position = { ...ammo.position };
-  const before = game.player.reserve.dmr;
+  const before = game.player.reserve['762'];
   assert.equal(game.interact(), true);
-  assert.equal(game.player.reserve.dmr, before + WEAPONS.dmr.ammoPickup);
+  assert.equal(game.player.reserve['762'], before + WEAPONS.dmr.ammoPickup);
 });
 
-test('restart clears all eight ammo maps, ownership and the previous bolt cooldown', () => {
+test('restart clears every magazine and calibre pool, ownership and the previous bolt cooldown', () => {
   const { game } = shootingRange('heavySniper');
   game.shootPlayer({ x: 0, y: 1.1, z: 8 }, true);
   game.start({ seed: 41 });
   assert.deepEqual(game.player.ownedWeapons, ['rifle']);
-  for (const weapon of WEAPON_ORDER) {
-    assert.equal(game.player.ammo[weapon], weapon === 'rifle' ? WEAPONS.rifle.magazine : 0);
-    assert.equal(game.player.reserve[weapon], weapon === 'rifle' ? 60 : 0);
-  }
+  for (const weapon of WEAPON_ORDER) assert.equal(game.player.ammo[weapon], weapon === 'rifle' ? WEAPONS.rifle.magazine : 0);
+  for (const ammo of AMMO_ORDER) assert.equal(game.player.reserve[ammo], ammo === '556' ? 60 : 0);
   const gun = game.state.loot.find(loot => loot.kind === 'heavySniper')!;
   game.player.position = { ...gun.position };
   game.interact();

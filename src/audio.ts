@@ -14,6 +14,7 @@ export class GameAudio {
   private lastDamage = -Infinity;
   private lastReload = -Infinity;
   private lastHeal = -Infinity;
+  private lastEngine = -Infinity;
   private stepSide = false;
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
@@ -97,6 +98,24 @@ export class GameAudio {
           this.tone(1040, 0.13, 0.055, 'triangle', 0.075);
         }
         break;
+      case 'crash': {
+        const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 120) {
+          const gain = Math.min(1, event.strength / 22) / (1 + d / 18);
+          this.noise(0.22, 0.2 * gain, 'lowpass', 900);
+          this.tone(70, 0.2, 0.2 * gain, 'square', 0, 38);
+        }
+        break;
+      }
+      case 'explosion': {
+        const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 300) {
+          const gain = 1 / (1 + Math.pow(d / 60, 1.4));
+          this.noise(0.9, 0.5 * gain, 'lowpass', Math.max(260, 1400 - d * 4));
+          this.tone(52, 0.7, 0.45 * gain, 'sine', 0, 26);
+        }
+        break;
+      }
       case 'end':
         if (event.won) {
           [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
@@ -122,6 +141,17 @@ export class GameAudio {
     this.stepSide = !this.stepSide;
     this.noise(0.075, sprint ? 0.085 : 0.055, 'lowpass', this.stepSide ? 480 : 620);
     this.tone(this.stepSide ? 76 : 88, 0.065, sprint ? 0.07 : 0.045, 'sine', 0, 42);
+  }
+
+  /** Engine note for the car being driven: short pulses whose pitch climbs with speed. */
+  engine(speed: number, throttle: number): void {
+    if (!this.ready()) return;
+    const now = this.context!.currentTime;
+    if (now - this.lastEngine < 0.085) return;
+    this.lastEngine = now;
+    const pitch = 46 + Math.abs(speed) * 3.6;
+    this.tone(pitch, 0.11, 0.05 + Math.abs(throttle) * 0.03, 'sawtooth', 0, pitch * 1.04);
+    this.tone(pitch * 2.01, 0.09, 0.012, 'triangle');
   }
 
   reload(): void {
@@ -171,8 +201,12 @@ export class GameAudio {
 
   private gunshot(weapon: WeaponType, gain: number, distance: number): void {
     // Distance rolls off high frequencies as well as volume.
-    const brightness = Math.max(650, 4500 - distance * 25);
-    switch (weapon) {
+    let brightness = Math.max(650, 4500 - distance * 25);
+    const config = WEAPONS[weapon];
+    // Every gun borrows the report of its class; suppressed ones are muffled.
+    const suppressed = config.loudness < WEAPONS[config.voice].loudness * 0.7;
+    if (suppressed) { gain *= 0.5; brightness *= 0.6; }
+    switch (config.voice) {
       case 'rifle':
         this.noise(0.14, 0.43 * gain, 'lowpass', brightness);
         this.tone(180, 0.105, 0.24 * gain, 'triangle', 0, 48);
@@ -222,10 +256,10 @@ export class GameAudio {
         this.noise(0.045, 0.12 * gain, 'bandpass', 1400, 0.035);
         break;
     }
-    if (WEAPONS[weapon].fireMode === 'bolt') {
+    if (config.fireMode === 'bolt') {
       // Only a nearby rifle's bolt is audible; its report travels much farther.
       const actionGain = gain / (1 + distance / 10);
-      const delay = weapon === 'heavySniper' ? 0.64 : 0.45;
+      const delay = config.voice === 'heavySniper' ? 0.64 : 0.45;
       this.noise(0.045, 0.15 * actionGain, 'bandpass', 2200, delay);
       this.tone(285, 0.025, 0.09 * actionGain, 'triangle', delay, 130);
       this.noise(0.08, 0.12 * actionGain, 'bandpass', 1550, delay + 0.16);
