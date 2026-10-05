@@ -13,6 +13,8 @@ npm run dev
 
 Mở địa chỉ mà Vite hiển thị, thường là `http://127.0.0.1:5173`. Chọn bản đồ, số bot, độ khó rồi nhấn **BẮT ĐẦU TRẬN**. Nhấp vào khung game để điều khiển chuột. Âm thanh được bật sau thao tác của bạn trên trang.
 
+Để thử gyro trên điện thoại cần HTTPS: `npm run dev:https` (xem mục con quay hồi chuyển bên dưới).
+
 Để tạo và xem bản build:
 
 ```sh
@@ -89,7 +91,7 @@ Có thể dùng hai ngón: ngón trái di chuyển, ngón phải giữ và kéo 
 
 Vào **Thiết lập** trước trận (chỉ hiện trên điện thoại): chọn **Tắt**, **Khi ngắm** (mặc định: chỉ hoạt động khi đang ngắm hoặc đang giữ nút Bắn, nên đi bộ không bị giật) hoặc **Luôn bật**. Xoay điện thoại để chỉnh tâm; vuốt màn hình vẫn dùng song song. Độ nhạy 1× nghĩa là camera quay đúng bằng góc bạn xoay máy; khi ngắm qua ống ngắm độ nhạy tự giảm theo độ phóng đại. Có thêm tùy chọn đảo chiều lên/xuống.
 
-Điều kiện: trình duyệt chỉ cho trang đọc cảm biến khi trang chạy qua **HTTPS hoặc localhost**, nên mở game bằng `http://192.168.x.x:5173` (xem mục Wi-Fi ở trên) sẽ báo "Cần mở game bằng HTTPS". Trên Chrome Android có thể tạm bật `chrome://flags/#unsafely-treat-insecure-origin-as-secure` cho địa chỉ đó, hoặc dùng một đường hầm HTTPS. Trên iPhone, Safari hỏi quyền cảm biến khi bạn chạm **BẮT ĐẦU TRẬN** hoặc đổi chế độ. Mã nằm ở [src/gyro.ts](src/gyro.ts) (chuyển tốc độ quay thành góc camera theo trục trọng lực, có test trong tests/gyro.test.ts).
+Điều kiện: trình duyệt chỉ cho trang đọc cảm biến khi trang chạy qua **HTTPS hoặc localhost**, nên mở game bằng `http://192.168.x.x:5173` sẽ báo "Cần mở game bằng HTTPS". Chạy `npm run dev:https` trên máy tính (chứng chỉ tự ký) rồi mở địa chỉ **Network** `https://192.168.x.x:5173` trên điện thoại, chấp nhận cảnh báo chứng chỉ một lần. Nút con quay trong trận (cạnh nút tạm dừng) bật/tắt nhanh gyro. Trên iPhone, Safari hỏi quyền cảm biến khi bạn chạm **BẮT ĐẦU TRẬN** hoặc đổi chế độ. Mã nằm ở [src/gyro.ts](src/gyro.ts) (chuyển tốc độ quay thành góc camera theo trục trọng lực, có test trong tests/gyro.test.ts).
 
 HUD điện thoại dùng nút tròn trong suốt và nút bắn ở cả hai bên, bản đồ nhỏ phía trên phải, thanh máu và các ô súng có biểu tượng gọn dưới giữa. Chạm trực tiếp ô súng để chọn; nút mũi tên mở bảng chọn khi cần trên màn hình rộng. HUD PC dùng la bàn trên giữa, máu/đạn dưới giữa, các ô súng và minimap bên phải; vùng nhìn giữa màn hình được giữ thoáng.
 
@@ -103,9 +105,25 @@ Mỗi trận trên **đảo** và **đấu trường** bắt đầu trong một 
 | Rơi tự do | W A S D lái theo hướng camera; **Shift** lao nhanh; Space / F mở dù (không mở được trong 1 giây đầu) | Lượn: 28 m/s ngang, rơi 45 m/s. Lao: 45 m/s ngang, rơi 78 m/s |
 | Dù | W A S D lái; Shift bay nhanh hơn. Dù **tự mở ở độ cao 100 m** | Thường: 16 m/s ngang, rơi 6,5 m/s. Nhanh: 22 m/s ngang, rơi 9 m/s |
 
+**Cờ đáp:** mở bản đồ lớn (phím M) và nhấp/chạm vào bản đồ để cắm cờ (nhấp lại vào cờ để bỏ). Cờ hiện trên minimap, thành một cột sáng vàng trong thế giới, và dòng trên màn hình báo khoảng cách cùng "tới được"/"ngoài tầm lượn". Sau khi nhảy, phím **G** (hoặc nút cờ trên điện thoại) bật **tự lái dù** bay thẳng tới cờ và giảm tốc khi gần; Shift vẫn để lao nhanh.
+
 Lượn thường đi xa hơn, lao xuống thì tới đất sớm hơn để giành súng trước. Dù luôn mở trước khi chạm đất nên hạ cánh không mất máu. Rơi xuống nước thì tự bơi vào bờ gần nhất; dù không hạ xuống xuyên mái nhà mà vào sân bên cạnh. Khi còn ở trên không bạn và bot không bắn, không bị bắn và không chịu vòng bo; vòng bo đầu tiên được hoãn thêm thời gian bay.
 
 Bot cũng nhảy: mỗi bot chọn điểm đáp trong tầm lượn của đường bay (khoảng 1/3 là thị trấn, còn lại là các điểm rải rác trên đất liền, ưu tiên chỗ chưa bot nào chọn), rồi nhảy đúng lúc để lượn tới đó; một số bot lao nhanh, một số mở dù cao. Logic nằm ở [src/game/drop.ts](src/game/drop.ts) (thông số, đường bay, vận tốc) và phần "The drop" trong [src/game/simulation.ts](src/game/simulation.ts).
+
+## Hộp tiếp tế
+
+Khi vòng bo bước sang giai đoạn 2 và 4 trên đảo (giai đoạn 2 và 3 ở đấu trường), một **hộp tiếp tế** thả dù xuống một điểm trong vòng bo kế tiếp; có thông báo, tiếng báo hiệu và biểu tượng hộp nhấp nháy trên bản đồ. Hộp rơi khoảng một phút, rồi tỏa **khói đỏ**. Bên trong: hai súng cấp 2 trở lên, mũ và áo cấp 3, hai túi cứu thương và đạn tương ứng. Khoảng 4/10 bot trong bán kính 800 m sẽ chạy tới lấy, nên đó cũng là nơi giao tranh. Chỉ có trong trận bắt đầu bằng nhảy dù.
+
+## Khi bạn bị hạ
+
+Màn kết quả có nút **XEM TIẾP TRẬN**: bạn tiếp tục theo dõi trận bằng camera quanh một bot (đầu tiên là người hạ bạn). **Q / E hoặc cuộn chuột** (nút Đổi súng trên điện thoại) đổi người xem; nút THOÁT về màn kết quả. Hạng và thời gian sống được giữ theo lúc bạn bị hạ, trận kết thúc khi còn tối đa một đối thủ.
+
+## Âm thanh có hướng và gợi ý
+
+- Tiếng súng của người khác và bước chân bot trong vòng 30 m được đặt trái/phải theo hướng camera (stereo; dùng tai nghe sẽ rõ). Tiếng của chính bạn ở giữa.
+- **Gợi ý cho người mới** hiện một lần cho mỗi tình huống (nhặt đồ, xe, giáp, hồi máu, hộp tiếp tế) và được nhớ trong trình duyệt; tắt trong Thiết lập.
+- **Hiện FPS** (Thiết lập) hiện FPS, thời gian khung trung bình và tệ nhất, số vật thể đang vẽ và số người trên không, để đo trên máy thật.
 
 ## Trang bị: tối đa 3 súng và một bộ giáp
 

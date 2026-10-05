@@ -1,4 +1,4 @@
-import type { Actor, AmmoType, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
+import type { Actor, Airdrop, AmmoType, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
 import { ACTOR_HEIGHT, ACTOR_RADIUS, createArenaWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
 import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DURABILITY, ARMOR_NAMES, ARMOR_REDUCTION, armorKind, CORE_WEAPONS, emptyAmmo, emptyReserve, GUNS_BY_CLASS, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPON_ORDER } from './weapons';
 import { SpatialGrid } from './spatial';
@@ -24,6 +24,8 @@ interface Runtime {
   /** Car the bot is walking to, the destination it will drive on to, and a cooldown between searches. */
   carTarget: string | null; destination: Vec2 | null; carCooldown: number;
   drop: BotDrop | null;
+  /** Where a landed supply crate is, if this bot decided to go for it. */
+  airdropGoal: Vec2 | null;
 }
 interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle }
 
@@ -57,6 +59,9 @@ const ZERO_INPUT: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false
 /** Bots closer than this to the player run full AI every step; closer than LOD_NEAR run it a few times a second. */
 const LOD_FULL = 220;
 const LOD_NEAR = 650;
+/** Crates are released this high and sink at AIRDROP_FALL m/s, about a minute in the air. */
+const AIRDROP_HEIGHT = 520;
+const AIRDROP_FALL = 9;
 const VEHICLE_RADIUS = 1.7;
 const VEHICLE_REACH = 4.2;
 const VEHICLE_HEALTH = 300;
@@ -175,7 +180,7 @@ export class GameSimulation {
   }
 
   get lootInReach(): Loot | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air) return null;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || !this.player.alive) return null;
     return this.nearestLoot(this.player.position, INTERACTION_RANGE);
   }
 
@@ -193,6 +198,20 @@ export class GameSimulation {
     this.events = [];
     this.world = this.makeWorld();
     this.state = this.makeState('menu');
+  }
+
+  /** After dying, keep playing the match out as a spectator. Returns false when the match is over or nobody is left to watch. */
+  continueAsSpectator(): boolean {
+    if (this.state.phase !== 'lost' || this.player.alive || this.state.spectating) return false;
+    if (this.state.actors.filter(actor => actor.alive).length < 2) return false;
+    this.state.spectating = true;
+    this.state.phase = 'playing';
+    return true;
+  }
+
+  /** Stop watching and go to the results. */
+  endSpectating(): void {
+    if (this.state.spectating && this.state.phase === 'playing') this.finish(false);
   }
 
   setPaused(paused: boolean): void {
@@ -400,7 +419,7 @@ export class GameSimulation {
         if (!actor.isPlayer) this.runtime(actor).drop = this.planDrop(plane);
       }
     }
-    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane };
+    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [] };
   }
 
   /** Weighted gear tables: later tiers (cities, big houses) hold the heavy weapons. */
@@ -470,7 +489,7 @@ export class GameSimulation {
         heard: null, heardTimer: 0,
         lootRef: null, lootTimer: 0, ignored: new Map(), coverGoal: null, coverTimer: 0, weaponTimer: 0,
         visited: new Set(), townGoal: null,
-        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null,
+        lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null, airdropGoal: null,
       };
       this.runtimes.set(actor.id, runtime);
     }
@@ -481,6 +500,7 @@ export class GameSimulation {
     this.state.elapsed += dt;
     this.advanceZone(dt);
     this.stepPlane(dt);
+    this.stepAirdrops(dt);
     if (jumpPressed || Math.hypot(input.moveX, input.moveZ) > 0.05) this.cancelHeal(this.player);
     for (const actor of this.state.actors) {
       if (!actor.alive) continue;
@@ -731,6 +751,76 @@ export class GameSimulation {
   }
 
   // -------------------------------------------------------------------------------------------------------------
+  // Supply crates: at set circles a crate parachutes into the next safe zone and lands with top-tier gear. Bots near it
+  // are drawn to it, so it pulls fights toward the middle of the map. Only in matches that start with the drop.
+  // -------------------------------------------------------------------------------------------------------------
+
+  private onZoneStage(stage: number): void {
+    if (!this.options.drop || !this.openWorld) return;
+    if ((this.world.id === 'island' ? [1, 3] : [1, 2]).includes(stage)) this.releaseAirdrop();
+  }
+
+  private releaseAirdrop(): void {
+    const zone = this.state.zone;
+    if (zone.nextRadius <= 0) return;
+    let spot: Vec2 | null = null;
+    for (let attempt = 0; attempt < 30 && !spot; attempt++) {
+      const angle = this.random() * Math.PI * 2, radius = Math.sqrt(this.random()) * zone.nextRadius * 0.7;
+      const candidate = { x: zone.nextCenter.x + Math.cos(angle) * radius, z: zone.nextCenter.z + Math.sin(angle) * radius };
+      if (this.canLandAt(candidate)) spot = candidate;
+    }
+    if (!spot) return;
+    const ground = this.heightAt(spot.x, spot.z);
+    const crates = this.state.airdrops ??= [];
+    const drop: Airdrop = { id: `airdrop-${crates.length}`, x: spot.x, z: spot.z, y: ground + AIRDROP_HEIGHT, landed: false, time: 0, empty: false, loot: [] };
+    crates.push(drop);
+    this.events.push({ type: 'airdrop', stage: 'incoming', position: { x: spot.x, y: drop.y, z: spot.z } });
+    this.events.push({ type: 'message', text: 'Hộp tiếp tế đang rơi xuống! Xem vị trí trên bản đồ.' });
+  }
+
+  private stepAirdrops(dt: number): void {
+    const crates = this.state.airdrops;
+    if (!crates?.length) return;
+    for (const drop of crates) {
+      drop.time += dt;
+      if (drop.landed) {
+        if (!drop.empty && drop.loot.every(id => !this.state.loot.find(l => l.id === id)?.active)) drop.empty = true;
+        continue;
+      }
+      const ground = this.heightAt(drop.x, drop.z);
+      drop.y = Math.max(ground, drop.y - AIRDROP_FALL * dt);
+      if (drop.y <= ground) this.landAirdrop(drop, ground);
+    }
+  }
+
+  private landAirdrop(drop: Airdrop, ground: number): void {
+    drop.landed = true;
+    // Two strong guns (not the lowest tier), top armour, medkits and ammunition for the guns.
+    const classes: WeaponClass[] = ['br', 'dmr', 'lmg', 'sniper', 'amr', 'ar'];
+    const contents: LootKind[] = [];
+    for (let i = 0; i < 2; i++) {
+      const guns = GUNS_BY_CLASS[classes[Math.floor(this.random() * classes.length)]].filter(gun => WEAPONS[gun].tier >= 2);
+      if (guns.length) contents.push(guns[Math.floor(this.random() * guns.length)]);
+    }
+    contents.push('helmet3', 'vest3', 'medkit', 'medkit');
+    for (const kind of [...contents]) if (isWeaponKind(kind)) contents.push(ammoKindFor(kind), ammoKindFor(kind));
+    contents.forEach((kind, index) => {
+      const angle = index / contents.length * Math.PI * 2;
+      const x = drop.x + Math.cos(angle) * 1.8, z = drop.z + Math.sin(angle) * 1.8;
+      const id = `${drop.id}-${index}`;
+      this.state.loot.push({ id, kind, position: { x, y: this.heightAt(x, z), z }, active: true });
+      drop.loot.push(id);
+    });
+    this.events.push({ type: 'airdrop', stage: 'landed', position: { x: drop.x, y: ground, z: drop.z } });
+    this.events.push({ type: 'message', text: 'Hộp tiếp tế đã hạ cánh, có khói đỏ báo hiệu!' });
+    // Bots in earshot of the engine drop what they are doing about four times in ten.
+    for (const actor of this.state.actors) {
+      if (actor.isPlayer || !actor.alive || actor.air || actor.vehicleId) continue;
+      if (distance2(actor.position, drop) < 800 && this.random() < 0.4) this.runtime(actor).airdropGoal = { x: drop.x, z: drop.z };
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------------------------
   // Vehicles: a kinematic car (throttle, steering, drag, slope), crashes that hurt, bullets that wreck it, and bots
   // that walk to a nearby car when their destination is far and drive there on a simple autopilot.
   // -------------------------------------------------------------------------------------------------------------
@@ -745,7 +835,7 @@ export class GameSimulation {
 
   /** The nearest empty, working car within arm's reach of the player. */
   get vehicleInReach(): Vehicle | null {
-    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air) return null;
+    if (this.state.phase !== 'playing' || this.player.vehicleId || this.player.air || !this.player.alive) return null;
     let best = null as Vehicle | null;
     let nearest = VEHICLE_REACH;
     for (const v of this.state.vehicles) {
@@ -758,7 +848,7 @@ export class GameSimulation {
 
   /** Get into the nearest car, or out of the one being driven. */
   useVehicle(): boolean {
-    if (this.state.phase !== 'playing' || this.player.air) return false;
+    if (this.state.phase !== 'playing' || this.player.air || !this.player.alive) return false;
     if (this.player.vehicleId) { this.exitVehicle(this.player); return true; }
     const car = this.vehicleInReach;
     return car ? this.enterVehicle(this.player, car) : false;
@@ -1148,6 +1238,7 @@ export class GameSimulation {
       if (actor.vehicleId) this.exitVehicle(actor);
       actor.health = 0;
       actor.alive = false;
+      if (actor.isPlayer) { this.state.playerRank = this.state.actors.filter(a => a.alive).length + 1; this.state.diedAt = this.state.elapsed; }
       actor.reloading = 0;
       actor.healing = 0;
       if (sourceId === this.player.id && !actor.isPlayer) this.state.kills++;
@@ -1170,8 +1261,10 @@ export class GameSimulation {
 
   private checkEnd(): void {
     if (this.state.phase !== 'playing') return;
-    if (!this.player.alive) this.finish(false);
-    else if (!this.state.actors.some(actor => !actor.isPlayer && actor.alive)) this.finish(true);
+    if (!this.player.alive) {
+      // Watching on after death: the match runs until at most one opponent is left.
+      if (!this.state.spectating || this.state.actors.filter(actor => actor.alive).length <= 1) this.finish(false);
+    } else if (!this.state.actors.some(actor => !actor.isPlayer && actor.alive)) this.finish(true);
   }
 
   private finish(won: boolean): void {
@@ -1223,6 +1316,7 @@ export class GameSimulation {
         zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
         zone.timeRemaining = profile.waits[zone.stage];
       } else { zone.timeRemaining = 0; zone.nextRadius = 0; }
+      this.onZoneStage(zone.stage);
     }
   }
 
@@ -1502,6 +1596,12 @@ export class GameSimulation {
     if (runtime.heard && actor.health >= 45) {
       if (distance2(actor.position, runtime.heard) < 10) { runtime.heard = null; runtime.heardTimer = 0; }
       else { runtime.goal = { ...runtime.heard }; return 4.2; }
+    }
+    const crate = runtime.airdropGoal;
+    if (crate) {
+      const open = this.state.airdrops?.some(drop => drop.landed && !drop.empty && Math.hypot(drop.x - crate.x, drop.z - crate.z) < 2);
+      if (!open || distance2(actor.position, crate) < 5) runtime.airdropGoal = null;
+      else { runtime.goal = { ...crate }; return 5; }
     }
     if (allowLoot && this.seekLoot(actor, runtime)) return 3.9;
     if (!runtime.goal || distance2(actor.position, runtime.goal) < (this.world.towns.length ? 8 : 3)) {

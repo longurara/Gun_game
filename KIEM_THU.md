@@ -61,7 +61,18 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - Trình duyệt (Chromium PC và giả lập 740 × 360 cảm ứng): đã nhìn trực tiếp cảnh trên máy bay (biển, bờ đảo, mây, minimap có đường bay và vòng tầm lượn), rơi tự do (nhân vật nằm sấp, FOV rộng ra), dù mở (mái dù, dây), và hạ cánh (camera trở về bình thường, sương mù và bầu trời trở lại như dưới đất). Nút Nhảy trên điện thoại sáng viền vàng khi cần.
 - Đã sửa một lỗi hình ảnh: mái vòm bầu trời bán kính 750 m che mặt đất khi nhìn từ 800 m; nay phóng to khi ở trên không.
 
+## Đợt cải thiện sau nhảy dù — 05/10/2026
+
+- `npm test`: **357/357 đạt**, `tsc --noEmit` sạch. Thêm: gyro (8), hộp tiếp tế (2, trong drop.test.ts), xem tiếp sau khi chết (3), âm thanh stereo (3), và **8 bài giao diện bằng jsdom** (tests/ui.test.ts) kiểm tra DOM của HUD: lỗi mất HUD sau khi đáp được bắt bằng bài "không để lại thuộc tính data-air rỗng"; cờ đáp qua nhấp bản đồ, lưu và khôi phục cài đặt, gợi ý hiện một lần, hạng khi chết.
+- Trình duyệt (Chromium): máy bay mới (thân tròn, 4 động cơ, đèn đỏ/xanh/chớp), dòng "CỜ ĐÁP · km · tới được/ngoài tầm" và cột sáng cờ, phím G tự lái (máy bay trên không tiến gần hướng cờ, thanh trạng thái "TỰ LÁI BẬT"), rơi tự do có vệt gió, xem tiếp sau khi chết (banner đúng tên, camera theo bot, hạng #101 vì chết khi mới ở trên không), đo FPS hiện số liệu.
+- `npm run dev:https`: máy chủ khởi động, trả HTTP 200 qua https và in địa chỉ Network. Chưa thử mở từ điện thoại thật.
+- Đo độ dài trận bằng mô phỏng (người chơi bất tử và đứng yên, 4 hạt giống mỗi bản đồ): trên đảo với 100 bot, số bot còn sống ở phút 1/2/3/5/10 khoảng 95 / 70 / 52 / 39 / 6 và bot cuối cùng chết lúc khoảng 690 giây (11,5 phút) khi ân hạn vòng bo đầu là 45 giây; đã giảm ân hạn xuống 20 giây (còn khoảng 11 phút, chưa đo lại), vì độ dài chủ yếu do vòng bo (580 giây) cộng thời gian bay. Đấu trường 30 bot: bot cuối chết lúc khoảng 450 giây (7,5 phút). Đây là số của bot đánh bot; người chơi thật sẽ khác. Mục tiêu 6–10 phút trên đảo chưa đạt nếu không rút bo.
+
 ## Chưa kiểm tra / giới hạn
+
+- Chưa nghe thử âm thanh stereo và tiếng báo hộp tiếp tế; chưa có chỉ hướng tiếng súng trên HUD (chỉ có âm thanh).
+- Xem tiếp sau khi chết chưa có phát lại 5–8 giây về người đã hạ bạn (killcam), chỉ có camera theo bot.
+- Hộp tiếp tế: 4/10 bot gần đó chạy tới lấy; chưa chơi để biết có làm trận quá hỗn loạn hay không.
 
 - Nhảy dù: chưa nghe thử âm gió/dù, chưa đo FPS khi nhìn từ 800 m xuống (tầm nhìn chunk địa hình vẫn ~750 m quanh người chơi, phần xa hơn bị sương che), chưa thử cảm giác lái trên điện thoại thật; tổng số bot chết sớm sau khi đáp cần chơi thử để cân bằng.
 

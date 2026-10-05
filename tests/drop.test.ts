@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
 import { alongLine, DROP, glideReach, makePlane } from '../src/game/drop.ts';
 import type { PlayerInput } from '../src/types.ts';
+import { isWeaponKind } from '../src/game/weapons.ts';
 
 const idle: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 const press: PlayerInput = { ...idle, jump: true };
@@ -211,4 +212,48 @@ test('the small valley also has a (shorter) drop, and a splashdown moves the pla
   const ground = island.heightAt(player.position.x, player.position.z);
   assert.ok(ground > -1, `player stands on ground at height ${ground.toFixed(1)}`);
   assert.ok(island.drainEvents().some(e => e.type === 'message' && /bơi vào bờ/.test(e.text)));
+});
+
+test('supply crates: one parachutes into the next safe zone at set circles, lands with top gear and draws bots to it', () => {
+  const game = new GameSimulation({ seed: 33, botCount: 40, map: 'island', drop: true });
+  game.start();
+  const events: string[] = [];
+  let lootBefore = game.state.loot.length;
+  let crate: NonNullable<typeof game.state.airdrops>[number] | undefined;
+  for (let i = 0; i < 30 * 700 && !(crate?.landed); i++) {
+    for (const a of game.state.actors) a.health = 100; // the test watches the crates, not who survives the circle
+    game.update(1 / 30, idle);
+    for (const e of game.drainEvents()) if (e.type === 'airdrop') events.push(e.stage);
+    crate = game.state.airdrops?.[0];
+  }
+  assert.ok(crate, 'a crate was released');
+  assert.ok(crate!.landed, 'and it came down');
+  assert.deepEqual(events.slice(0, 2), ['incoming', 'landed']);
+  const ground = game.heightAt(crate!.x, crate!.z);
+  assert.ok(Math.abs(crate!.y - ground) < 1e-6);
+  // It fell into the next circle, on standable ground.
+  const zone = game.state.zone;
+  assert.ok(Math.hypot(crate!.x - zone.center.x, crate!.z - zone.center.z) < zone.radius + 1, 'inside the safe zone');
+  const items = game.state.loot.filter(l => crate!.loot.includes(l.id));
+  assert.ok(items.length >= 8, `${items.length} items`);
+  const kinds = items.map(l => l.kind);
+  assert.ok(kinds.includes('helmet3') && kinds.includes('vest3') && kinds.filter(k => k === 'medkit').length === 2);
+  assert.ok(items.filter(l => isWeaponKind(l.kind)).length === 2, 'two guns');
+  assert.ok(game.state.loot.length > lootBefore - 1);
+  // A bot that has decided to go for it walks there: it ends up much closer (or has already picked something up).
+  const runtimes = (game as unknown as { runtimes: Map<string, { airdropGoal: { x: number; z: number } | null }> }).runtimes;
+  const candidates = game.state.actors.filter(a => !a.isPlayer && a.alive && !a.air && !a.vehicleId);
+  const bot = candidates.reduce((best, a) => Math.hypot(a.position.x - crate!.x, a.position.z - crate!.z) < Math.hypot(best.position.x - crate!.x, best.position.z - crate!.z) ? a : best);
+  const start = Math.hypot(bot.position.x - crate!.x, bot.position.z - crate!.z);
+  runtimes.get(bot.id)!.airdropGoal = { x: crate!.x, z: crate!.z };
+  for (let i = 0; i < 30 * 40 && items.every(l => l.active); i++) { for (const a of game.state.actors) a.health = 100; game.update(1 / 30, idle); }
+  const end = Math.hypot(bot.position.x - crate!.x, bot.position.z - crate!.z);
+  assert.ok(items.some(l => !l.active) || end < start * 0.6, `bot went from ${start.toFixed(0)} m to ${end.toFixed(0)} m`);
+});
+
+test('without the drop option no supply crates are ever released', () => {
+  const game = new GameSimulation({ seed: 33, botCount: 10, map: 'island' });
+  game.start();
+  for (let i = 0; i < 30 * 400; i++) { game.player.health = 100; game.update(1 / 30, idle); }
+  assert.equal(game.state.airdrops?.length ?? 0, 0);
 });

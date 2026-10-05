@@ -8,6 +8,10 @@ export interface MobileCallbacks {
   onHeal(): void;
   onCycleWeapon(): void;
   onPause(): void;
+  /** Turn gyroscope aiming on or off from the game screen. */
+  onGyroToggle?(): void;
+  /** Turn the parachute's auto-steer toward the map flag on or off. */
+  onAutoGlide?(): void;
 }
 
 export interface JoystickInput {
@@ -38,7 +42,7 @@ export function getJoystickInput(deltaX: number, deltaY: number, radius: number,
   };
 }
 
-type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'fullscreen';
+type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'fullscreen' | 'gyro' | 'glide';
 type PointerRole =
   | { kind: 'look'; target: HTMLElement; x: number; y: number }
   | { kind: 'joystick'; target: HTMLElement; centerX: number; centerY: number; radius: number }
@@ -55,6 +59,8 @@ const ICONS = {
   weapon: '<path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/>',
   pause: '<path d="M8 5v14M16 5v14" stroke-width="4"/>',
   fullscreen: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/>',
+  gyro: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M4 8c-1 2.5-1 5.500 0 8M20 8c1 2.500 1 5.500 0 8"/>',
+  glide: '<path d="M6 21V4m0 0h11l-2.500 4L17 12H6"/>',
 } as const;
 
 function icon(name: keyof typeof ICONS): string {
@@ -103,6 +109,8 @@ export class MobileControls {
         ${button('heal', 'Hồi máu')}${button('weapon', 'Đổi súng')}
       </div>
       <div class="touch-top-actions">
+        ${button('gyro', 'Con quay', 'touch-gyro')}
+        ${button('glide', 'Tự lái dù', 'touch-glide')}
         ${button('pause', 'Tạm dừng', 'touch-pause')}
         ${button('fullscreen', 'Toàn màn hình', 'touch-fullscreen')}
       </div>
@@ -133,6 +141,8 @@ export class MobileControls {
     this.buttons.get('touch-aim')!.setAttribute('aria-pressed', 'false');
     for (const id of ['touch-fire', 'touch-fire-left']) this.buttons.get(id)!.setAttribute('aria-description', 'Giữ để bắn, kéo để xoay góc nhìn');
     this.buttons.get('touch-fullscreen')!.hidden = typeof document.documentElement.requestFullscreen !== 'function';
+    this.buttons.get('touch-gyro')!.hidden = true;
+    this.buttons.get('touch-glide')!.hidden = true;
     this.joystick.addEventListener('pointerdown', this.onJoystickDown);
     this.canvas.addEventListener('pointerdown', this.onCanvasDown);
     // Window listeners cover pointers whose capture is unavailable in a browser.
@@ -174,7 +184,7 @@ export class MobileControls {
     this.clearJoystick();
     for (const button of this.buttons.values()) {
       button.classList.remove('is-pressed');
-      if (button.id !== 'touch-aim') button.classList.remove('is-active');
+      if (button.id !== 'touch-aim' && button.id !== 'touch-gyro' && button.id !== 'touch-glide') button.classList.remove('is-active');
     }
     this.buttons.get('touch-aim')?.classList.toggle('is-active', this.aimActive);
     for (const [id, role] of captured) this.releaseCapture(role.target, id);
@@ -182,8 +192,16 @@ export class MobileControls {
     this.callbacks.onJump(false);
   }
 
-  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean }): void {
+  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean; gyroAvailable?: boolean; gyroOn?: boolean; glideReady?: boolean; glideOn?: boolean }): void {
     this.aimActive = state.aiming;
+    const gyro = this.buttons.get('touch-gyro')!;
+    gyro.hidden = !state.gyroAvailable;
+    gyro.classList.toggle('is-active', !!state.gyroOn);
+    gyro.setAttribute('aria-pressed', String(!!state.gyroOn));
+    const glide = this.buttons.get('touch-glide')!;
+    glide.hidden = !state.glideReady;
+    glide.classList.toggle('is-active', !!state.glideOn);
+    glide.setAttribute('aria-pressed', String(!!state.glideOn));
     const aim = this.buttons.get('touch-aim')!;
     aim.classList.toggle('is-active', state.aiming);
     aim.setAttribute('aria-pressed', String(state.aiming));
@@ -340,6 +358,8 @@ export class MobileControls {
       case 'heal': this.callbacks.onHeal(); break;
       case 'weapon': this.callbacks.onCycleWeapon(); break;
       case 'pause': this.callbacks.onPause(); break;
+      case 'gyro': this.callbacks.onGyroToggle?.(); break;
+      case 'glide': this.callbacks.onAutoGlide?.(); break;
       case 'fullscreen':
         // Unsupported or rejected fullscreen never interrupts touch controls.
         try {

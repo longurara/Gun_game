@@ -23,14 +23,14 @@ import { CreateLines } from '@babylonjs/core/Meshes/Builders/linesBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import { GameSimulation } from './game/simulation';
-import { DROP } from './game/drop';
+import { DROP, remainingGlide } from './game/drop';
 import { GameUI } from './ui';
 import { GameAudio } from './audio';
 import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, ammoTypeOf } from './game/weapons';
-import type { Actor, GameSettings, Loot, Vehicle, WeaponType } from './types';
+import type { Actor, GameSettings, GyroMode, Loot, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
@@ -78,6 +78,15 @@ let hudPhase: string | null = null, hudWeapon: WeaponType | null = null;
 let pendingJump = false;
 let lastAirMode: string | null = '', lastAirHud = -Infinity, shadowsAllowed = true;
 let planeModel: TransformNode | null = null;
+/** Steer the canopy toward the map flag by itself. */
+let autoGlide = false;
+const frameTimes: number[] = [];
+let lastPerfAt = -Infinity;
+/** After dying: the actor being watched, and whoever killed the player (watched first). */
+let spectateId: string | null = null, lastKillerId: string | null = null;
+const airdropModels = new Map<string, { root: TransformNode; chute: TransformNode; flare: Mesh }>();
+let flagBeam: Mesh | null = null, flagBeamAt: { x: number; z: number } | null = null;
+let gyroOnMode: GyroMode = 'aim';
 const pitchMin = () => sim.player.air ? -1.4 : -0.7;
 
 const ui = new GameUI({
@@ -85,7 +94,9 @@ const ui = new GameUI({
   onResume: () => { void audio.unlock(); sim.setPaused(false); lockPointer(); clock = performance.now(); },
   onRestart: () => start(),
   onMenu: () => { sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
-  onSettings: (next) => { settings = next; applySettings(); syncGyro(); },
+  onSpectate: startSpectating,
+  onSpectateExit: () => { sim.endSpectating(); },
+  onSettings: (next) => { settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro(); },
   onSelectWeapon: selectWeapon,
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
 });
@@ -115,6 +126,8 @@ if (touchDevice) {
     onHeal: () => { if (sim.heal()) { void audio.unlock(); audio.heal(); } },
     onCycleWeapon: () => cycleWeapon(1),
     onPause: pause,
+    onGyroToggle: () => { void audio.unlock(); ui.setGyro(settings.gyro === 'off' ? gyroOnMode : 'off'); },
+    onAutoGlide: toggleAutoGlide,
   });
 }
 
@@ -143,7 +156,7 @@ function start() {
   releaseInput();
   sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' });
   configureWorld();
-  pendingJump = false; lastAirMode = '';
+  pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
   for (const effect of effects) effect.mesh.dispose();
   effects.length = 0;
@@ -168,7 +181,7 @@ function configureWorld() {
   islandRenderer = null;
   if (island) {
     islandRenderer = new IslandRenderer(scene, sim.world, touchDevice ? 5 : 6, touchDevice, shadows);
-    islandRenderer.update(sim.player.position.x, sim.player.position.z, 100000);
+    islandRenderer.update(focusPosition().x, focusPosition().z, 100000);
   }
   scene.fogDensity = island ? 0.0024 : 0.0045;
   // Hazy sky-blue distance on the island; the arena keeps its olive dusk.
@@ -354,31 +367,49 @@ function buildWorld() {
 }
 
 interface Character {
-  soldier: Soldier; root: TransformNode; last: Vector3; stride: number; moving: number; chute?: TransformNode;
+  soldier: Soldier; root: TransformNode; last: Vector3; stride: number; moving: number; chute?: TransformNode; lastStep?: number;
 }
 
-/** A four-engined transport that crosses the island at the start of a match. */
+/** A four-engined transport that crosses the island at the start of a match: round fuselage, high wing, blinking lights. */
+let planeLights: Mesh[] = [];
 function createPlaneModel(): TransformNode {
   const root = new TransformNode('transport-plane', scene);
-  const hull = material('plane-hull', '#c9d0cf');
-  const dark = material('plane-dark', '#3b4a54');
+  const hull = material('plane-hull', '#cfd5d3');
+  const belly = material('plane-belly', '#9aa5a8');
+  const dark = material('plane-dark', '#33424c');
   const accent = material('plane-accent', '#e0903c');
-  const parts: Mesh[] = [
-    box('plane-body', 3.4, 3.6, 24, hull, new Vector3(0, 0, 0), root),
-    box('plane-nose', 2.7, 2.8, 5, hull, new Vector3(0, -0.2, 14), root),
-    box('plane-cockpit', 2.6, 0.9, 2.2, dark, new Vector3(0, 0.9, 13.2), root),
-    box('plane-windows', 3.5, 0.5, 9, dark, new Vector3(0, 0.7, 3), root),
-    box('plane-wing', 32, 0.5, 5.6, hull, new Vector3(0, 0.3, 1.5), root),
-    box('plane-wing-stripe', 32.1, 0.52, 0.8, accent, new Vector3(0, 0.3, -0.6), root),
-    box('plane-tailplane', 10, 0.4, 3, hull, new Vector3(0, 1.8, -11.5), root),
-    box('plane-fin', 0.5, 5, 4, accent, new Vector3(0, 3.4, -11), root),
-    box('plane-ramp', 3, 0.3, 4, dark, new Vector3(0, -1.6, -12.5), root),
-  ];
+  const parts: Mesh[] = [];
+  const cylinder = (name: string, options: { diameterTop?: number; diameterBottom?: number; diameter?: number; height: number }, mat: StandardMaterial, position: Vector3, rotationX = 0) => {
+    const mesh = MeshBuilder.CreateCylinder(name, { tessellation: 14, ...options }, scene);
+    mesh.rotation.x = rotationX; mesh.position.copyFrom(position); mesh.material = mat; mesh.parent = root;
+    parts.push(mesh);
+    return mesh;
+  };
+  cylinder('plane-fuselage', { diameter: 3.8, height: 24 }, hull, new Vector3(0, 0, 0), Math.PI / 2);
+  cylinder('plane-nose', { diameterTop: 0.5, diameterBottom: 3.8, height: 6 }, hull, new Vector3(0, -0.1, 15), Math.PI / 2);
+  cylinder('plane-tail-cone', { diameterTop: 0.9, diameterBottom: 3.8, height: 8 }, hull, new Vector3(0, 0.4, -16), -Math.PI / 2);
+  parts.push(box('plane-belly', 2.6, 0.5, 18, belly, new Vector3(0, -1.75, -1), root));
+  parts.push(box('plane-cockpit', 2.5, 0.8, 2.4, dark, new Vector3(0, 0.85, 14), root));
+  parts.push(box('plane-windows', 3.9, 0.45, 10, dark, new Vector3(0, 0.55, 3), root));
+  parts.push(box('plane-stripe', 3.95, 0.35, 16, accent, new Vector3(0, -0.45, 1), root));
+  parts.push(box('plane-wing', 34, 0.5, 5.8, hull, new Vector3(0, 1.1, 1.5), root));
+  parts.push(box('plane-wing-edge', 34.1, 0.52, 0.9, accent, new Vector3(0, 1.1, -1.1), root));
+  parts.push(box('plane-tailplane', 11, 0.4, 3.2, hull, new Vector3(0, 2.4, -17), root));
+  parts.push(box('plane-fin', 0.5, 5.5, 4.5, accent, new Vector3(0, 4.2, -16.5), root));
+  parts.push(box('plane-ramp', 3, 0.3, 4.5, dark, new Vector3(0, -1.2, -17.5), root));
   for (const x of [-12, -6, 6, 12]) {
-    const engine = MeshBuilder.CreateCylinder('plane-engine', { diameter: 1.5, height: 3.4, tessellation: 10 }, scene);
-    engine.rotation.x = Math.PI / 2; engine.position.set(x, -0.2, 3.4); engine.material = dark; engine.parent = root;
-    parts.push(engine);
+    cylinder('plane-engine', { diameter: 1.6, height: 3.6 }, dark, new Vector3(x, 0.4, 3.8), Math.PI / 2);
+    cylinder('plane-prop', { diameter: 3.4, height: 0.06 }, material('plane-prop', '#1c2328'), new Vector3(x, 0.4, 5.8), Math.PI / 2).visibility = 0.55;
   }
+  // Red left, green right, and a white strobe on the fin.
+  const light = (name: string, color: string, position: Vector3) => {
+    const lamp = MeshBuilder.CreateSphere(name, { diameter: 0.9, segments: 6 }, scene);
+    const glow = material(`plane-light-${name}`, color, 1);
+    glow.disableLighting = true;
+    lamp.material = glow; lamp.position.copyFrom(position); lamp.parent = root; parts.push(lamp);
+    return lamp;
+  };
+  planeLights = [light('red', '#ff3b30', new Vector3(-17, 1.2, 1.5)), light('green', '#34c759', new Vector3(17, 1.2, 1.5)), light('strobe', '#ffffff', new Vector3(0, 7.2, -16.5))];
   for (const mesh of parts) { mesh.isPickable = false; mesh.receiveShadows = false; }
   return root;
 }
@@ -391,9 +422,18 @@ function createChute(parent: TransformNode, id: string): TransformNode {
   node.parent = parent;
   let hash = 0;
   for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const canopy = material(`canopy-${hash % CHUTE_COLORS.length}`, CHUTE_COLORS[hash % CHUTE_COLORS.length]);
+  const colour = Color3.FromHexString(CHUTE_COLORS[hash % CHUTE_COLORS.length]);
+  const canopy = material('canopy', '#ffffff');
   canopy.backFaceCulling = false;
   const dome = MeshBuilder.CreateSphere('chute-dome', { diameter: 5.2, segments: 12, slice: 0.5 }, scene);
+  // Alternating gores: the pilot's colour and off-white, painted as vertex colours so every canopy shares one material.
+  const positions = dome.getVerticesData(VertexBuffer.PositionKind)!;
+  const colours: number[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    const gore = Math.floor((Math.atan2(positions[i + 2], positions[i]) + Math.PI) / (Math.PI * 2) * 12) % 2;
+    colours.push(gore ? 0.93 : colour.r, gore ? 0.92 : colour.g, gore ? 0.86 : colour.b, 1);
+  }
+  dome.setVerticesData(VertexBuffer.ColorKind, colours);
   dome.material = canopy; dome.parent = node; dome.scaling.y = 0.62; dome.position.y = 4.6; dome.isPickable = false;
   const points: Vector3[] = [];
   for (let i = 0; i < 8; i++) {
@@ -413,7 +453,7 @@ function createCharacter(actor: Actor): Character {
 
 function renderActors(dt: number) {
   const island = sim.world.id !== 'arena';
-  const focus = sim.player.position;
+  const focus = focusPosition();
   const time = performance.now() * 0.001;
   for (const actor of sim.state.actors) {
     let model = models.get(actor.id);
@@ -432,6 +472,10 @@ function renderActors(dt: number) {
     const speed = Vector3.Distance(pos, model.last) / Math.max(dt, 0.001);
     model.moving += ((actor.alive && !actor.air ? Math.min(speed, 8) : 0) - model.moving) * Math.min(1, dt * 12);
     model.stride += dt * model.moving * 2.2;
+    // Each footfall of a nearby soldier is heard, placed left or right of the listener.
+    const footfall = Math.floor(model.stride / Math.PI);
+    if (!actor.isPlayer && dt > 0 && actor.alive && !actor.air && !actor.vehicleId && model.moving > 1.5 && model.lastStep !== undefined && footfall !== model.lastStep) audio.footstepOther(actor.position, focus, model.moving > 5);
+    model.lastStep = footfall;
     model.root.position.copyFrom(pos);
     model.root.rotation.set(0, actor.yaw, actor.alive ? 0 : Math.PI / 2);
     if (!actor.alive) model.root.position.y = actor.position.y + 0.32;
@@ -486,7 +530,7 @@ function createCarModel(v: Vehicle) {
 }
 
 function renderVehicles(dt: number) {
-  const focus = sim.player.position;
+  const focus = focusPosition();
   for (const v of sim.state.vehicles) {
     let car = carModels.get(v.id);
     if (Math.hypot(v.position.x - focus.x, v.position.z - focus.z) > 380) { car?.root.setEnabled(false); continue; }
@@ -575,7 +619,7 @@ function renderLoot(time: number) {
     // No pickups in the lobby; on big maps only those near the player exist in the scene.
     const high = !!sim.player.air && sim.heightAboveGround(sim.player) > 150;
     const range = !playing || high ? 0 : island ? 95 : touchDevice ? 75 : Infinity;
-    const focus = sim.player.position;
+    const focus = focusPosition();
     const current = new Set<string>();
     for (const loot of sim.state.loot) {
       current.add(loot.id);
@@ -604,6 +648,67 @@ function renderZone() {
   nextRing.position.set(zone.nextCenter.x, 0.085, zone.nextCenter.z); nextRing.scaling.set(zone.nextRadius, 1, zone.nextRadius);
 }
 
+const spectating = () => !!sim.state.spectating && !sim.player.alive;
+
+/** Alive opponents in a stable order, for cycling through who to watch. */
+function spectateCandidates(): Actor[] {
+  return sim.state.actors.filter(actor => !actor.isPlayer && actor.alive);
+}
+
+function spectateTarget(): Actor | null {
+  const list = spectateCandidates();
+  let target = list.find(actor => actor.id === spectateId);
+  if (!target) {
+    // The one being watched died: stay with whoever is closest to where they were.
+    const from = (spectateId ? sim.state.actors.find(actor => actor.id === spectateId)?.position : null) ?? sim.player.position;
+    target = list.reduce<Actor | undefined>((best, actor) => !best || Math.hypot(actor.position.x - from.x, actor.position.z - from.z) < Math.hypot(best.position.x - from.x, best.position.z - from.z) ? actor : best, undefined);
+    spectateId = target?.id ?? null;
+  }
+  return target ?? null;
+}
+
+function cycleSpectate(direction: number) {
+  const list = spectateCandidates();
+  if (!list.length) return;
+  const index = Math.max(0, list.findIndex(actor => actor.id === spectateId));
+  spectateId = list[(index + direction + list.length) % list.length].id;
+  snapCamera = true;
+}
+
+/** The point the world is built around: the player, or the actor being watched after the player's death. */
+function focusPosition() {
+  if (spectating()) { const target = spectateTarget(); if (target) return target.position; }
+  return sim.player.position;
+}
+
+function startSpectating() {
+  if (!sim.continueAsSpectator()) return;
+  void audio.unlock();
+  releaseInput();
+  spectateId = lastKillerId && sim.state.actors.some(actor => actor.id === lastKillerId && actor.alive) ? lastKillerId : null;
+  spectateTarget();
+  snapCamera = true; pitch = -0.15;
+  lockPointer();
+  clock = performance.now();
+}
+
+/** Orbit camera around the watched actor, steered with the mouse or a swipe like the normal camera. */
+function spectateCamera(dt: number) {
+  const target = spectateTarget();
+  if (!target) return;
+  const viewPitch = Math.max(pitchMin(), Math.min(0.8, pitch));
+  const forward = new Vector3(Math.sin(yaw) * Math.cos(viewPitch), Math.sin(viewPitch), Math.cos(yaw) * Math.cos(viewPitch));
+  const car = target.vehicleId ? sim.state.vehicles.find(v => v.id === target.vehicleId) : undefined;
+  const pivot = car ? new Vector3(car.position.x, car.position.y + 1.9, car.position.z) : new Vector3(target.position.x, target.position.y + (target.air?.mode === 'freefall' ? 0.9 : 1.5), target.position.z);
+  const back = car ? 9 : target.air ? 9 : 5.5;
+  const desired = pivot.subtract(forward.scale(back));
+  desired.y = Math.max(desired.y, sim.heightAt(desired.x, desired.z) + 1);
+  camera.position.copyFrom(snapCamera ? desired : Vector3.Lerp(camera.position, desired, 1 - Math.exp(-dt * 12)));
+  snapCamera = false;
+  camera.setTarget(camera.position.add(forward.scale(100)));
+  camera.fov += (0.92 - camera.fov) * Math.min(1, dt * 8);
+}
+
 function updateCamera(dt: number) {
   if (sim.state.phase === 'menu') {
     // Lobby shot: the player's character stands left of centre (the panel fills the right), seen from a low
@@ -615,6 +720,7 @@ function updateCamera(dt: number) {
     camera.fov = 0.7; return;
   }
   const actor = sim.player;
+  if (spectating()) { spectateCamera(dt); return; }
   if (actor.air) { airCamera(dt, actor); return; }
   const ridden = actor.vehicleId ? sim.state.vehicles.find(v => v.id === actor.vehicleId) : undefined;
   if (ridden) aiming = false;
@@ -672,11 +778,68 @@ function applyAirView(mode: string | null) {
   islandRenderer?.setHighView(!!mode);
 }
 
+/** Supply crates: a wooden box under a canopy while falling, then a column of red smoke until it is emptied. */
+function renderAirdrops() {
+  const crates = sim.state.airdrops ?? [];
+  const live = new Set<string>();
+  const time = performance.now() * 0.001;
+  for (const drop of crates) {
+    live.add(drop.id);
+    let model = airdropModels.get(drop.id);
+    if (!model) {
+      const root = new TransformNode(drop.id, scene);
+      const wood = material('airdrop-wood', '#8a6a3c');
+      const band = material('airdrop-band', '#d9482f');
+      const parts = [box('airdrop-box', 1.5, 1.1, 1.5, wood, new Vector3(0, 0.55, 0), root), box('airdrop-band', 1.56, 0.3, 1.56, band, new Vector3(0, 0.55, 0), root), box('airdrop-lid', 1.6, 0.12, 1.6, band, new Vector3(0, 1.14, 0), root)];
+      for (const part of parts) { part.isPickable = false; shadows.addShadowCaster(part); }
+      const chute = createChute(root, drop.id);
+      const flare = MeshBuilder.CreateCylinder('airdrop-smoke', { diameterTop: 7, diameterBottom: 1.6, height: 140, tessellation: 10, cap: 0 }, scene);
+      const smoke = material('airdrop-smoke', '#e0453a', 0.9);
+      smoke.alpha = 0.4; smoke.disableLighting = true; smoke.fogEnabled = false; smoke.backFaceCulling = false;
+      flare.material = smoke; flare.isPickable = false; flare.parent = root; flare.position.y = 70;
+      model = { root, chute, flare };
+      airdropModels.set(drop.id, model);
+    }
+    model.root.position.set(drop.x, drop.y, drop.z);
+    model.chute.setEnabled(!drop.landed);
+    model.flare.setEnabled(drop.landed && !drop.empty);
+    if (drop.landed) model.flare.scaling.x = model.flare.scaling.z = 1 + Math.sin(time * 2 + drop.x) * 0.08;
+    else model.root.rotation.y = Math.sin(time * 0.7 + drop.z) * 0.15;
+  }
+  for (const [id, model] of airdropModels) if (!live.has(id)) { model.root.dispose(false, false); airdropModels.delete(id); }
+}
+
+function toggleAutoGlide() {
+  const mode = sim.player.air?.mode;
+  if (!ui.waypoint || !mode || mode === 'plane') { ui.notify(ui.waypoint ? 'Tự lái dù hoạt động sau khi bạn nhảy.' : 'Đặt cờ đáp trên bản đồ (phím M) trước.'); return; }
+  autoGlide = !autoGlide;
+  ui.notify(autoGlide ? 'Tự lái dù: bay tới cờ đáp. Giữ Chạy để lao nhanh.' : 'Đã tắt tự lái dù.');
+}
+
+/** A tall gold column over the landing flag, readable from the sky and from the ground. */
+function renderFlag() {
+  const flag = sim.state.phase === 'menu' ? null : ui.waypoint;
+  if (!flag) { flagBeam?.setEnabled(false); flagBeamAt = null; return; }
+  if (!flagBeam) {
+    flagBeam = MeshBuilder.CreateCylinder('landing-flag', { diameter: 3, height: 700, tessellation: 10, cap: 0 }, scene);
+    const glow = material('flag-beam', '#ffd24a', 1);
+    glow.alpha = 0.32; glow.disableLighting = true; glow.fogEnabled = false; glow.backFaceCulling = false;
+    flagBeam.material = glow; flagBeam.isPickable = false;
+  }
+  flagBeam.setEnabled(true);
+  if (!flagBeamAt || flagBeamAt.x !== flag.x || flagBeamAt.z !== flag.z) {
+    flagBeamAt = { x: flag.x, z: flag.z };
+    flagBeam.position.set(flag.x, sim.heightAt(flag.x, flag.z) + 350, flag.z);
+  }
+}
+
 function renderPlane() {
   const plane = sim.state.plane;
   if (!plane?.active || sim.state.phase === 'menu') { planeModel?.setEnabled(false); return; }
   planeModel ??= createPlaneModel();
   planeModel.setEnabled(true);
+  // Navigation lights: steady red and green, a short white strobe once a second.
+  planeLights[2]?.setEnabled(performance.now() % 1000 < 120);
   planeModel.position.set(plane.x, plane.y, plane.z);
   planeModel.rotation.y = plane.yaw;
 }
@@ -710,6 +873,7 @@ function selectWeapon(weapon: WeaponType) {
 }
 
 function cycleWeapon(direction: number) {
+  if (spectating()) { cycleSpectate(direction); return; }
   const owned = slotOrder(sim.player.ownedWeapons);
   if (owned.length < 2) return;
   const index = owned.indexOf(sim.player.weapon);
@@ -731,7 +895,7 @@ function beginAim() {
 
 function events(dt: number) {
   for (const event of sim.drainEvents()) {
-    audio.handle(event, sim.player.position);
+    audio.handle(event, focusPosition());
     if (event.type === 'message') ui.notify(event.text);
     if (event.type === 'shot') {
       const line = MeshBuilder.CreateLines('tracer', { points: [new Vector3(event.from.x, event.from.y, event.from.z), new Vector3(event.to.x, event.to.y, event.to.z)] }, scene);
@@ -739,6 +903,7 @@ function events(dt: number) {
       effects.push({ mesh: line, remaining: 0.065 });
       models.get(event.actorId)?.soldier.fire();
     }
+    if (event.type === 'kill' && event.actorId === 'player') lastKillerId = event.killerId ?? null;
     if (event.type === 'kill') {
       const victim = sim.state.actors.find(a => a.id === event.actorId);
       const killer = event.killerId ? sim.state.actors.find(a => a.id === event.killerId) : undefined;
@@ -752,7 +917,11 @@ function events(dt: number) {
       const source = event.sourceId ? sim.state.actors.find(a => a.id === event.sourceId) : undefined;
       if (source) ui.showDamageFrom(Math.atan2(source.position.x - sim.player.position.x, source.position.z - sim.player.position.z) - yaw);
     }
-    if (event.type === 'pickup') ui.notify(`Nhặt ${lootLabel(event.kind)}`);
+    if (event.type === 'pickup') {
+      ui.notify(`Nhặt ${lootLabel(event.kind)}`);
+      if (isArmorKind(event.kind)) ui.tip('armor', 'Mũ đỡ đạn bắn vào đầu, áo giáp đỡ đạn vào thân. Cấp càng cao càng bền; chỉ thay được bằng cấp cao hơn.');
+    }
+    if (event.type === 'airdrop' && event.stage === 'incoming') ui.tip('airdrop', 'Hộp tiếp tế có đồ rất tốt nhưng ai cũng muốn lấy. Xem vị trí trên bản đồ (M).');
     if (event.type === 'crash' && sim.player.vehicleId === event.vehicleId) recoil = Math.min(0.13, recoil + event.strength * 0.004);
     if (event.type === 'explosion') {
       const flash = CreateSphere('blast', { diameter: 2, segments: 8 }, scene);
@@ -800,6 +969,7 @@ window.addEventListener('keydown', event => {
     const weapon = number === 3 ? slots.find(isSidearm) : slots.filter(w => !isSidearm(w))[number - 1];
     if (weapon) selectWeapon(weapon);
   }
+  if (event.code === 'KeyG' && sim.airborne) toggleAutoGlide();
   if (event.code === 'KeyM') ui.toggleMap();
   if (event.code === 'KeyQ') cycleWeapon(1);
 });
@@ -894,7 +1064,17 @@ try {
         sim.update(dt, { moveX: 0, moveZ: 0, sprint: false, jump: keys.has('Space') || mobileJump, throttle: Math.max(-1, Math.min(1, rawForward)), steer: Math.max(-1, Math.min(1, rawSide)) });
         audio.engine(car.speed, rawForward);
       } else {
-        sim.update(dt, { moveX: Math.sin(yaw) * forward + Math.cos(yaw) * side, moveZ: Math.cos(yaw) * forward - Math.sin(yaw) * side, sprint, jump: keys.has('Space') || mobileJump || pendingJump });
+        let moveX = Math.sin(yaw) * forward + Math.cos(yaw) * side, moveZ = Math.cos(yaw) * forward - Math.sin(yaw) * side;
+        const flag = ui.waypoint, air = sim.player.air;
+        if (autoGlide && air && air.mode !== 'plane' && flag) {
+          // Head for the flag, easing off as it nears so the canopy comes down on it.
+          const dx = flag.x - sim.player.position.x, dz = flag.z - sim.player.position.z, distance = Math.hypot(dx, dz);
+          const cap = air.mode === 'chute' ? (sprint ? DROP.chuteFast : DROP.chute).h : (sprint ? DROP.dive : DROP.freefall).h;
+          const throttle = Math.min(1, distance / (cap * 1.2));
+          moveX = distance > 0.5 ? dx / distance * throttle : 0; moveZ = distance > 0.5 ? dz / distance * throttle : 0;
+        }
+        if (!air) autoGlide = false;
+        sim.update(dt, { moveX, moveZ, sprint, jump: keys.has('Space') || mobileJump || pendingJump });
         pendingJump = false;
         sim.player.yaw = yaw;
       }
@@ -906,9 +1086,9 @@ try {
     renderActors(sim.state.phase === 'paused' ? 0 : dt);
     renderVehicles(sim.state.phase === 'paused' ? 0 : dt);
     renderLoot(sim.state.elapsed);
-    renderPlane();
+    renderPlane(); renderFlag(); renderAirdrops();
     if (islandRenderer && sim.state.phase !== 'menu') {
-      const p = sim.player.position;
+      const p = focusPosition();
       islandRenderer.update(p.x, p.z, 3, dt);
       // Keep the shadow frustum centred on the player, 150 m back along the sun's direction.
       const sun = sunlight.direction.normalizeToNew();
@@ -926,6 +1106,7 @@ try {
       const shadowsOn = shadowsAllowed && !(airMode && sim.heightAboveGround(sim.player) > 150);
       if (scene.shadowsEnabled !== shadowsOn) scene.shadowsEnabled = shadowsOn;
     }
+    audio.setListenerYaw(yaw);
     renderZone(); updateCamera(dt);
     if (sim.state.phase === 'playing' && (triggerPending || shooting && WEAPONS[sim.player.weapon].fireMode === 'auto')) shoot();
     triggerPending = false;
@@ -936,6 +1117,9 @@ try {
     }
     const loot = sim.lootInReach;
     const nearbyCar = sim.vehicleInReach;
+    if (loot) ui.tip('loot', touchDevice ? 'Chạm nút Nhặt để lấy đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.' : 'Nhấn E để nhặt đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.');
+    if (nearbyCar) ui.tip('car', touchDevice ? 'Chạm nút Nhặt để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.' : 'Nhấn F để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.');
+    if (sim.player.alive && sim.player.health < 50 && sim.player.medkits > 0) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
     const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên xe` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
     if (!touchDevice || now - lastHudTime >= 90 || hudPhase !== sim.state.phase || hudWeapon !== sim.player.weapon) {
       ui.update(sim.state, sim.world, hint); lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
@@ -944,6 +1128,17 @@ try {
     mobile?.setEnabled(sim.state.phase === 'playing' && !ui.touchOverlayOpen);
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
     ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / 300 } : null);
+    // Frame-rate readout, refreshed twice a second from the last 120 frames.
+    frameTimes.push(dt * 1000);
+    if (frameTimes.length > 120) frameTimes.shift();
+    if (!settings.showFps) ui.setPerf(null);
+    else if (now - lastPerfAt >= 500) {
+      lastPerfAt = now;
+      const average = frameTimes.reduce((sum, value) => sum + value, 0) / Math.max(1, frameTimes.length);
+      ui.setPerf(`${Math.round(engine.getFps())} FPS · khung TB ${average.toFixed(1)} ms · tệ nhất ${Math.max(...frameTimes).toFixed(0)} ms
+${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không`);
+    }
+    ui.setSpectate(spectating() && sim.state.phase === 'playing' ? spectateTarget()?.name ?? '—' : null);
     const air = sim.player.air;
     if (air && sim.state.phase !== 'menu') {
       const plane = sim.state.plane;
@@ -956,10 +1151,19 @@ try {
         lastAirHud = now;
         const seconds = air.mode === 'plane' ? plane ? (plane.length - plane.travelled) / plane.speed : 0
           : air.mode === 'freefall' ? Math.max(0, agl - DROP.autoOpen) / Math.max(1, -air.vy) : agl / Math.max(1, -air.vy);
-        ui.setAir({ mode: air.mode, altitude: agl, speed, seconds });
+        const flag = ui.waypoint;
+        const flagInfo = flag ? (() => {
+          const distance = Math.hypot(flag.x - sim.player.position.x, flag.z - sim.player.position.z);
+          return { distance, reachable: distance <= remainingGlide(air.mode, agl), auto: autoGlide };
+        })() : null;
+        ui.setAir({ mode: air.mode, altitude: agl, speed, seconds, flag: flagInfo });
       }
     } else ui.setAir(null);
-    mobile?.update({ aiming, canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0 });
+    mobile?.update({
+      aiming, canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0,
+      gyroAvailable: gyroSupport() === 'ok', gyroOn: settings.gyro !== 'off' && gyro.status !== 'denied',
+      glideReady: !!ui.waypoint && !!sim.player.air && sim.player.air.mode !== 'plane', glideOn: autoGlide,
+    });
     scene.render();
   });
   if (import.meta.env.DEV) {

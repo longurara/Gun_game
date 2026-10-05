@@ -1,4 +1,4 @@
-import type { AirMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, WeaponType, WorldConfig } from './types';
+import type { AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
 import { remainingGlide } from './game/drop';
 import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
@@ -10,11 +10,14 @@ type Callbacks = {
   onRestart: () => void;
   onMenu: () => void;
   onSettings: (settings: GameSettings) => void;
+  /** Keep watching the match after dying, and stop watching. */
+  onSpectate?: () => void;
+  onSpectateExit?: () => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
   onTouchOverlayChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false };
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
 const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
@@ -25,6 +28,7 @@ const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time
 const readMap = (value: unknown): MapId => value === 'arena' ? 'arena' : value === 'valley' ? 'valley' : 'island';
 const SETTINGS_KEY = 'lastlight.settings.v1';
 const BEST_KEY = 'lastlight.best.v1';
+const TIPS_KEY = 'lastlight.tips.v1';
 const FIRE_MODE_LABELS = { auto: 'TỰ ĐỘNG', semi: 'BÁN TỰ ĐỘNG', bolt: 'LÊN ĐẠN TỪNG PHÁT' } as const;
 const icons = {
   arrow: '<path d="M4 12h15m-6-6 6 6-6 6"/>',
@@ -63,6 +67,8 @@ function readSettings(): GameSettings {
     gyro: raw.gyro === 'off' || raw.gyro === 'aim' || raw.gyro === 'always' ? raw.gyro : defaults.gyro,
     gyroSensitivity: clamp(raw.gyroSensitivity, 0.3, 3, DEFAULT_SETTINGS.gyroSensitivity),
     gyroInvertY: raw.gyroInvertY === true,
+    tips: raw.tips !== false,
+    showFps: raw.showFps === true,
   };
 }
 function readBest(): BestRecord {
@@ -89,6 +95,8 @@ export class GameUI {
   private hitUntil = 0;
   private resultSaved = false;
   private currentWeapon: WeaponType | null = null;
+  /** Landing flag the player set on the map, in world coordinates. */
+  private flag: Vec2 | null = null;
   private aimStateKey = '';
   private readonly touchMode = document.documentElement.dataset.input === 'touch';
 
@@ -144,6 +152,8 @@ export class GameUI {
                 <label class="setting-row gyro-invert"><span>${icon('target')}<span>Đảo chiều lên / xuống<small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span></span><input id="gyro-invert" type="checkbox" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
               </div>
               <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
+              <label class="setting-row setting-check"><span>${icon('target')}<span>Gợi ý cho người mới<small>Mẹo ngắn hiện một lần, lần đầu bạn gặp từng tình huống</small></span></span><input id="tips" type="checkbox" aria-label="Gợi ý cho người mới"></label>
+              <label class="setting-row setting-check"><span>${icon('target')}<span>Hiện FPS<small>Số khung hình mỗi giây và số vật thể đang vẽ, để biết máy có chạy nổi không</small></span></span><input id="show-fps" type="checkbox" aria-label="Hiện FPS"></label>
               <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
             </div>
           </aside>
@@ -175,6 +185,7 @@ export class GameUI {
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
         <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
+        <div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
         <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
         <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="Vũ khí đang mang"></div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1 · 2 · 3 CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
@@ -183,8 +194,8 @@ export class GameUI {
         <div class="orientation-hint">Xoay điện thoại ngang để chơi</div>
       </section>
       <section id="pause-screen" class="overlay-screen" aria-labelledby="pause-title" hidden><div class="dialog pause-dialog"><div class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU ĐÃ TẠM DỪNG</div><h2 id="pause-title">NGHỈ MỘT NHỊP.</h2><p>Chiến trường đang chờ bạn quay lại.</p><button id="resume-button" class="button button-primary" type="button">TIẾP TỤC TRẬN ${icon('arrow')}</button><button id="pause-restart" class="button button-secondary" type="button">CHƠI LẠI</button><button id="pause-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button><small class="dialog-hint">Nhấn ESC để tiếp tục</small></div></section>
-      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
-      <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span></div></div></section><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button">VÀO TRẬN MỚI ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
+      <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
     `;
@@ -197,6 +208,8 @@ export class GameUI {
     choose('bot-choice', value => this.changeSettings({ botCount: Number(value) }));
     choose('gyro-choice', value => this.changeSettings({ gyro: value === 'always' ? 'always' : value === 'aim' ? 'aim' : 'off' }));
     this.el('gyro-sensitivity').addEventListener('input', () => this.changeSettings({ gyroSensitivity: Number((this.el('gyro-sensitivity') as HTMLInputElement).value) }));
+    this.el('tips').addEventListener('change', () => this.changeSettings({ tips: (this.el('tips') as HTMLInputElement).checked }));
+    this.el('show-fps').addEventListener('change', () => this.changeSettings({ showFps: (this.el('show-fps') as HTMLInputElement).checked }));
     this.el('gyro-invert').addEventListener('change', () => this.changeSettings({ gyroInvertY: (this.el('gyro-invert') as HTMLInputElement).checked }));
     choose('map-choice', value => { const map = readMap(value); this.changeSettings({ map, botCount: defaultBots(map) }); });
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
@@ -210,6 +223,8 @@ export class GameUI {
     this.el('resume-button').addEventListener('click', callbacks.onResume);
     this.el('pause-restart').addEventListener('click', callbacks.onRestart);
     this.el('restart-button').addEventListener('click', callbacks.onRestart);
+    this.el('spectate-button').addEventListener('click', () => callbacks.onSpectate?.());
+    this.el('spectate-exit').addEventListener('click', () => callbacks.onSpectateExit?.());
     this.el('pause-menu').addEventListener('click', callbacks.onMenu);
     this.el('result-menu').addEventListener('click', callbacks.onMenu);
     this.el('touch-inventory-toggle').addEventListener('click', () => {
@@ -249,8 +264,38 @@ export class GameUI {
       const pauseHint = root.querySelector('.dialog-hint');
       if (pauseHint) pauseHint.textContent = 'Chạm Tiếp tục trận để quay lại';
     }
+    this.el('bigmap').addEventListener('click', event => this.placeFlag(event as MouseEvent));
     this.syncSettings();
     this.updateBest();
+  }
+
+  /** The landing flag, or null. */
+  public get waypoint(): Vec2 | null { return this.flag; }
+  public setWaypoint(point: Vec2 | null): void {
+    this.flag = point;
+    if (this.lastState && this.lastWorld) { this.drawMinimap(this.lastState, this.lastWorld); if (this.mapOpen) this.drawBigMap(this.lastState, this.lastWorld); }
+  }
+  /** Change the gyroscope mode from the game screen (the in-game toggle) and remember it. */
+  public setGyro(mode: GyroMode): void { this.changeSettings({ gyro: mode }); }
+
+  /** A click on the big map plants the flag there; a click on the flag removes it. */
+  private placeFlag(event: MouseEvent): void {
+    const world = this.lastWorld;
+    if (!world || world.id === 'arena') return;
+    const canvas = this.el('bigmap') as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const px = (event.clientX - rect.left) * canvas.width / rect.width;
+    const py = (event.clientY - rect.top) * canvas.height / rect.height;
+    const size = canvas.width;
+    const scale = (size - 18) / (world.halfSize * 2);
+    const point = {
+      x: Math.max(-world.halfSize, Math.min(world.halfSize, (px - size / 2) / scale)),
+      z: Math.max(-world.halfSize, Math.min(world.halfSize, -(py - size / 2) / scale)),
+    };
+    const near = this.flag && Math.hypot((this.flag.x - point.x) * scale, (this.flag.z - point.z) * scale) < 22;
+    this.setWaypoint(near ? null : point);
+    this.notify(near ? 'Đã bỏ cờ đáp.' : 'Đã đặt cờ đáp. Nhảy rồi bay tới đó!');
   }
 
   private el(id: string): HTMLElement { return this.elements.get(id)!; }
@@ -286,6 +331,8 @@ export class GameUI {
     (this.el('gyro-sensitivity') as HTMLInputElement).value = `${this.settings.gyroSensitivity}`;
     this.text('gyro-sensitivity-value', `${this.settings.gyroSensitivity.toFixed(2)}×`);
     (this.el('gyro-invert') as HTMLInputElement).checked = this.settings.gyroInvertY;
+    (this.el('tips') as HTMLInputElement).checked = this.settings.tips;
+    (this.el('show-fps') as HTMLInputElement).checked = this.settings.showFps;
     const info = MAP_INFO[this.settings.map];
     this.text('preview-title', info.title);
     this.text('preview-blurb', info.blurb);
@@ -512,12 +559,27 @@ export class GameUI {
     bar.classList.toggle('low', info.health < 0.3);
   }
 
+  /** Banner while watching the match after dying; null otherwise. */
+  public setSpectate(name: string | null, touch = this.touchMode): void {
+    this.hide('spectate-bar', name === null);
+    if (this.root.dataset.spectate !== (name === null ? undefined : 'on')) {
+      if (name === null) delete this.root.dataset.spectate; else this.root.dataset.spectate = 'on';
+    }
+    if (name === null) return;
+    this.text('spectate-name', `ĐANG XEM · ${name.toUpperCase()}`);
+    this.text('spectate-help', touch ? 'Nút Đổi súng: đổi người xem' : 'Q / E hoặc cuộn chuột: đổi người xem');
+  }
+
   /** Line under the gyroscope setting that says whether the sensor works. */
   public setGyroStatus(text: string): void { this.text('gyro-status', text); }
 
   /** Flight readout while in the plane, in free fall or under the canopy; null once on the ground. */
-  public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number } | null): void {
+  public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number; flag?: { distance: number; reachable: boolean; auto: boolean } | null } | null): void {
     this.hide('air-hud', !info);
+    this.hide('air-flag', !info?.flag);
+    // Speed lines rush outward from the centre of the screen while falling fast.
+    this.hide('air-streaks', info?.mode !== 'freefall');
+    if (info?.mode === 'freefall') this.el('air-streaks').style.setProperty('--fall', `${Math.max(0, Math.min(1, (info.speed - 35) / 45)).toFixed(2)}`);
     const mode = info?.mode ?? '';
     // The attribute must disappear on the ground: an empty `data-air` would still match the CSS that hides the gun HUD.
     if ((this.root.dataset.air ?? '') !== mode) {
@@ -539,6 +601,11 @@ export class GameUI {
     this.text('air-left', `${Math.max(0, Math.round(info.seconds))}`);
     this.text('air-left-label', label);
     this.text('air-prompt', prompt);
+    if (info.flag) {
+      const km = info.flag.distance >= 1000 ? `${(info.flag.distance / 1000).toFixed(1)} KM` : `${Math.round(info.flag.distance)} M`;
+      this.text('air-flag', `CỜ ĐÁP · ${km} · ${info.flag.reachable ? 'TỚI ĐƯỢC' : 'NGOÀI TẦM LƯỢN'}${info.flag.auto ? ' · TỰ LÁI BẬT' : touch ? '' : ' · [G] TỰ LÁI'}`);
+      this.el('air-flag').classList.toggle('out', !info.flag.reachable);
+    }
   }
 
   public toggleMap(show?: boolean): void {
@@ -681,6 +748,28 @@ export class GameUI {
       ctx.strokeStyle = '#8fd4ffcc'; ctx.fillStyle = '#8fd4ff18'; ctx.lineWidth = big ? 2 : 1.2; ctx.setLineDash([3, 4]);
       ctx.beginPath(); ctx.arc(mapX(player.position.x), mapY(player.position.z), radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
     }
+    for (const drop of state.airdrops ?? []) {
+      if (drop.empty) continue;
+      const cx = mapX(drop.x), cy = mapY(drop.z), k = big ? 1.5 : 1;
+      const pulse = drop.landed ? 1 : 0.6 + 0.4 * Math.sin(performance.now() / 180);
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(k * pulse, k * pulse);
+      ctx.fillStyle = drop.landed ? '#e0453a' : '#ffffff'; ctx.strokeStyle = '#1a0805'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.rect(-4.5, -4.5, 9, 9); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4.5, -4.5); ctx.lineTo(4.5, 4.5); ctx.moveTo(4.5, -4.5); ctx.lineTo(-4.5, 4.5); ctx.stroke();
+      ctx.restore();
+    }
+    if (this.flag) {
+      const fx = mapX(this.flag.x), fy = mapY(this.flag.z), k = big ? 1.5 : 1;
+      if (player?.air) {
+        ctx.strokeStyle = '#ffd24acc'; ctx.lineWidth = big ? 2 : 1.2; ctx.setLineDash([2, 4]);
+        ctx.beginPath(); ctx.moveTo(mapX(player.position.x), mapY(player.position.z)); ctx.lineTo(fx, fy); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.save(); ctx.translate(fx, fy); ctx.scale(k, k);
+      ctx.strokeStyle = '#1a1405'; ctx.fillStyle = '#ffd24a'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(8, -9); ctx.lineTo(0, -6); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
     if (player && !(plane?.active && player.air?.mode === 'plane')) {
       const k = big ? 1.9 : 1;
       ctx.save(); ctx.translate(mapX(player.position.x), mapY(player.position.z)); ctx.rotate(player.yaw); ctx.scale(k, k);
@@ -693,25 +782,45 @@ export class GameUI {
   private showResults(state: GameState): void {
     const won = state.phase === 'won';
     this.el('result-screen').classList.toggle('victory', won);
-    this.text('result-rank', won ? '#1' : `#${Math.max(2, state.actors.filter(actor => actor.alive).length + 1)}`);
+    this.text('result-rank', won ? '#1' : `#${Math.max(2, state.playerRank ?? state.actors.filter(actor => actor.alive).length + 1)}`);
+    // The place the player died in; the option to keep watching disappears once they already did.
+    this.hide('spectate-button', won || !!state.spectating || state.actors.filter(actor => actor.alive).length < 2);
     this.text('result-title', won ? 'NGƯỜI SỐNG CUỐI.' : 'HẸN Ở TRẬN SAU.');
     this.text('result-copy', won ? 'Bạn đã giữ vững vị trí cho đến giây cuối cùng.' : 'Mỗi lần trở lại, bạn sẽ hiểu chiến trường hơn.');
     this.text('result-kills', `${state.kills}`);
-    this.text('result-time', formatTime(state.elapsed));
+    const survived = state.diedAt ?? state.elapsed;
+    this.text('result-time', formatTime(survived));
     this.text('result-accuracy', `${state.shots > 0 ? Math.min(100, Math.round(state.hits / state.shots * 100)) : 0}%`);
     if (!this.resultSaved) {
       this.resultSaved = true;
-      this.best = { wins: this.best.wins + (won ? 1 : 0), kills: Math.max(this.best.kills, state.kills), survival: Math.max(this.best.survival, state.elapsed) };
+      this.best = { wins: this.best.wins + (won ? 1 : 0), kills: Math.max(this.best.kills, state.kills), survival: Math.max(this.best.survival, survived) };
       saveJson(BEST_KEY, this.best);
       this.updateBest();
     }
   }
 
-  public notify(message: string): void {
+  public notify(message: string, duration = 3200): void {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     this.text('toast', message);
     this.hide('toast', false);
-    this.toastTimer = setTimeout(() => this.hide('toast', true), 3200);
+    this.toastTimer = setTimeout(() => this.hide('toast', true), duration);
+  }
+
+  private seenTips: Set<string> | null = null;
+  /** A hint shown once ever (remembered in the browser) unless hints are switched off in the settings. */
+  public tip(id: string, message: string): void {
+    if (!this.settings.tips) return;
+    this.seenTips ??= new Set((readJson(TIPS_KEY) as string[] | null) ?? []);
+    if (this.seenTips.has(id)) return;
+    this.seenTips.add(id);
+    saveJson(TIPS_KEY, [...this.seenTips]);
+    this.notify(`GỢI Ý · ${message}`, 6000);
+  }
+
+  /** The frame-rate readout (null hides it). */
+  public setPerf(text: string | null): void {
+    this.hide('perf-meter', text === null);
+    if (text !== null) this.text('perf-meter', text);
   }
   public showError(message: string): void {
     this.text('error-banner', message);

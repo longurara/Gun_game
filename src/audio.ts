@@ -2,6 +2,17 @@ import type { GameEvent, Vec3, WeaponType } from './types';
 import { WEAPONS } from './game/weapons';
 
 /** Short procedural effects: no downloaded assets, loops, or audio before a user gesture. */
+/**
+ * Stereo position, -1 (left) to 1 (right), of a sound at `from` for a listener at `at` facing `yaw` (the game's yaw:
+ * 0 faces +z, positive turns toward +x). Sounds very close to the listener stay near the centre.
+ */
+export function stereoPan(from: { x: number; z: number }, at: { x: number; z: number }, yaw: number): number {
+  const dx = from.x - at.x, dz = from.z - at.z, distance = Math.hypot(dx, dz);
+  if (!Number.isFinite(distance) || distance < 0.5) return 0;
+  const side = Math.sin(Math.atan2(dx, dz) - yaw);
+  return Math.max(-1, Math.min(1, side)) * Math.min(1, distance / 6);
+}
+
 export class GameAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -16,6 +27,9 @@ export class GameAudio {
   private lastHeal = -Infinity;
   private lastEngine = -Infinity;
   private lastWind = -Infinity;
+  /** Where the listener faces, and the stereo position applied to sounds made right now (null = centred). */
+  private listenerYaw = 0;
+  private currentPan: number | null = null;
   private stepSide = false;
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
@@ -82,7 +96,9 @@ export class GameAudio {
         // Keep nearby fire punchy while letting distant bot battles remain audible.
         if (distance > 170) return;
         const attenuation = 1 / (1 + Math.pow(distance / 22, 1.55));
+        this.currentPan = event.actorId === 'player' ? null : this.panFor(event.from, playerPosition);
         this.gunshot(event.weapon, attenuation, distance);
+        this.currentPan = null;
         if (event.actorId === 'player' && event.hitId) this.hit();
         break;
       }
@@ -92,6 +108,10 @@ export class GameAudio {
       case 'pickup':
         this.tone(620, 0.09, 0.07, 'sine');
         this.tone(event.kind === 'medkit' ? 930 : 1240, 0.12, 0.05, 'sine', 0.075);
+        break;
+      case 'airdrop':
+        // Three rising pings: something valuable is on the way, or just landed.
+        for (let i = 0; i < 3; i++) this.tone(event.stage === 'landed' ? 880 + i * 120 : 520 + i * 90, 0.16, 0.07, 'triangle', i * 0.17);
         break;
       case 'drop':
         if (event.actorId !== 'player') break;
@@ -159,6 +179,26 @@ export class GameAudio {
     const pitch = 46 + Math.abs(speed) * 3.6;
     this.tone(pitch, 0.11, 0.05 + Math.abs(throttle) * 0.03, 'sawtooth', 0, pitch * 1.04);
     this.tone(pitch * 2.01, 0.09, 0.012, 'triangle');
+  }
+
+  /** Which way the listener faces, so sounds can be placed left or right of them. */
+  setListenerYaw(yaw: number): void { this.listenerYaw = yaw; }
+
+  /** Stereo position, -1 (left) to 1 (right), of a sound at `from` for a listener at `at`. Close sounds stay near the centre. */
+  private panFor(from: { x: number; z: number }, at: { x: number; z: number }): number {
+    return stereoPan(from, at, this.listenerYaw);
+  }
+
+  /** Another soldier's footfall, quiet and placed by direction; only the nearby ones are audible. */
+  footstepOther(from: Vec3, listener: Vec3, running: boolean): void {
+    if (!this.ready()) return;
+    const distance = Math.hypot(from.x - listener.x, from.z - listener.z);
+    if (distance > 30) return;
+    const gain = (running ? 0.085 : 0.055) / (1 + Math.pow(distance / 7, 1.7));
+    this.currentPan = this.panFor(from, listener);
+    this.noise(0.075, gain, 'lowpass', 480 + Math.random() * 140);
+    this.tone(80, 0.06, gain * 0.8, 'sine', 0, 42);
+    this.currentPan = null;
   }
 
   /** Rushing air while falling: overlapping noise puffs that get brighter and louder with speed (m/s). */
@@ -314,8 +354,8 @@ export class GameAudio {
     oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, endFrequency), start + duration);
     this.envelope(envelope.gain, start, duration, gain);
     oscillator.connect(envelope);
-    envelope.connect(this.master!);
-    this.track(oscillator, [envelope]);
+    const placed = this.send(envelope);
+    this.track(oscillator, [envelope, ...placed]);
     oscillator.start(start);
     oscillator.stop(start + duration + 0.015);
   }
@@ -339,10 +379,21 @@ export class GameAudio {
     this.envelope(envelope.gain, start, duration, gain);
     source.connect(filter);
     filter.connect(envelope);
-    envelope.connect(this.master!);
-    this.track(source, [filter, envelope]);
+    const placed = this.send(envelope);
+    this.track(source, [filter, envelope, ...placed]);
     source.start(start, Math.random() * 0.3);
     source.stop(start + duration + 0.015);
+  }
+
+  /** Connect a finished sound to the output, through a stereo panner when it has a direction. Returns the extra nodes to clean up. */
+  private send(node: AudioNode): AudioNode[] {
+    const context = this.context!;
+    if (this.currentPan === null || typeof context.createStereoPanner !== 'function') { node.connect(this.master!); return []; }
+    const panner = context.createStereoPanner();
+    panner.pan.value = this.currentPan;
+    node.connect(panner);
+    panner.connect(this.master!);
+    return [panner];
   }
 
   private envelope(parameter: AudioParam, start: number, duration: number, gain: number): void {

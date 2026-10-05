@@ -22,3 +22,28 @@ html[data-input="touch"] .air-readout span { font-size: 5.5px; }
 html[data-input="touch"] .air-prompt { font-size: 8px; padding: 4px 9px; max-width: 70vw; letter-spacing: .6px; }
 html[data-air="plane"] .touch-jump, html[data-air="freefall"] .touch-jump { animation: air-pulse-btn 1s ease-in-out infinite; outline: 2px solid #ffd27a; }
 @keyframes air-pulse-btn { 50% { transform: scale(1.08); } }
+
+/* The landing flag line, under the readout. */
+.air-flag { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); padding: 4px 12px; font-size: 9px; letter-spacing: 1.4px; white-space: nowrap; color: #1a1405; background: #ffd24ae6; pointer-events: none; }
+.air-flag.out { background: #e0a07acc; }
+html[data-input="touch"] .air-flag { bottom: auto; top: calc(116px + var(--safe-top, 0px)); font-size: 8px; padding: 3px 9px; }
+.map-tip { margin-left: auto; color: #ffd24a; }
+
+/* Speed lines while falling: thin rays rush outward and fade; stronger the faster you fall. */
+.air-streaks { position: absolute; inset: -12%; pointer-events: none; --fall: 0;
+  background: repeating-conic-gradient(from 3deg at 50% 50%, transparent 0 4deg, #ffffffb0 4.1deg 4.35deg, transparent 4.5deg 11deg);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 30%, #000 78%); mask-image: radial-gradient(circle at 50% 50%, transparent 30%, #000 78%);
+  animation: air-rush .55s linear infinite; }
+@keyframes air-rush { 0% { transform: scale(.8); opacity: 0; } 25% { opacity: calc(var(--fall) * .5); } 100% { transform: scale(1.45); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .air-streaks { animation: none; opacity: calc(var(--fall) * .18); } }
+
+/* Map legend swatch for supply crates. */
+.lg-crate { background: #e0453a; border: 1px solid #1a0805; }
+
+/* Watching on after death: a banner, and none of the player's own gun HUD. */
+.spectate-bar { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 9px 14px; background: #0f1e18d9; border: 1px solid #ffffff26; font-size: 11px; letter-spacing: 2px; color: #f1f0dc; white-space: nowrap; pointer-events: auto; }
+.spectate-bar small { font-size: 9px; letter-spacing: .8px; color: #a9bd9c; }
+.spectate-bar button { padding: 6px 12px; font: inherit; font-size: 10px; letter-spacing: 1.5px; color: #17120a; background: #f2b43c; border: 0; cursor: pointer; }
+html[data-input="touch"] .spectate-bar { bottom: auto; top: calc(48px + var(--safe-top, 0px)); padding: 5px 9px; gap: 8px; font-size: 9px; }
+html[data-input="touch"] .spectate-bar small { display: none; }
+[data-spectate="on"] :is(#crosshair, #hit-marker, .weapon-panel, .health-panel, .zone-banner) { display: none; }

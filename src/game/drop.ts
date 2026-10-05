@@ -17,7 +17,7 @@ export const DROP = {
   /** The door stays shut for a moment at the start of the match. */
   doorDelay: 1.5,
   /** Extra seconds the first zone wait is stretched so nobody is shot by the circle while still airborne. */
-  zoneGrace: 45,
+  zoneGrace: 20,
 } as const;
 
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));

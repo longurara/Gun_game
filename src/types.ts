@@ -26,6 +26,9 @@ export interface GameSettings {
   /** Multiplier on the phone's rotation (1 = the camera turns as far as the phone does). */
   gyroSensitivity: number;
   gyroInvertY: boolean;
+  /** Short first-time hints, and the frame-rate readout. */
+  tips: boolean;
+  showFps: boolean;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */
@@ -64,6 +67,8 @@ export interface Plane {
   x: number; y: number; z: number; yaw: number; speed: number;
   from: Vec2; to: Vec2; length: number; travelled: number; active: boolean;
 }
+/** A supply crate on a parachute; once down it holds top-tier gear until picked clean. */
+export interface Airdrop { id: string; x: number; z: number; y: number; landed: boolean; time: number; empty: boolean; loot: string[] }
 export interface Actor {
   id: string; name: string; isPlayer: boolean; position: Vec3; yaw: number;
   health: number; alive: boolean; weapon: WeaponType; ownedWeapons: WeaponType[];
@@ -87,6 +92,9 @@ export interface GameState {
   zone: ZoneState; kills: number; shots: number; hits: number;
   /** Present only in a match that starts with a drop from the sky. */
   plane?: Plane | null;
+  airdrops?: Airdrop[];
+  /** The player's place and time of death, kept while they watch the rest of the match. */
+  playerRank?: number; diedAt?: number; spectating?: boolean;
 }
 /** While driving, throttle (-1 reverse to 1 forward) and steer (-1 left to 1 right) replace the move vector; jump is the handbrake. */
 export interface PlayerInput { moveX: number; moveZ: number; sprint: boolean; jump: boolean; throttle?: number; steer?: number }
@@ -110,4 +118,5 @@ export type GameEvent =
   | { type: 'crash'; vehicleId: string; strength: number; position: Vec3 }
   | { type: 'explosion'; position: Vec3 }
   | { type: 'drop'; actorId: string; stage: 'jump' | 'chute' | 'land' }
+  | { type: 'airdrop'; stage: 'incoming' | 'landed'; position: Vec3 }
   | { type: 'end'; won: boolean };
