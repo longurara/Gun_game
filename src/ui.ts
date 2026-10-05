@@ -14,7 +14,7 @@ type Callbacks = {
   onTouchOverlayChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1 };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false };
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
 const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
@@ -47,7 +47,8 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 function readSettings(): GameSettings {
-  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: document.documentElement.dataset.input === 'touch' ? 'low' : 'high' };
+  const touch = document.documentElement.dataset.input === 'touch';
+  const defaults: GameSettings = { ...DEFAULT_SETTINGS, quality: touch ? 'low' : 'high', gyro: touch ? 'aim' : 'off' };
   const value = readJson(SETTINGS_KEY);
   if (!value || typeof value !== 'object') return defaults;
   const raw = value as Partial<GameSettings>;
@@ -59,6 +60,9 @@ function readSettings(): GameSettings {
     quality: raw.quality === 'low' || raw.quality === 'high' ? raw.quality : defaults.quality,
     volume: clamp(raw.volume, 0, 1, DEFAULT_SETTINGS.volume),
     sensitivity: clamp(raw.sensitivity, 0.35, 2, DEFAULT_SETTINGS.sensitivity),
+    gyro: raw.gyro === 'off' || raw.gyro === 'aim' || raw.gyro === 'always' ? raw.gyro : defaults.gyro,
+    gyroSensitivity: clamp(raw.gyroSensitivity, 0.3, 3, DEFAULT_SETTINGS.gyroSensitivity),
+    gyroInvertY: raw.gyroInvertY === true,
   };
 }
 function readBest(): BestRecord {
@@ -133,6 +137,12 @@ export class GameUI {
               <p class="settings-copy">Điều chỉnh để chơi thoải mái trên máy của bạn.</p>
               <label class="setting-row"><span>${icon('sound')}<span>Âm lượng<small>Tiếng súng và âm thanh trong trận</small></span></span><output id="volume-value">60%</output><input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Âm lượng"></label>
               <label class="setting-row"><span>${icon('target')}<span>Độ nhạy chuột<small>Giá trị thấp giúp ngắm chính xác hơn</small></span></span><output id="sensitivity-value">1.00×</output><input id="sensitivity" type="range" min="0.35" max="2" step="0.05" aria-label="Độ nhạy chuột"></label>
+              <div class="setting-gyro touch-only">
+                <div class="setting-gyro-head"><span>${icon('target')}<span>Con quay hồi chuyển<small id="gyro-status"></small></span></span></div>
+                <div id="gyro-choice" class="seg seg-compact" role="radiogroup" aria-label="Chế độ con quay hồi chuyển"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="aim"><b>Khi ngắm</b><small>ngắm hoặc đang bắn</small></button><button type="button" role="radio" data-value="always"><b>Luôn bật</b></button></div>
+                <label class="setting-row"><span>${icon('target')}<span>Độ nhạy cảm biến<small>1× = camera quay đúng bằng góc bạn xoay điện thoại</small></span></span><output id="gyro-sensitivity-value">1.00×</output><input id="gyro-sensitivity" type="range" min="0.3" max="3" step="0.05" aria-label="Độ nhạy con quay hồi chuyển"></label>
+                <label class="setting-row gyro-invert"><span>${icon('target')}<span>Đảo chiều lên / xuống<small>Bật nếu nghiêng điện thoại lên mà tâm đi xuống</small></span></span><input id="gyro-invert" type="checkbox" aria-label="Đảo chiều lên xuống của con quay hồi chuyển"></label>
+              </div>
               <label class="setting-quality"><span>Chất lượng hình ảnh<small>Giảm chất lượng nếu máy chạy chậm</small></span><select id="quality" aria-label="Chất lượng hình ảnh"><option value="high">Cao</option><option value="low">Thấp · ưu tiên FPS</option></select></label>
               <div class="settings-saved">Thiết lập được lưu tự động trên trình duyệt này.</div><button id="back-play" class="button button-secondary" type="button">TRỞ VỀ CHIẾN ĐẤU ${icon('arrow')}</button>
             </div>
@@ -185,6 +195,9 @@ export class GameUI {
     });
     choose('difficulty-choice', value => this.changeSettings({ difficulty: value === 'easy' ? 'easy' : 'normal' }));
     choose('bot-choice', value => this.changeSettings({ botCount: Number(value) }));
+    choose('gyro-choice', value => this.changeSettings({ gyro: value === 'always' ? 'always' : value === 'aim' ? 'aim' : 'off' }));
+    this.el('gyro-sensitivity').addEventListener('input', () => this.changeSettings({ gyroSensitivity: Number((this.el('gyro-sensitivity') as HTMLInputElement).value) }));
+    this.el('gyro-invert').addEventListener('change', () => this.changeSettings({ gyroInvertY: (this.el('gyro-invert') as HTMLInputElement).checked }));
     choose('map-choice', value => { const map = readMap(value); this.changeSettings({ map, botCount: defaultBots(map) }); });
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
     this.el('volume').addEventListener('input', () => this.changeSettings({ volume: Number((this.el('volume') as HTMLInputElement).value) }));
@@ -269,6 +282,10 @@ export class GameUI {
     mark('map-choice', this.settings.map);
     mark('bot-choice', `${this.settings.botCount}`);
     mark('difficulty-choice', this.settings.difficulty);
+    mark('gyro-choice', this.settings.gyro);
+    (this.el('gyro-sensitivity') as HTMLInputElement).value = `${this.settings.gyroSensitivity}`;
+    this.text('gyro-sensitivity-value', `${this.settings.gyroSensitivity.toFixed(2)}×`);
+    (this.el('gyro-invert') as HTMLInputElement).checked = this.settings.gyroInvertY;
     const info = MAP_INFO[this.settings.map];
     this.text('preview-title', info.title);
     this.text('preview-blurb', info.blurb);
@@ -494,6 +511,9 @@ export class GameUI {
     bar.style.transform = `scaleX(${Math.max(0, Math.min(1, info.health))})`;
     bar.classList.toggle('low', info.health < 0.3);
   }
+
+  /** Line under the gyroscope setting that says whether the sensor works. */
+  public setGyroStatus(text: string): void { this.text('gyro-status', text); }
 
   /** Flight readout while in the plane, in free fall or under the canopy; null once on the ground. */
   public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number } | null): void {

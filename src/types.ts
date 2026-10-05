@@ -13,6 +13,8 @@ export type ArmorSlot = 'helmet' | 'vest';
 export type ArmorKind = `${ArmorSlot}${1 | 2 | 3}`;
 export type LootKind = WeaponType | AmmoKind | 'medkit' | ArmorKind;
 export type MapId = 'arena' | 'island' | 'valley';
+/** Gyroscope aiming: off, only while aiming or firing, or always. */
+export type GyroMode = 'off' | 'aim' | 'always';
 export interface GameSettings {
   difficulty: Difficulty;
   botCount: number;
@@ -20,6 +22,10 @@ export interface GameSettings {
   volume: number;
   quality: 'low' | 'high';
   sensitivity: number;
+  gyro: GyroMode;
+  /** Multiplier on the phone's rotation (1 = the camera turns as far as the phone does). */
+  gyroSensitivity: number;
+  gyroInvertY: boolean;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */

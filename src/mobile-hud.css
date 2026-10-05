@@ -180,3 +180,14 @@ html[data-input="touch"] .map-card-head small { display: none; }
   html[data-input="touch"] #touch-reload { right: calc(20% - 22px + var(--safe-right)); }
   html[data-input="touch"] #touch-heal { top: calc(20% + var(--safe-top)); bottom: auto; }
 }
+
+/* Gyroscope settings only make sense on a phone. */
+html[data-input="mouse"] .touch-only { display: none !important; }
+.setting-gyro { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 4px; border-top: 1px solid #ffffff14; }
+.setting-gyro-head > span { display: flex; align-items: center; gap: 10px; }
+.setting-gyro-head > span > svg { width: 18px; height: 18px; flex: none; }
+.setting-gyro-head > span > span { display: flex; flex-direction: column; gap: 3px; }
+.setting-gyro-head small { max-width: 52ch; line-height: 1.45; }
+.setting-gyro .gyro-invert input { width: 26px; height: 26px; min-height: 0; accent-color: #e9a24b; }
+.setting-gyro .gyro-invert { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setting-gyro .gyro-invert input { margin: 0; flex: none; }

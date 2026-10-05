@@ -34,6 +34,7 @@ import type { Actor, GameSettings, Loot, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
+import { Gyro, GYRO_STATUS_TEXT, gyroSupport } from './gyro';
 import { IslandRenderer } from './island-renderer';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
@@ -80,15 +81,20 @@ let planeModel: TransformNode | null = null;
 const pitchMin = () => sim.player.air ? -1.4 : -0.7;
 
 const ui = new GameUI({
-  onStart: (next) => { settings = next; applySettings(); start(); },
+  onStart: (next) => { settings = next; applySettings(); syncGyro(); start(); },
   onResume: () => { void audio.unlock(); sim.setPaused(false); lockPointer(); clock = performance.now(); },
   onRestart: () => start(),
   onMenu: () => { sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
-  onSettings: (next) => { settings = next; applySettings(); },
+  onSettings: (next) => { settings = next; applySettings(); syncGyro(); },
   onSelectWeapon: selectWeapon,
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
 });
 settings = ui.settings;
+const gyro = new Gyro(onGyroLook, status => ui.setGyroStatus(GYRO_STATUS_TEXT[status]));
+{
+  const support = gyroSupport();
+  ui.setGyroStatus(support !== 'ok' ? GYRO_STATUS_TEXT[support] : settings.gyro === 'off' ? GYRO_STATUS_TEXT.off : 'Sẽ bật khi bạn bắt đầu trận.');
+}
 if (touchDevice) {
   mobile = new MobileControls(canvas, {
     onLook: (dx, dy) => {
@@ -110,6 +116,25 @@ if (touchDevice) {
     onCycleWeapon: () => cycleWeapon(1),
     onPause: pause,
   });
+}
+
+/** Turn the sensor on or off to match the setting. Runs inside a tap, which iOS needs before it will ask for permission. */
+function syncGyro() {
+  if (!touchDevice) return;
+  if (settings.gyro === 'off') gyro.disable();
+  else void gyro.enable();
+}
+
+/** Phone rotation (radians) becomes camera rotation, scaled down while zoomed so a scope stays steady. */
+function onGyroLook(dYaw: number, dPitch: number) {
+  if (sim.state.phase !== 'playing' || ui.touchOverlayOpen || settings.gyro === 'off') return;
+  // "Khi ngắm": only while looking down the sights or holding the trigger, so walking is never twitchy.
+  if (settings.gyro === 'aim' && !aiming && !shooting) return;
+  const zoom = aiming ? WEAPONS[sim.player.weapon].zoom : 1;
+  const scale = settings.gyroSensitivity / Math.sqrt(zoom);
+  lastLookAt = performance.now();
+  yaw += dYaw * scale;
+  pitch = Math.max(pitchMin(), Math.min(0.8, pitch + dPitch * scale * (settings.gyroInvertY ? -1 : 1)));
 }
 
 function start() {

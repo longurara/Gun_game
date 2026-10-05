@@ -85,6 +85,12 @@ Di chuyển, nhảy hoặc bắn sẽ hủy hồi máu. Khi chuyển sang cửa 
 
 Có thể dùng hai ngón: ngón trái di chuyển, ngón phải giữ và kéo nút Bắn để vừa bắn vừa ngắm. Độ nhạy vuốt được điều chỉnh theo kích thước màn hình; chỉnh thêm trong Thiết lập. Khi mở bản đồ/kho súng, tạm dừng hoặc chuyển tab, thao tác đang giữ được giải phóng. Cảm ứng không cần khóa chuột.
 
+### Con quay hồi chuyển (ngắm bằng cách xoay điện thoại)
+
+Vào **Thiết lập** trước trận (chỉ hiện trên điện thoại): chọn **Tắt**, **Khi ngắm** (mặc định: chỉ hoạt động khi đang ngắm hoặc đang giữ nút Bắn, nên đi bộ không bị giật) hoặc **Luôn bật**. Xoay điện thoại để chỉnh tâm; vuốt màn hình vẫn dùng song song. Độ nhạy 1× nghĩa là camera quay đúng bằng góc bạn xoay máy; khi ngắm qua ống ngắm độ nhạy tự giảm theo độ phóng đại. Có thêm tùy chọn đảo chiều lên/xuống.
+
+Điều kiện: trình duyệt chỉ cho trang đọc cảm biến khi trang chạy qua **HTTPS hoặc localhost**, nên mở game bằng `http://192.168.x.x:5173` (xem mục Wi-Fi ở trên) sẽ báo "Cần mở game bằng HTTPS". Trên Chrome Android có thể tạm bật `chrome://flags/#unsafely-treat-insecure-origin-as-secure` cho địa chỉ đó, hoặc dùng một đường hầm HTTPS. Trên iPhone, Safari hỏi quyền cảm biến khi bạn chạm **BẮT ĐẦU TRẬN** hoặc đổi chế độ. Mã nằm ở [src/gyro.ts](src/gyro.ts) (chuyển tốc độ quay thành góc camera theo trục trọng lực, có test trong tests/gyro.test.ts).
+
 HUD điện thoại dùng nút tròn trong suốt và nút bắn ở cả hai bên, bản đồ nhỏ phía trên phải, thanh máu và các ô súng có biểu tượng gọn dưới giữa. Chạm trực tiếp ô súng để chọn; nút mũi tên mở bảng chọn khi cần trên màn hình rộng. HUD PC dùng la bàn trên giữa, máu/đạn dưới giữa, các ô súng và minimap bên phải; vùng nhìn giữa màn hình được giữ thoáng.
 
 ## Nhảy dù
