@@ -64,7 +64,8 @@ Mô phỏng tách khỏi DOM/render, chia bước tối đa 1/30 giây, có hạ
 | Ngồi/nằm, giật súng theo mẫu kiểu PUBG PC, tán đạn khi di chuyển, hỗ trợ ngắm cảm ứng | Hoàn thành; cần cân bằng bằng chơi thử |
 | Đạn rơi, phát lại cú hạ gục, chỉ hướng tiếng súng, bot biết nằm | Hoàn thành |
 | Chơi online với bạn bè (Supabase Realtime, chủ phòng quyết định) | Hoàn thành bản đầu; cần thử trên nhiều máy thật |
-| Kiểm thử logic, giao diện, trình duyệt thật (420 bài + 9 bài e2e) và build | Đạt |
+| Tài khoản, kết bạn, mời vào phòng, thành tích và xếp hạng (Supabase Auth + 2 bảng có RLS) | Mã xong, SQL đã kiểm trên Postgres giả lập; **cần chạy supabase/setup.sql trên dự án rồi thử thật** |
+| Kiểm thử logic, giao diện, trình duyệt thật (448 bài + 9 bài e2e) và build | Đạt |
 | Chơi thử trên trình duyệt | Đã kiểm tra các luồng chính (xem KIEM_THU.md) |
 | Đo FPS và thử trên điện thoại thật | **Chưa thực hiện** |
 | Hosting công khai | Chưa thực hiện |

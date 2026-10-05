@@ -13,6 +13,12 @@ export interface ControllerOptions {
   /** The map, bot count and difficulty currently chosen on the main screen: the host's room settings. */
   config(): RoomConfig;
   begin(start: MatchStart): void;
+  /** The signed-in account, if any: it decides the player's name and lets friends recognise them. */
+  identity?(): { name: string; uid: string } | null;
+  /** Friends to mark in the roster and online friends who can be invited. */
+  friends?(): { friendIds: string[]; invitable: Array<{ id: string; name: string }> };
+  /** The room code the player is waiting in (null when none), so friends can see and join it. */
+  onRoom?(code: string | null): void;
   /** Tests and tools may supply another transport. */
   makeTransport?(room: string): Transport;
 }
@@ -47,6 +53,7 @@ export class MultiplayerController {
     if (this.lobby && this.lobby.phase !== 'starting') this.lobby.leave();
     else if (this.transport && this.lobby?.phase !== 'starting') this.transport.close();
     this.lobby = null; this.transport = null; this.code = ''; this.localError = '';
+    this.options.onRoom?.(null);
     this.render();
   }
 
@@ -56,19 +63,28 @@ export class MultiplayerController {
     const transport = this.options.makeTransport ? this.options.makeTransport(code) : new SupabaseTransport(SUPABASE, code);
     this.transport = transport;
     this.code = code;
-    const lobby = new Lobby(transport, name, role, this.options.config());
+    const who = this.options.identity?.();
+    const lobby = new Lobby(transport, who?.name ?? name, role, this.options.config(), Math.random, who?.uid);
     this.lobby = lobby;
     lobby.onChange(() => this.render());
     lobby.onStart(setup => {
       window.clearInterval(this.timer);
+      this.options.onRoom?.(null);
       this.options.begin({ setup, role, transport, hostId: lobby.hostId ?? transport.clientId, me: transport.clientId });
       // The transport now belongs to the match.
       this.lobby = null; this.transport = null; this.code = '';
     });
     this.timer = window.setInterval(() => lobby.tick(performance.now()), 400);
     lobby.tick(performance.now());
+    this.options.onRoom?.(code);
     this.render();
   }
+
+  /** Redraw (the friend list or the account changed). */
+  refresh(): void { this.render(); }
+
+  /** Invite one friend into the room we are in. */
+  get roomCode(): string { return this.code; }
 
   private render(): void {
     const lobby = this.lobby;
@@ -80,6 +96,7 @@ export class MultiplayerController {
     const model: LobbyModel = {
       phase, code: this.code, players: lobby?.players ?? [], me: lobby?.me ?? '', isHost: lobby?.role === 'host',
       error: lobby?.error || this.localError, config: lobby?.config ?? this.options.config(), status,
+      friendIds: this.options.friends?.().friendIds ?? [], invitable: this.options.friends?.().invitable ?? [],
     };
     this.view.render(model);
   }

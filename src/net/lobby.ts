@@ -7,7 +7,8 @@ import type { MatchSetup } from './session';
 import type { NetMessage, Transport } from './transport';
 
 export interface RoomConfig { map: MatchSetup['map']; botCount: number; difficulty: MatchSetup['difficulty'] }
-export interface RosterEntry { id: string; name: string }
+/** `uid` is the player's account id when they are signed in (used to recognise friends and send invites). */
+export interface RosterEntry { id: string; name: string; uid?: string }
 export type LobbyPhase = 'connecting' | 'joining' | 'waiting' | 'starting' | 'closed' | 'error';
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -41,8 +42,8 @@ export class Lobby {
   /** The time of the latest tick: a heartbeat is stamped with it. */
   private now = 0;
 
-  constructor(private readonly transport: Transport, private name: string, readonly role: 'host' | 'client', public config: RoomConfig, private readonly random: () => number = Math.random) {
-    if (role === 'host') { this.hostId = transport.clientId; this.players = [{ id: transport.clientId, name }]; this.phase = 'waiting'; }
+  constructor(private readonly transport: Transport, private name: string, readonly role: 'host' | 'client', public config: RoomConfig, private readonly random: () => number = Math.random, private readonly uid?: string) {
+    if (role === 'host') { this.hostId = transport.clientId; this.players = [{ id: transport.clientId, name, ...(uid ? { uid } : {}) }]; this.phase = 'waiting'; }
     transport.onMessage((message, from) => this.receive(message, from));
     transport.onStatus((status, detail) => {
       if (status === 'error') this.fail(`Không kết nối được máy chủ: ${detail ?? 'lỗi mạng'}`);
@@ -88,10 +89,11 @@ export class Lobby {
       if (message.k === 'hello') {
         const name = String(message.name ?? 'Người chơi').slice(0, 16);
         if (this.phase !== 'waiting') { this.transport.send({ k: 'reject', to: from, why: 'started' }); return; }
+        const uid = typeof message.uid === 'string' && message.uid.length < 60 ? message.uid : undefined;
         const known = this.players.find(player => player.id === from);
         if (!known && this.players.length >= MAX_PLAYERS) { this.transport.send({ k: 'reject', to: from, why: 'full' }); return; }
         this.lastSeen.set(from, this.now);
-        if (known) known.name = name; else this.players.push({ id: from, name });
+        if (known) { known.name = name; if (uid) known.uid = uid; } else this.players.push({ id: from, name, ...(uid ? { uid } : {}) });
         this.broadcastRoster();
         this.changed();
       } else if (message.k === 'bye') {
@@ -145,7 +147,7 @@ export class Lobby {
     if (this.startedAt === null) this.startedAt = nowMs;
     if (nowMs - this.lastHello >= HELLO_INTERVAL) {
       this.lastHello = nowMs;
-      this.transport.send({ k: 'hello', name: this.name });
+      this.transport.send({ k: 'hello', name: this.name, ...(this.uid ? { uid: this.uid } : {}) });
     }
     if (this.phase === 'connecting' || this.phase === 'joining') {
       this.phase = 'joining';

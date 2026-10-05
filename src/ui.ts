@@ -12,6 +12,8 @@ type Callbacks = {
   onMenu: () => void;
   /** The "play with friends" button on the main screen. */
   onMultiplayer?: () => void;
+  /** The profile chip on the main screen was pressed: open the account window. */
+  onAccount?: () => void;
   onSettings: (settings: GameSettings) => void;
   /** Keep watching the match after dying, and stop watching. */
   onSpectate?: () => void;
@@ -120,9 +122,9 @@ export class GameUI {
         <header class="lobby-top">
           <a class="wordmark" href="#" aria-label="LASTLIGHT, màn hình chính"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>VÙNG SỐNG CUỐI CÙNG</small></span></a>
           <nav class="lobby-nav" aria-label="Màn hình chính"><button id="tab-play" class="tab active" type="button">CHIẾN ĐẤU</button><button id="tab-settings" class="tab" type="button">THIẾT LẬP</button></nav>
-          <div class="profile-chip" aria-label="Thành tích của bạn">
-            <div class="profile-id"><i>${icon('shield')}</i><span><b>NGƯỜI SINH TỒN</b><small>CHƠI NGAY · KHÔNG CẦN TÀI KHOẢN</small></span></div>
-            <dl><div><dt>THẮNG</dt><dd id="best-wins">0</dd></div><div><dt>HẠ GỤC</dt><dd id="best-kills">0</dd></div><div><dt>SỐNG LÂU NHẤT</dt><dd id="best-time">00:00</dd></div></dl>
+          <div id="profile-chip" class="profile-chip" aria-label="Thành tích của bạn">
+            <div id="profile-id" class="profile-id" role="button" tabindex="0" aria-label="Tài khoản: đăng nhập, kết bạn"><i>${icon('shield')}</i><span><b id="profile-name">NGƯỜI SINH TỒN</b><small id="profile-sub">CHƠI NGAY · ĐĂNG NHẬP ĐỂ KẾT BẠN</small></span></div>
+            <dl><div><dt>THẮNG</dt><dd id="best-wins">0</dd></div><div><dt>HẠ GỤC</dt><dd id="best-kills">0</dd></div><div><dt id="best-third-label">SỐNG LÂU NHẤT</dt><dd id="best-time">00:00</dd></div></dl>
           </div>
         </header>
         <div class="lobby-stage">
@@ -241,6 +243,9 @@ export class GameUI {
     this.el('start-button').addEventListener('click', () => { this.hide('error-banner', true); this.callbacks.onStart({ ...this.settings }); });
     this.el('resume-button').addEventListener('click', callbacks.onResume);
     this.el('multi-button').addEventListener('click', () => callbacks.onMultiplayer?.());
+    const chip = this.el('profile-id');
+    chip.addEventListener('click', () => callbacks.onAccount?.());
+    chip.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); callbacks.onAccount?.(); } });
     this.el('pause-restart').addEventListener('click', callbacks.onRestart);
     this.el('restart-button').addEventListener('click', callbacks.onRestart);
     this.el('spectate-button').addEventListener('click', () => callbacks.onSpectate?.());
@@ -379,7 +384,25 @@ export class GameUI {
     this.el('tab-play').classList.toggle('active', !show);
     this.el('tab-settings').classList.toggle('active', show);
   }
+  private account: { name: string; wins: number; kills: number; matches: number } | null = null;
+
+  /** Show the signed-in player on the main screen (their saved totals), or this browser's own best when signed out. */
+  public setAccount(info: { name: string; wins: number; kills: number; matches: number } | null): void {
+    this.account = info;
+    this.el('profile-chip').dataset.signed = info ? 'in' : 'out';
+    this.text('profile-name', info ? info.name.toUpperCase() : 'NGƯỜI SINH TỒN');
+    this.text('profile-sub', info ? 'ĐÃ ĐĂNG NHẬP · BẠN BÈ' : 'CHƠI NGAY · ĐĂNG NHẬP ĐỂ KẾT BẠN');
+    this.text('best-third-label', info ? 'TRẬN' : 'SỐNG LÂU NHẤT');
+    this.updateBest();
+  }
+
   private updateBest(): void {
+    if (this.account) {
+      this.text('best-wins', `${this.account.wins}`);
+      this.text('best-kills', `${this.account.kills}`);
+      this.text('best-time', `${this.account.matches}`);
+      return;
+    }
     this.text('best-wins', `${this.best.wins}`);
     this.text('best-kills', `${this.best.kills}`);
     this.text('best-time', formatTime(this.best.survival));

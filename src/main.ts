@@ -5,6 +5,7 @@ import './desktop-hud.css';
 import './air-hud.css';
 import './stance-hud.css';
 import './lobby.css';
+import './social.css';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
@@ -43,6 +44,11 @@ import { lookScale, pickAssist, pullStep } from './aim-assist';
 import type { AssistTarget } from './aim-assist';
 import { ReplayRecorder, sampleReplay, shotsBetween } from './replay';
 import { LobbyView } from './lobby-ui';
+import { createClient } from '@supabase/supabase-js';
+import { SupabaseSocialApi } from './social/api';
+import { SocialStore } from './social/store';
+import { AccountView } from './social-ui';
+import { SUPABASE } from './net/config';
 import { normalizeRoomCode } from './net/lobby';
 import { MultiplayerController } from './net/controller';
 import type { MatchStart } from './net/controller';
@@ -101,6 +107,8 @@ const lastSoundCue = new Map<string, number>();
 /** An online match: the host runs the game, a client mirrors it. Null in single player. */
 let net: { role: 'host' | 'client'; host?: HostSession; client?: ClientSession; transport: Transport } | null = null;
 let mpMenuOpen = false, mpSpectating = false;
+/** The result of this match has been sent to the player's account (once per match). */
+let resultReported = false;
 let lastInput: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 const nameplates = new Map<string, HTMLDivElement>();
 /** Weapon recoil: the kick not yet recovered or pulled against, and the camera's eye height as the stance changes. */
@@ -122,6 +130,7 @@ const ui = new GameUI({
   onRestart: () => { if (net) leaveMatch(); else start(); },
   onMenu: () => { if (net) { leaveMatch(); return; } sim.returnToMenu({ map: 'arena', botCount: 5 }); configureWorld(); releaseInput(); audio.pause(); },
   onMultiplayer: openLobby,
+  onAccount: () => accountView.show(true),
   onSpectate: startSpectating,
   onReplay: startReplay,
   onReplayStop: stopReplay,
@@ -274,11 +283,36 @@ const lobbyView = new LobbyView(uiRoot, {
   onStart: () => mp.start(),
   onLeave: () => mp.leave(),
   onClose: () => lobbyView.show(false),
+  onInvite: friendId => { const person = social.friends.find(edge => edge.person.id === friendId)?.person; if (person) social.invite(person); },
 });
+const social = new SocialStore(new SupabaseSocialApi(SUPABASE, createClient as unknown as ConstructorParameters<typeof SupabaseSocialApi>[1]));
 const mp = new MultiplayerController(lobbyView, {
   config: () => ({ map: settings.map, botCount: settings.botCount, difficulty: settings.difficulty }),
   begin: beginMultiplayer,
+  identity: () => social.signedIn && social.displayName ? { name: social.displayName, uid: social.state.account!.id } : null,
+  friends: () => ({
+    friendIds: social.friends.map(edge => edge.person.id),
+    invitable: social.onlineFriends().filter(friend => !friend.info.room).map(friend => ({ id: friend.edge.person.id, name: friend.edge.person.username })),
+  }),
+  onRoom: code => social.setRoom(code),
 });
+const accountView = new AccountView(uiRoot, social, {
+  onJoinRoom: room => { lobbyView.show(true); mp.join(room, lobbyView.name()); },
+});
+social.onChange(() => {
+  const profile = social.state.profile;
+  ui.setAccount(social.signedIn ? { name: social.displayName ?? '', wins: profile?.wins ?? 0, kills: profile?.kills ?? 0, matches: profile?.matches ?? 0 } : null);
+  lobbyView.setLockedName(social.signedIn ? social.displayName : null);
+  mp.refresh();
+});
+void social.start();
+
+/** Send the result of the match that just ended to the signed-in player's record (once per match). */
+function reportResult(won: boolean) {
+  if (resultReported) return;
+  resultReported = true;
+  void social.reportMatch(won, sim.state.kills, won ? 1 : sim.state.playerRank ?? sim.player.rank ?? sim.state.actors.filter(actor => actor.alive).length + 1);
+}
 
 function openLobby() {
   void audio.unlock();
@@ -301,6 +335,7 @@ function beginMultiplayer(info: MatchStart) {
   lobbyView.show(false);
   configureWorld();
   stopReplay(); recorder.clear();
+  resultReported = false; social.newMatch();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
   for (const effect of effects) effect.mesh.dispose();
@@ -360,6 +395,7 @@ function start() {
   audio.localId = sim.localId;
   configureWorld();
   stopReplay(); recorder.clear();
+  resultReported = false; social.newMatch();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
   for (const effect of effects) effect.mesh.dispose();
@@ -1430,6 +1466,11 @@ try {
       }
     }
     updateNameplates();
+    // Results go to the account: a finished single-player match, or (online) the moment you are out or win.
+    if (!resultReported) {
+      if (sim.state.phase === 'won' || sim.state.phase === 'lost') reportResult(sim.state.phase === 'won');
+      else if (net && sim.state.phase === 'playing' && !sim.player.alive) reportResult(false);
+    }
     renderActors(sim.state.phase === 'paused' ? 0 : dt);
     renderVehicles(sim.state.phase === 'paused' ? 0 : dt);
     renderLoot(sim.state.elapsed);

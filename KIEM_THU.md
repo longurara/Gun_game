@@ -87,6 +87,12 @@ Khung xem không phát khung hình khi bị ẩn, nên tôi tự gọi vòng l�
 - Chụp màn hình: phòng chờ, cảnh trong trận (bạn bè áo đỏ, tên nổi trên đầu), bố cục điện thoại 740 × 360.
 - **Chưa kiểm tra:** chơi trên nhiều máy thật và nhiều mạng khác nhau (chỉ thử nhiều tab trình duyệt trên một máy), phòng 6 người, mạng di động, chủ phòng chuyển tab giữa trận, lái xe online, giới hạn 100 tin nhắn/giây khi có nhiều phòng. Chưa có chat, bảng điểm, chuyển chủ phòng khi chủ thoát.
 
+## Tài khoản, bạn bè, mời bạn — 05/10/2026
+
+- `npm test`: tất cả đạt (thêm: logic tài khoản/bạn bè/mời/xếp hạng trên máy chủ giả, **lược đồ SQL và Row Level Security chạy trên Postgres thật bằng PGlite** — gồm cả việc người lạ không đọc/sửa được lời mời của người khác, không tự sửa được số thắng, không tự chấp nhận lời mời do mình gửi, trigger tạo hồ sơ — và 9 bài giao diện jsdom cho cửa sổ tài khoản, thanh mời, ô thành tích).
+- Giao diện: ô đã nhập (mật khẩu, tên, ô tìm kiếm) không bị xóa khi trạng thái bạn bè đổi và cửa sổ vẽ lại; Enter trong ô gửi biểu mẫu; bật xác nhận email thì cửa sổ báo "thư xác nhận" thay vì tự đăng nhập; dự án chưa chạy SQL thì hiện hướng dẫn thay vì biểu mẫu; thanh mời có VÀO PHÒNG / bỏ qua và không hiện cho người mời.
+- **Chưa kiểm tra với Supabase thật:** dự án hiện chưa có bảng (SQL phải được chạy trong SQL Editor, xem README) và đang bật xác nhận email, nên chưa đăng ký, kết bạn, mời hay ghi điểm qua mạng thật được. Chưa có bài e2e `social`; chưa nhìn bằng mắt cửa sổ tài khoản trên điện thoại.
+
 ## Chưa kiểm tra / giới hạn
 
 - Chưa nghe thử âm thanh stereo và tiếng báo hộp tiếp tế; chưa có chỉ hướng tiếng súng trên HUD (chỉ có âm thanh).

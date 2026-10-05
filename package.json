@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@babylonjs/core": "9.29.0",
-    "@supabase/realtime-js": "^2.117.2"
+    "@supabase/realtime-js": "^2.117.2",
+    "@supabase/supabase-js": "^2.117.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "jsdom": "^29.1.1",
     "playwright-core": "^1.63.0",

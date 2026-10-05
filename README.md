@@ -44,7 +44,7 @@ Thiết bị cảm ứng mặc định **chất lượng thấp** khi chưa có 
 2. **Bạn bè** nhập tên và mã (hoặc mở link) rồi bấm **VÀO PHÒNG**. Tối đa **6 người**. Phòng đầy hoặc trận đã bắt đầu thì báo lỗi.
 3. Chủ phòng bấm **BẮT ĐẦU TRẬN**. Mọi người cùng nhảy dù xuống một hòn đảo giống hệt nhau, cùng bot, cùng đồ trong nhà; **người sống cuối cùng thắng** (bạn bè là đối thủ của nhau). Bạn bè mặc áo màu khác bot và có **tên nổi trên đầu**. Ai bị hạ thì xem tiếp trận (Q/E đổi người xem) và có thể rời trận; khi kết thúc mọi người thấy ai thắng.
 
-Cách hoạt động: dùng **Supabase Realtime (broadcast)**, không cần tài khoản hay cơ sở dữ liệu. **Máy chủ phòng chạy toàn bộ trận** (bot, vòng bo, xe, hộp tiếp tế) và gửi ảnh chụp trạng thái 10 lần mỗi giây; máy các bạn chạy một bản sao cùng hạt giống, tự dự đoán chuyển động của chính mình để điều khiển mượt, vẽ người khác chậm khoảng 0,15 giây và gửi lại thao tác (di chuyển, bắn, nạp đạn, nhặt đồ…) cho chủ phòng. Chủ phòng quyết định đạn có trúng hay không; mọi người cũng không thấy bot ở xa người nào (chỉ gửi những gì trong vòng 420 m quanh người chơi) nên băng thông nhỏ (khoảng 3–9 KB mỗi gói).
+Cách hoạt động: dùng **Supabase Realtime (broadcast)**; chơi online **không bắt buộc đăng nhập** (tài khoản chỉ để kết bạn, mời bạn và lưu thành tích, xem mục dưới). **Máy chủ phòng chạy toàn bộ trận** (bot, vòng bo, xe, hộp tiếp tế) và gửi ảnh chụp trạng thái 10 lần mỗi giây; máy các bạn chạy một bản sao cùng hạt giống, tự dự đoán chuyển động của chính mình để điều khiển mượt, vẽ người khác chậm khoảng 0,15 giây và gửi lại thao tác (di chuyển, bắn, nạp đạn, nhặt đồ…) cho chủ phòng. Chủ phòng quyết định đạn có trúng hay không; mọi người cũng không thấy bot ở xa người nào (chỉ gửi những gì trong vòng 420 m quanh người chơi) nên băng thông nhỏ (khoảng 3–9 KB mỗi gói).
 
 Giới hạn cần biết:
 - **Chủ phòng nên để tab game ở phía trước** và có mạng ổn định: trình duyệt làm chậm tab nền, khi đó cả phòng bị chậm theo. Chủ phòng thoát hoặc mất mạng thì trận kết thúc cho mọi người; bạn bè thoát hoặc im quá 8 giây thì bị loại khỏi trận.
@@ -54,6 +54,29 @@ Giới hạn cần biết:
 - Địa chỉ và khóa công khai (publishable) của dự án Supabase nằm trong [src/net/config.ts](src/net/config.ts); đổi sang dự án khác bằng `VITE_SUPABASE_URL` và `VITE_SUPABASE_KEY` trong `.env.local` (xem `.env.example`). **Không bao giờ đưa khóa service-role vào trình duyệt hay vào mã nguồn.**
 
 Mã: [src/net/protocol.ts](src/net/protocol.ts) (ảnh chụp trạng thái), [src/net/session.ts](src/net/session.ts) (chủ phòng và máy khách), [src/net/lobby.ts](src/net/lobby.ts) (phòng chờ), [src/net/transport.ts](src/net/transport.ts) (Supabase và mạng giả lập cho test), [src/lobby-ui.ts](src/lobby-ui.ts).
+
+## Tài khoản, bạn bè và bảng xếp hạng
+
+Bấm vào ô **NGƯỜI SINH TỒN** (góc thành tích) ở màn hình chính để mở cửa sổ tài khoản. Không có tài khoản vẫn chơi được mọi chế độ.
+
+- **Đăng ký / đăng nhập** bằng email + mật khẩu (Supabase Auth). Đăng ký chọn **tên người chơi** 3–16 ký tự (chữ, số, `_`), không trùng với ai. Đăng nhập rồi thì tên trong phòng chờ online là tên tài khoản và không sửa được; phiên đăng nhập được nhớ trên trình duyệt này.
+- **Kết bạn:** tab **TÌM NGƯỜI** tìm theo tên, bấm **KẾT BẠN**; người kia thấy lời mời ở tab **BẠN BÈ** (có số đỏ) và chấp nhận hoặc từ chối. Danh sách bạn cho biết ai **đang online**, ai **đang ở phòng nào**; bấm **VÀO** để vào thẳng phòng đó.
+- **Mời vào phòng:** khi bạn đang ở phòng chờ, bạn bè online chưa ở phòng nào có nút **MỜI** (cả trong cửa sổ tài khoản lẫn ngay trong phòng chờ). Họ nhận một thanh thông báo "… mời bạn vào phòng …" kèm nút **VÀO PHÒNG**. Thông báo mời không hiện giữa trận. Trong phòng chờ, bạn bè có nhãn **BẠN BÈ**.
+- **Thành tích:** mỗi trận (đơn hoặc online) khi đã đăng nhập sẽ cộng số trận, thắng và hạ gục vào hồ sơ, mỗi trận chỉ tính một lần. Tab **XẾP HẠNG** liệt kê người chơi theo số trận thắng.
+
+### Cài đặt phía Supabase (làm một lần cho dự án)
+
+Tài khoản và bạn bè cần hai bảng, nên **phải chạy [supabase/setup.sql](supabase/setup.sql) một lần**: mở dự án Supabase → **SQL Editor** → dán toàn bộ file → **Run**. File an toàn khi chạy lại. Chưa chạy thì cửa sổ tài khoản báo "chưa cài đặt" và hướng dẫn đúng bước này; phần chơi online không bị ảnh hưởng.
+
+Nội dung file: bảng `profiles` (tên, số trận/thắng/hạ gục) và `friendships`, **Row Level Security** (ai cũng đọc được hồ sơ để tìm bạn và xếp hạng, nhưng chỉ sửa được của mình; chỉ người nhận mới chấp nhận được lời mời; chỉ hai người trong quan hệ mới xóa được), trigger tạo hồ sơ khi đăng ký, hàm `username_available` và hàm `record_match` (cộng điểm theo từng trận, giới hạn giá trị mỗi lần gọi). Không ai sửa được số thắng trực tiếp trên bảng.
+
+Lưu ý:
+- Supabase mặc định **bắt xác nhận email**: sau khi đăng ký người chơi phải bấm link trong thư rồi mới đăng nhập (cửa sổ báo rõ điều này). Chơi với bạn quen thì có thể tắt ở **Authentication → Sign In / Providers → Email → Confirm email**.
+- Thành tích do trình duyệt tự báo lên nên **không chống gian lận**; đủ cho nhóm bạn, không đủ cho bảng xếp hạng công khai.
+- **Khóa service-role không bao giờ được để trong mã nguồn hay tài liệu**; trình duyệt chỉ dùng khóa publishable. Nếu từng dán khóa service-role vào chat hay nơi khác, hãy tạo khóa mới trong Settings → API.
+- Hiện diện (online / đang ở phòng nào) đi qua kênh Realtime `lastlight:online`, chỉ có khi đã đăng nhập; không lưu vào cơ sở dữ liệu.
+
+Mã: [src/social/api.ts](src/social/api.ts) (gọi Supabase), [src/social/store.ts](src/social/store.ts) (trạng thái), [src/social-ui.ts](src/social-ui.ts) (cửa sổ và thông báo mời), [supabase/setup.sql](supabase/setup.sql).
 
 ## Hai bản đồ
 

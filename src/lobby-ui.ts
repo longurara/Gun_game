@@ -12,6 +12,9 @@ export interface LobbyModel {
   config: RoomConfig;
   /** A short line under the room code, e.g. "Đang kết nối…". */
   status: string;
+  /** Account ids of the player's friends, and online friends who could be invited to this room. */
+  friendIds: string[];
+  invitable: Array<{ id: string; name: string }>;
 }
 
 export interface LobbyCallbacks {
@@ -20,6 +23,7 @@ export interface LobbyCallbacks {
   onStart(): void;
   onLeave(): void;
   onClose(): void;
+  onInvite?(friendId: string): void;
 }
 
 const MAP_NAMES: Record<RoomConfig['map'], string> = { island: 'Đảo 4 × 4 km', valley: 'Đấu trường 1 × 1 km', arena: 'Sân tập 200 m' };
@@ -52,6 +56,7 @@ export class LobbyView {
           <div class="mp-code-row"><div><small>MÃ PHÒNG</small><strong id="mp-room-code">-----</strong></div><button id="mp-copy" class="button button-secondary" type="button">SAO CHÉP LINK</button></div>
           <div id="mp-config" class="mp-config"></div>
           <ul id="mp-players" class="mp-players" aria-label="Người trong phòng"></ul>
+          <div id="mp-invite" class="mp-invite" hidden><h4>MỜI BẠN BÈ ĐANG ONLINE</h4><ul id="mp-invite-list"></ul></div>
           <button id="mp-start" class="button button-primary" type="button">BẮT ĐẦU TRẬN</button>
           <div id="mp-wait" class="mp-wait" hidden>Đang chờ chủ phòng bắt đầu…</div>
         </div>
@@ -69,6 +74,10 @@ export class LobbyView {
     this.el('mp-join').addEventListener('click', () => this.join());
     this.el('mp-start').addEventListener('click', () => callbacks.onStart());
     this.el('mp-copy').addEventListener('click', () => this.copyLink());
+    this.el('mp-invite-list').addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-friend]');
+      if (button) { callbacks.onInvite?.(button.dataset.friend!); button.disabled = true; button.textContent = 'ĐÃ MỜI'; }
+    });
     this.el('mp-leave').addEventListener('click', () => {
       // In a room: leave it (the entry form comes back). Otherwise (entry form or an error): close the screen.
       const inRoom = !!this.model?.phase && this.model.phase !== 'error' && this.model.phase !== 'closed';
@@ -80,10 +89,17 @@ export class LobbyView {
   private el(id: string): HTMLElement { return this.root.querySelector<HTMLElement>(`#${id}`)!; }
   private input(id: string): HTMLInputElement { return this.el(id) as HTMLInputElement; }
 
+  /** Signed-in players play under their account name: show it and stop the box being edited. */
+  setLockedName(name: string | null): void {
+    const box = this.input('mp-name');
+    box.disabled = name !== null;
+    if (name !== null) box.value = name;
+  }
+
   /** The name to play under: trimmed, with a fallback, and remembered for next time. */
   name(): string {
     const name = this.input('mp-name').value.trim().slice(0, 16) || 'Người chơi';
-    try { localStorage.setItem(NAME_KEY, name); } catch { /* private browsing */ }
+    if (!this.input('mp-name').disabled) { try { localStorage.setItem(NAME_KEY, name); } catch { /* private browsing */ } }
     return name;
   }
 
@@ -115,7 +131,10 @@ export class LobbyView {
     this.el('mp-room-code').textContent = model.code || '-----';
     this.el('mp-config').textContent = `${MAP_NAMES[model.config.map]} · ${model.config.botCount} bot · ${model.config.difficulty === 'easy' ? 'Dễ' : 'Tiêu chuẩn'}${model.isHost ? ' (đổi ở màn hình chính)' : ''}`;
     this.el('mp-players').innerHTML = model.players.map((player, index) =>
-      `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}</li>`).join('');
+      `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${player.uid && model.friendIds.includes(player.uid) ? '<u>BẠN BÈ</u>' : ''}${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}</li>`).join('');
+    const invitable = model.invitable.filter(friend => !model.players.some(player => player.uid === friend.id));
+    this.el('mp-invite').hidden = !inRoom || invitable.length === 0;
+    this.el('mp-invite-list').innerHTML = invitable.map(friend => `<li><span>${escapeHtml(friend.name)}</span><button type="button" data-friend="${escapeHtml(friend.id)}">MỜI</button></li>`).join('');
     (this.el('mp-start') as HTMLButtonElement).hidden = !model.isHost;
     (this.el('mp-start') as HTMLButtonElement).disabled = model.phase !== 'waiting';
     this.el('mp-start').textContent = model.players.length > 1 ? `BẮT ĐẦU TRẬN · ${model.players.length} NGƯỜI` : 'BẮT ĐẦU (CHỈ MỘT NGƯỜI)';
