@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Nine-slice plain window panel, field kit, 0px corners</title>
+  <defs><clipPath id="cliprbszhze"><path d="M10 2H116L126 12V116L116 126H10L2 118V10Z"/></clipPath></defs>
+  <path d="M10 2H116L126 12V116L116 126H10L2 118V10Z" fill="#182128"/><g clip-path="url(#cliprbszhze)"><rect x="0" y="0" width="128" height="20" fill="#26343e"/><rect x="0" y="20" width="128" height="2" fill="#71818b"/></g><path d="M 0 0 L 28 0 L 0 28 Z" fill="#f5b50a"/><path d="M10 2H116L126 12V116L116 126H10L2 118V10Z" fill="none" stroke="#71818b" stroke-width="4"/><path d="M14 12H114L116 14V114L114 116H14L12 114V14Z" fill="#11181e"/><path d="M14 12H114L116 14V114L114 116H14L12 114V14Z" fill="none" stroke="#71818b" stroke-width="3.5" stroke-linecap="butt" stroke-linejoin="miter"/>
+</svg>

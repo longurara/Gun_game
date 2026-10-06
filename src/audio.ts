@@ -2,7 +2,7 @@ import type { GameEvent, Vec3, WeaponType } from './types';
 import { WEAPONS } from './game/weapons';
 import { MenuMusic } from './menu-music';
 
-/** Short procedural effects: no downloaded assets, loops, or audio before a user gesture. */
+/** Procedural gameplay effects and cached interface samples, unlocked by a user gesture. */
 /**
  * Stereo position, -1 (left) to 1 (right), of a sound at `from` for a listener at `at` facing `yaw` (the game's yaw:
  * 0 faces +z, positive turns toward +x). Sounds very close to the listener stay near the centre.
@@ -38,6 +38,44 @@ export class GameAudio {
   private reverbSend: GainNode | null = null;
   private lastHum = -Infinity;
   private nextDrip = 0;
+  private interfaceBuffers = new Map<string, Promise<AudioBuffer | null>>();
+  private lastInterfaceSound = -Infinity;
+
+  /** Fetch/decode once in the existing audio context; a missing sample stays silent. */
+  prepareInterfaceSounds(urls: string[]): void {
+    const context = this.context;
+    if (!context || this.disposed) return;
+    for (const url of urls) {
+      if (this.interfaceBuffers.has(url)) continue;
+      const buffer = fetch(url).then(async response => {
+        if (!response.ok) return null;
+        return context.decodeAudioData(await response.arrayBuffer());
+      }).catch(() => null);
+      this.interfaceBuffers.set(url, buffer);
+    }
+  }
+
+  /** Interface audio uses the same master volume/mute as the match. Hover never unlocks audio. */
+  async interfaceSound(url: string, hover = false): Promise<void> {
+    if (!hover) await this.unlock();
+    if (!this.ready()) return;
+    const requested = performance.now();
+    if (requested - this.lastInterfaceSound < (hover ? 100 : 35)) return;
+    this.lastInterfaceSound = requested;
+    this.prepareInterfaceSounds([url]);
+    const buffer = await this.interfaceBuffers.get(url);
+    // Do not play a delayed click after a slow download or after leaving/disposing the audio context.
+    if (!buffer || !this.ready() || performance.now() - requested > 300) return;
+    const source = this.context!.createBufferSource();
+    const gain = this.context!.createGain();
+    source.buffer = buffer;
+    gain.gain.value = hover ? 0.12 : 0.28;
+    source.connect(gain);
+    gain.connect(this.master!);
+    this.sources.add(source);
+    source.onended = () => { source.disconnect(); gain.disconnect(); this.sources.delete(source); };
+    source.start();
+  }
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
   async unlock(): Promise<void> {
@@ -368,6 +406,7 @@ export class GameAudio {
     this.master = null;
     this.reverbSend = null;
     this.noiseBuffer = null;
+    this.interfaceBuffers.clear();
     if (context && context.state !== 'closed') void context.close().catch(() => {});
   }
 

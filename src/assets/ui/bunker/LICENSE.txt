@@ -1,0 +1,23 @@
+Bunker Panel UI Kit — single-framed panels and buttons
+======================================================
+
+License: Creative Commons Attribution 4.0 (CC-BY-4.0)
+Full terms: https://creativecommons.org/licenses/by/4.0/
+Plain-language summary: https://www.colorosse.com/license
+
+ATTRIBUTION REQUIRED
+
+Paste this line wherever your credits live — an in-game credits screen,
+a README, an itch.io page or a video description all count:
+
+  "Bunker Panel UI Kit — single-framed panels and buttons" by Oğuzhan Girgin, licensed under CC-BY-4.0 — https://www.colorosse.com/assets/2d/ui/bunker-panel-ui-kit
+
+You may use these files in free and commercial projects, modify them, ship
+them inside a compiled build, and redistribute them. No extra conditions are
+attached beyond the license named above.
+
+A request, not a condition: please make something with these rather than
+rehosting the pack, and please do not train a generative model on them.
+The license lets you do both; I am asking anyway.
+
+Source: https://www.colorosse.com/assets/2d/ui/bunker-panel-ui-kit

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="152" height="42" viewBox="0 0 152 42">
+  <title>Button, pressed state, cut shape, field kit, 0px corners</title>
+  <defs><clipPath id="clipr1xwpy1o"><path d="M7 1H144L151 8V34L144 41H7L1 34V8Z"/></clipPath></defs>
+  <path d="M7 1H144L151 8V34L144 41H7L1 34V8Z" fill="#dca007"/><g clip-path="url(#clipr1xwpy1o)"><rect x="0" y="2" width="152" height="6" fill="#efb128"/><rect x="0" y="8" width="152" height="1" fill="#9b6f04"/></g><path d="M7 1H144L151 8V34L144 41H7L1 34V8Z" fill="none" stroke="#9b6f04" stroke-width="2"/>
+</svg>

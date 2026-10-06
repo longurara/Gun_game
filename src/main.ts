@@ -15,6 +15,8 @@ import './breath.css';
 import './range.css';
 import './stats.css';
 import './free-assets.css';
+import './menu-assets.css';
+import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
@@ -441,6 +443,7 @@ function doVehicle(): boolean {
 // ---- Online matches -----------------------------------------------------------------------------------------------
 
 const uiRoot = document.getElementById('ui-root')!;
+installMenuAssets(uiRoot, audio);
 const plateLayer = document.createElement('div');
 plateLayer.id = 'nameplates';
 uiRoot.appendChild(plateLayer);

@@ -12,6 +12,7 @@
     "test:e2e": "tsx --test tests/e2e/*.e2e.ts",
     "assets:fetch": "node scripts/fetch-free-assets.mjs",
     "assets:fetch-buildings": "node scripts/fetch-building-assets.mjs",
+    "assets:fetch-menu": "node scripts/fetch-menu-assets.mjs",
     "test:scenarios": "tsx tests/match-scenarios.ts"
   },
   "dependencies": {

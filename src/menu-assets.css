@@ -1,0 +1,136 @@
+/* Bunker Panel UI Kit by Oğuzhan Girgin, CC BY 4.0. Modified dark/amber palette and cut outlines. */
+:root {
+  --bunker-button: url('./assets/ui/bunker/button-default.svg');
+  --bunker-hover: url('./assets/ui/bunker/button-hover.svg');
+  --bunker-pressed: url('./assets/ui/bunker/button-pressed.svg');
+  --bunker-disabled: url('./assets/ui/bunker/button-disabled.svg');
+  --button-default: var(--bunker-button);
+  --button-hover: var(--bunker-hover);
+  --button-pressed: var(--bunker-pressed);
+  --button-disabled: var(--bunker-disabled);
+}
+
+#ui-root .lobby .lobby-panel,
+#ui-root .overlay-screen > .dialog,
+#ui-root .credits-dialog {
+  background: transparent;
+  border: 14px solid transparent;
+  border-image: url('./assets/ui/bunker/panel-window.svg') 14 fill / 14px;
+  border-radius: 0;
+  box-shadow: 0 18px 64px #0009;
+}
+
+#ui-root .lobby :is(.start-button, .multi-button, .map-tabs button, .seg button, .settings-panel > .button),
+#ui-root .dialog .button {
+  background: transparent;
+  border: 8px solid transparent;
+  border-image: var(--button-default) 8 fill / 8px;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  filter: none;
+  transform: none;
+  color: var(--ink);
+  transition: color .12s;
+}
+#ui-root .lobby .start-button.start-button,
+#ui-root .dialog .button-primary {
+  --button-default: url('./assets/ui/bunker/action-default.svg');
+  --button-hover: url('./assets/ui/bunker/action-hover.svg');
+  --button-pressed: url('./assets/ui/bunker/action-pressed.svg');
+  --button-disabled: url('./assets/ui/bunker/action-disabled.svg');
+  color: #211a07;
+}
+#ui-root .lobby .start-button::before { display: none; }
+#ui-root .lobby .start-button small { color: #493609; opacity: 1; }
+#ui-root .lobby .map-tabs button small { color: #b9c1bd; }
+#ui-root .lobby :is(.map-tabs button.on, .seg button.on) {
+  border-image-source: var(--button-hover);
+  color: #ffe5a0;
+}
+#ui-root .lobby :is(.start-button, .multi-button, .map-tabs button, .seg button, .settings-panel > .button):hover,
+#ui-root .dialog .button:hover { border-image-source: var(--button-hover); }
+#ui-root .lobby :is(.start-button, .multi-button, .map-tabs button, .seg button, .settings-panel > .button):active,
+#ui-root .dialog .button:active { border-image-source: var(--button-pressed); }
+#ui-root .lobby :is(.start-button, .multi-button, .map-tabs button, .seg button, .settings-panel > .button):disabled,
+#ui-root .dialog .button:disabled {
+  border-image-source: var(--button-disabled);
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+#ui-root .lobby :is(.map-tabs button, .seg button) { padding: 3px 7px; }
+#ui-root .lobby-stage { flex: 1 0 auto; min-height: min-content; }
+html:not([data-input="touch"]) #ui-root .lobby-panel { width: min(530px, 100%); padding: 14px; border-width: 10px; border-image-width: 10px; }
+html:not([data-input="touch"]) #ui-root .panel-play { gap: 10px; }
+html:not([data-input="touch"]) #ui-root .mode-card { grid-template-columns: min(32%, 145px) 1fr; padding: 12px; }
+html:not([data-input="touch"]) #ui-root .map-tabs button { min-height: 54px; }
+html:not([data-input="touch"]) #ui-root .map-tabs button b { font-size: 14px; letter-spacing: 1px; }
+#ui-root .lobby .panel-title {
+  border-bottom: 0;
+  padding-bottom: 16px;
+  background: url('./assets/ui/bunker/divider.svg') center bottom / 100% 6px no-repeat;
+}
+#ui-root .lobby .set-card { background: #11181ee6; border-color: #52626e; border-radius: 0; }
+#ui-root :is(.lobby, .dialog) :is(button, a, [role="button"]):focus-visible {
+  outline: 2px solid #ffe5a0;
+  outline-offset: 3px;
+}
+
+#ui-root .lobby-foot { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 20px; }
+#ui-root .lobby .input-prompt {
+  display: inline-flex;
+  flex: none;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.input-prompt img { display: block; width: 28px; height: 28px; opacity: .84; }
+#ui-root .lobby-foot .guide-keys { gap: 2px 14px; }
+#ui-root .lobby-foot .guide-keys > span { gap: 4px; }
+#ui-root .asset-credits-button {
+  min-height: 44px;
+  padding: 8px 12px;
+  color: var(--ink-2);
+  background: #152028d9;
+  border: 1px solid #647580;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  white-space: nowrap;
+}
+#ui-root .asset-credits-button:hover { color: var(--amber); border-color: var(--amber); }
+.credits-dialog:not([open]) { display: none; }
+#ui-root .credits-dialog {
+  pointer-events: auto;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 22px;
+  color: var(--ink);
+}
+.credits-dialog::backdrop { background: #040709c9; }
+.asset-credit-list { display: grid; gap: 16px; list-style: none; padding: 0; margin: 20px 0; }
+.asset-credit-list li { display: grid; gap: 5px; font-size: 14px; line-height: 1.5; }
+.asset-credit-list a { color: #ffe5a0; text-underline-offset: 3px; }
+.asset-credit-list span { color: var(--ink-2); font-size: 13px; }
+.asset-credit-list small { color: var(--ink-2); font-size: 12px; }
+#ui-root .credits-dialog .button { width: 100%; min-height: 48px; }
+
+html[data-input="touch"] #ui-root .lobby-foot { grid-template-columns: 1fr; }
+html[data-input="touch"] #ui-root .asset-credits-button { justify-self: end; }
+html[data-input="touch"] #ui-root .touch-guide > span { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+html[data-input="touch"] #ui-root .touch-guide > span > span { display: flex; flex-direction: column; gap: 3px; }
+html[data-input="touch"] #ui-root .touch-guide img { flex: none; opacity: .8; }
+@media (max-width: 550px) {
+  #ui-root .lobby .lobby-panel { border-width: 10px; border-image-width: 10px; }
+  #ui-root .credits-dialog { padding: 14px; }
+}
+@media (max-height: 520px) {
+  #ui-root .overlay-screen > .lobby-dialog { border-width: 4px; border-image-width: 4px; padding: 8px 16px; gap: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ui-root :is(.lobby, .dialog) button { transition: none; }
+}
