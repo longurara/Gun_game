@@ -14,6 +14,7 @@
     "assets:fetch-buildings": "node scripts/fetch-building-assets.mjs",
     "assets:fetch-menu": "node scripts/fetch-menu-assets.mjs",
     "assets:fetch-gun-audio": "node scripts/fetch-gun-audio.mjs",
+    "assets:fetch-enemies": "node scripts/fetch-enemy-assets.mjs",
     "test:scenarios": "tsx tests/match-scenarios.ts"
   },
   "dependencies": {

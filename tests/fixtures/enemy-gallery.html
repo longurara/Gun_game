@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi"><meta charset="utf-8"><title>LASTLIGHT — kiểm tra quân địch</title>
+<style>html,body{margin:0;background:#111a21;color:#e4e9eb;font:15px system-ui}canvas{width:100vw;height:100vh;display:block}header{position:absolute;top:18px;left:24px}header b{color:#ffbd27;font-size:22px}.label{position:absolute;font-size:13px;color:#ced9df;transform:translate(-50%,-50%);white-space:nowrap;pointer-events:none}button{background:#26343e;color:#eee;border:1px solid #5e7584;padding:7px 14px;cursor:pointer}</style>
+<canvas id="canvas"></canvas><header><b>LASTLIGHT · QUÂN ĐỊCH</b><p>12 ngoại hình · cùng hệ thống súng, pose và giáp</p><button data-pose="stand">Đứng</button> <button data-pose="run">Chạy</button> <button data-pose="crouch">Ngồi</button> <button data-pose="prone">Nằm</button></header>
+<script type="module">
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Camera } from '@babylonjs/core/Cameras/camera.js';
+import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { preloadFreeAssets } from '/src/free-assets.ts';
+import { preloadEnemyAssets } from '/src/enemy-assets.ts';
+import { ENEMY_MODELS, enemyModelFor } from '/src/enemy-catalog.ts';
+import { Soldier } from '/src/soldier.ts';
+const engine = new Engine(document.querySelector('canvas'),true);
+const scene = new Scene(engine); scene.clearColor = new Color4(.055,.085,.11,1);
+const camera = new FreeCamera('camera',new Vector3(0,10,14),scene);
+camera.setTarget(new Vector3(0,1,0)); camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+camera.orthoLeft=-9;camera.orthoRight=9;camera.orthoTop=4.8;camera.orthoBottom=-4.8;
+new HemisphericLight('ambient',new Vector3(0,1,0),scene).intensity=.85;
+const light = new DirectionalLight('sun',new Vector3(-.3,-1,-.6),scene);light.position.set(10,16,12);light.intensity=.9;
+const shadows = new ShadowGenerator(1024,light);shadows.useBlurExponentialShadowMap=true;
+const ground=CreateGround('ground',{width:30,height:20},scene);ground.receiveShadows=true;
+const material=new StandardMaterial('ground',scene);material.diffuseColor=new Color3(.12,.17,.2);ground.material=material;
+await preloadFreeAssets(scene); await preloadEnemyAssets(scene);
+const actors = ENEMY_MODELS.map((model,index)=>{
+  let number=0;while(enemyModelFor(`gallery-${number}`)?.id!==model.id)number++;
+  const soldier = new Soldier(scene,`gallery-${number}`,false,shadows);
+  soldier.setDetail(true);soldier.setWeapon('rifle');
+  const x=(index%6-2.5)*2.7,z=(Math.floor(index/6)-.5)*5.7;
+  soldier.root.position.set(x,0,z);soldier.root.rotation.y=0;
+  const label=document.createElement('div');label.className='label';label.textContent=model.label;document.body.append(label);
+  return {model,soldier,x,z,label};
+});
+let pose='stand',time=0;
+document.querySelectorAll('button').forEach(button=>button.onclick=()=>{pose=button.dataset.pose;});
+engine.runRenderLoop(()=>{
+  const dt=Math.min(.05,engine.getDeltaTime()/1000);time+=dt;
+  for (const actor of actors){
+    const crouch=pose==='crouch'?1:0,prone=pose==='prone'?1:0;
+    actor.soldier.root.position.set(actor.x,-.477*crouch,actor.z);
+    actor.soldier.root.rotation.x=prone*(Math.PI/2-.12);
+    actor.soldier.pose(dt,{moving:pose==='run'?4:0,stride:time*8,alive:true,reloading:false,healing:false,time,crouch,prone});
+    const p=Vector3.Project(new Vector3(actor.x,2.05,actor.z),Matrix.Identity(),scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight()));
+    actor.label.style.left=p.x+'px';actor.label.style.top=p.y+'px';
+  }
+  scene.render();
+});
+window.__ENEMY_GALLERY__={actors,scene,engine,shadows,setPose:next=>{pose=next;},dispose:()=>{engine.stopRenderLoop();actors.forEach(actor=>actor.soldier.dispose());}};
+</script></html>

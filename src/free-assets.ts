@@ -16,7 +16,7 @@ const files = [3, 5, 6, 7, 9, 14, 17, 18, 19, 20, 22, 23, 24];
 const lengths: Record<number, number> = { 3: .85, 5: 1.05, 6: 1, 7: .32, 9: .4, 14: .9, 17: .65, 18: 1.25, 19: 1.2, 20: 1.2, 22: .6, 23: .8, 24: 1.05 };
 
 /** Use the authored colours with our existing lighting; these older FBX exports have no environment map. */
-function litMaterials(container: AssetContainer, scene: Scene): void {
+export function litMaterials(container: AssetContainer, scene: Scene): void {
   const replacements = new Map<object, StandardMaterial>();
   for (const mesh of container.meshes) {
     if (!mesh.material) continue;

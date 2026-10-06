@@ -1,0 +1,163 @@
+[
+  {
+    "file": "punk.glb",
+    "sourceSha256": "94afa8718093cc7f9e51cdc0b35f4432c1c2f1901177f98fbbbcb4c6fd79b163",
+    "sha256": "ee099f93b174d549a3482bdfe08111336ed96ab85dcfebd1562f00a917def448",
+    "bytes": 833540,
+    "clips": [
+      "Idle",
+      "Idle_Gun_Pointing",
+      "Interact",
+      "Run",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "hoodie.glb",
+    "sourceSha256": "0de1bcd789d409214cf82f66f61daeb53d2f7de6d914b23e7b3660bfb3dee61e",
+    "sha256": "0613058f357200cb59483aa0ce314faa9c755f319d64db22a09a07a94c4ea745",
+    "bytes": 916724,
+    "clips": [
+      "Idle",
+      "Idle_Gun_Pointing",
+      "Interact",
+      "Run",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "toon-soldier.glb",
+    "sourceSha256": "06597e2cd20840eee8bed03790f32138e379ba3d6c7f61eb87e29f0c672d4d54",
+    "sha256": "fc151c89c36b4bc329bf12e84163177a18fb442a012a34e5604c40633b46c956",
+    "bytes": 316296,
+    "clips": [
+      "Idle",
+      "Idle_Shoot",
+      "Run",
+      "Run_Gun"
+    ],
+    "removedEmbeddedWeapons": [
+      "Revolver",
+      "Sniper",
+      "Revolver_Small",
+      "Pistol",
+      "SMG",
+      "GrenadeLauncher",
+      "ShortCannon",
+      "Shotgun",
+      "Sniper_2",
+      "RocketLauncher",
+      "AK",
+      "Shovel",
+      "Knife_2",
+      "Knife_1"
+    ],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "toon-hazmat.glb",
+    "sourceSha256": "f67568a99e3b5cbc8ac6c77523563116f8739a3f71ec35ec3dbc05a3a550333d",
+    "sha256": "285f2e73c920650323b9c940a80e8844738429be3623d9ed5163f2d3d74efd71",
+    "bytes": 325076,
+    "clips": [
+      "Idle",
+      "Idle_Shoot",
+      "Run",
+      "Run_Gun",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [
+      "Revolver",
+      "Sniper",
+      "Revolver_Small",
+      "Pistol",
+      "SMG",
+      "GrenadeLauncher",
+      "ShortCannon",
+      "Shotgun",
+      "Sniper_2",
+      "RocketLauncher",
+      "AK",
+      "Shovel",
+      "Knife_2",
+      "Knife_1"
+    ],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "toon-enemy.glb",
+    "sourceSha256": "0af9db940907efa76662838a0718bc7b9fec6162332f31d465a856e9fb1730ab",
+    "sha256": "083a8d666c96900d93e2a2fe2cf8cc91b8421e62255eaf6e83e2bdef15f94847",
+    "bytes": 284088,
+    "clips": [
+      "Idle",
+      "Idle_Shoot",
+      "Run",
+      "Run_Gun",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [
+      "Revolver",
+      "Sniper",
+      "Revolver_Small",
+      "Pistol",
+      "SMG",
+      "GrenadeLauncher",
+      "ShortCannon",
+      "Shotgun",
+      "Sniper_2",
+      "RocketLauncher",
+      "AK",
+      "Shovel",
+      "Knife_2",
+      "Knife_1"
+    ],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "woman-soldier.glb",
+    "sourceSha256": "8df8a98f513dd2236789992f575dbab9552a724e6dd9ce9d2e061690eccfa439",
+    "sha256": "8b02b96ce3c335325d6367702dac7ee7f73d00bdba88ba31d8e754fc124f5795",
+    "bytes": 1125932,
+    "clips": [
+      "Idle",
+      "Idle_Gun_Pointing",
+      "Interact",
+      "Run",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "woman-punk.glb",
+    "sourceSha256": "77cbb6838bf207fc948848ddb389ea43d4bb30c52ec62c5a2fc84bbf35c88c52",
+    "sha256": "4608bdf2c50934ce2d82c711312f3b6af57d6198eda9fd08801adeb5deac112b",
+    "bytes": 896748,
+    "clips": [
+      "Idle",
+      "Idle_Gun_Pointing",
+      "Interact",
+      "Run",
+      "Run_Shoot"
+    ],
+    "removedEmbeddedWeapons": [],
+    "processing": "Retained gameplay animation clips; pruned unreferenced geometry/accessors; removed embedded Toon weapons"
+  },
+  {
+    "file": "kenney-character.glb",
+    "sourceSha256": "fdadced07a0454c9b7f0b46507be6144a072b4d03b4ffa37f225893c76c62845",
+    "sha256": "fdb1e9afafde76b30c15c15118bb2fadd7baa0d89fa92163d366cd46f61f7554",
+    "bytes": 133060,
+    "clips": [
+      "Idle",
+      "Run",
+      "Jump"
+    ],
+    "processing": "FBX2glTF 0.9.7; corrected common skeleton root; merged separate animation channels by bone name; white base for four original texture variants"
+  }
+]

@@ -18,6 +18,8 @@ import './free-assets.css';
 import './menu-assets.css';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
+import { preloadEnemyAssets } from './enemy-assets';
+import { enemyDetailBudget } from './enemy-catalog';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -501,6 +503,7 @@ function openLobby() {
 /** The lobby is done: build the same match on every machine (the host runs it, clients mirror it). */
 function beginMultiplayer(info: MatchStart) {
   void audio.unlock().then(() => audio.prepareGunSounds());
+  void preloadEnemyAssets(scene);
   audio.pause();
   releaseInput();
   sim.start(matchOptions(info.setup, info.me, info.role === 'client'));
@@ -572,6 +575,7 @@ function updateNameplates() {
 
 function start() {
   void audio.unlock().then(() => audio.prepareGunSounds());
+  void preloadEnemyAssets(scene);
   audio.pause();
   releaseInput();
   sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' && settings.map !== 'range', immortal: settings.immortal, humans: 1, localId: '', names: [], remote: false });
@@ -1037,6 +1041,13 @@ function renderActors(dt: number) {
   const island = sim.world.id !== 'arena';
   const focus = focusPosition();
   const time = performance.now() * 0.001;
+  const detailBudget = enemyDetailBudget(touchDevice, settings.quality === 'low');
+  const detailedEnemies = new Set(sim.state.actors
+    .filter(actor => !actor.isPlayer && !actor.id.startsWith('dummy') && !actor.hidden && !actor.vehicleId && actor.air?.mode !== 'plane')
+    .map(actor => ({ id: actor.id, distance: Math.hypot(actor.position.x - focus.x, actor.position.y - focus.y, actor.position.z - focus.z) }))
+    .filter(actor => actor.distance <= detailBudget.distance)
+    .sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
+    .slice(0, detailBudget.count).map(actor => actor.id));
   let newModels = 0;
   for (const actor of sim.state.actors) {
     let model = models.get(actor.id);
@@ -1055,6 +1066,7 @@ function renderActors(dt: number) {
       if (!actor.isPlayer) newModels++;
       model = createCharacter(actor); models.set(actor.id, model); model.last.set(actor.position.x, actor.position.y, actor.position.z);
     }
+    model.soldier.setDetail(detailedEnemies.has(actor.id));
     model.root.setEnabled(!actor.vehicleId && !actor.hidden);
     const pos = new Vector3(actor.position.x, actor.position.y, actor.position.z);
     const speed = Vector3.Distance(pos, model.last) / Math.max(dt, 0.001);

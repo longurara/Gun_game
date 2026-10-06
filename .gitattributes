@@ -8,6 +8,7 @@ src/assets/ui/kenney/License.txt -text
 *.glb binary
 *.ogg binary
 src/assets/audio/guns/SnakeF8-ReadMe.txt -text
+public/assets/enemies/Kenney-License.txt -text
 src/assets/ui/bunker/LICENSE.txt -text
 src/assets/ui/input-prompts/License.txt -text
 src/assets/audio/interface/License.txt -text

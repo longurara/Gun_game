@@ -16,7 +16,11 @@ import type { WeaponType } from './types';
 import { outfitFor } from './outfits';
 import type { Outfit } from './outfits';
 import { instantiateSwat } from './free-assets';
+import { instantiateEnemy } from './enemy-assets';
+import { enemyModelFor } from './enemy-catalog';
+import type { EnemyModel } from './enemy-catalog';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 
 type Rgb = [number, number, number];
 const TIER: Rgb[] = [[1, 1, 1], [0.55, 0.6, 0.5], [0.3, 0.52, 0.88], [0.92, 0.7, 0.22]];
@@ -88,16 +92,23 @@ export class Soldier {
   private readonly vest: InstancedMesh[];
   private gearKey = '';
   private kick = 0;
-  private swat: ReturnType<typeof instantiateSwat> = null;
+  private swat: ReturnType<typeof instantiateSwat> | ReturnType<typeof instantiateEnemy> = null;
+  private readonly enemy: EnemyModel | null;
+  private readonly bodyMeshes: InstancedMesh[] = [];
+  private importedMeshes: AbstractMesh[] = [];
+  private detailed = true;
+  private helmetTier = 0;
+  private readonly outfit: Outfit;
   private swatClip: AnimationGroup | null = null;
   private swatTime = 0;
   private jersey: import('@babylonjs/core/Materials/standardMaterial.js').StandardMaterial | null = null;
   private readonly tmp = { s: new Vector3(), t: new Vector3(), e: new Vector3(), axis: new Vector3(), pole: new Vector3(), dir: new Vector3(), q: new Quaternion() };
 
   constructor(private readonly scene: Scene, private readonly id: string, isPlayer: boolean, private readonly shadows: ShadowGenerator, friend = false, skinId?: string) {
-    const outfit = outfitFor(id, isPlayer, friend, skinId);
+    const outfit = this.outfit = outfitFor(id, isPlayer, friend, skinId);
+    this.enemy = !isPlayer && !friend ? enemyModelFor(id) : null;
     const root = this.root = new TransformNode(`actor-${id}`, scene);
-    const bodyMeshes: InstancedMesh[] = [];
+    const bodyMeshes = this.bodyMeshes;
     const attach = (part: PartName, parent: TransformNode, tint: Rgb): InstancedMesh[] => {
       const out: InstancedMesh[] = [];
       for (const source of partSources(scene, part, FABRIC_PARTS.includes(part) && outfit.camo)) {
@@ -141,6 +152,7 @@ export class Soldier {
     if ((isPlayer || friend) && (!skinId || skinId === 'default')) {
       this.swat = instantiateSwat(scene, root, id);
       if (this.swat) {
+        this.importedMeshes = root.getChildMeshes().filter(mesh => mesh.name.includes('-swat-'));
         for (const mesh of bodyMeshes) if (!this.helmet.includes(mesh) && !this.vest.includes(mesh)) mesh.setEnabled(false);
         for (const mesh of root.getChildMeshes()) {
           if (!mesh.name.includes('-swat-')) continue;
@@ -153,6 +165,32 @@ export class Soldier {
         }
       }
     }
+  }
+
+  /** Create a rig only when a bot approaches. Hidden rigs keep their procedural, batched proxy. */
+  setDetail(enabled: boolean): void {
+    if (!this.enemy) return;
+    if (this.detailed === enabled && (this.swat || !enabled)) return;
+    if (enabled && !this.swat) {
+      this.swat = instantiateEnemy(this.scene, this.root, this.id, this.enemy);
+      if (this.swat) {
+        this.importedMeshes = this.root.getChildMeshes().filter(mesh => mesh.name.includes(`${this.id}-avatar-`) || mesh.name.includes(`${this.id}-swat-`));
+        for (const mesh of this.importedMeshes) {
+          mesh.isPickable = true;
+          mesh.metadata = { actorId: this.id, freeAsset: this.enemy.id, enemyAsset: this.enemy.id };
+          this.shadows.addShadowCaster(mesh);
+          // Tint only the SWAT torso; each actor owns its material, preserving the player's palette.
+          if (this.enemy.id === 'swat' && mesh.name.endsWith('Swat_Body') && mesh.material) {
+            this.jersey = mesh.material.clone(`${this.id}-enemy-uniform`) as import('@babylonjs/core/Materials/standardMaterial.js').StandardMaterial;
+            this.jersey.diffuseColor.set(...this.outfit.fabric); mesh.material = this.jersey;
+          }
+        }
+      }
+    }
+    this.detailed = enabled && !!this.swat;
+    for (const mesh of this.importedMeshes) mesh.setEnabled(this.detailed);
+    for (const mesh of this.bodyMeshes) if (!this.helmet.includes(mesh) && !this.vest.includes(mesh)) mesh.setEnabled(!this.detailed);
+    for (const mesh of this.headgear) mesh.setEnabled(!this.detailed && this.helmetTier === 0);
   }
 
   /** Draw the gun the actor currently holds, building its model on first use. */
@@ -171,11 +209,12 @@ export class Soldier {
 
   /** Helmet and vest appear only while worn, tinted by tier; without a helmet the soldier shows hair or a hat. */
   setGear(helmet: number, vest: number): void {
+    this.helmetTier = helmet;
     const key = `${helmet}:${vest}`;
     if (key === this.gearKey) return;
     this.gearKey = key;
     for (const mesh of this.helmet) { mesh.setEnabled(helmet > 0); if (helmet > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[helmet], 1); }
-    for (const mesh of this.headgear) mesh.setEnabled(!this.swat && helmet === 0);
+    for (const mesh of this.headgear) mesh.setEnabled(!(this.swat && this.detailed) && helmet === 0);
     for (const mesh of this.vest) { mesh.setEnabled(vest > 0); if (vest > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[vest], 1); }
   }
 
@@ -187,6 +226,7 @@ export class Soldier {
   dispose(): void {
     for (const mesh of this.root.getChildMeshes()) this.shadows.removeShadowCaster(mesh);
     this.swat?.entries.dispose();
+    if (this.swat && 'ownedMaterials' in this.swat) this.swat.ownedMaterials.forEach(material => material.dispose(false, false));
     this.root.dispose(false, false);
     this.jersey?.dispose();
   }
@@ -196,7 +236,7 @@ export class Soldier {
     this.kick = Math.max(0, this.kick - dt * 9);
     const walk = Math.min(1, p.moving / 5);
     const crouch = Math.max(0, Math.min(1, p.crouch ?? 0)), prone = Math.max(0, Math.min(1 - crouch, p.prone ?? 0));
-    if (this.swat) { this.poseSwat(dt, p, crouch, prone); return; }
+    if (this.swat && this.detailed) { this.poseSwat(dt, p, crouch, prone); return; }
     // Crouched or lying down the stride shrinks; a crouch bends the hips and knees deeply (the caller lowers the body).
     const amplitude = 1 - crouch * 0.75 - prone * 0.7;
     for (let i = 0; i < 2; i++) {
@@ -221,8 +261,8 @@ export class Soldier {
       rest.node.position.copyFrom(rest.position);
       if (rest.rotation) rest.node.rotationQuaternion!.copyFrom(rest.rotation);
     }
-    const name = p.healing || p.reloading ? 'Interact' : p.moving > .3 && !p.showcase ? 'Run_Shoot' : 'Idle_Gun_Pointing';
-    const clip = swat.entries.animationGroups.find(group => group.name.endsWith(`|${name}`));
+    const candidates = p.healing || p.reloading ? ['Interact', 'Idle_Gun_Pointing', 'Idle_Shoot', 'Idle'] : p.moving > .3 && !p.showcase ? ['Run_Shoot', 'Run_Gun', 'Run', 'Walk'] : ['Idle_Gun_Pointing', 'Idle_Shoot', 'Idle_Gun', 'Idle'];
+    const clip = candidates.map(name => swat.entries.animationGroups.find(group => group.name.endsWith(`|${name}`) || group.name.endsWith(`-${name}`))).find(Boolean);
     if (clip && this.swatClip !== clip) {
       this.swatClip?.stop(); this.swatClip = clip; this.swatTime = 0;
       clip.start(true); clip.pause();

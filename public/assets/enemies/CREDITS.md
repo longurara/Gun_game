@@ -1,0 +1,10 @@
+# Enemy character assets
+
+- **Punk, Hoodie Character, Toon Soldier, Toon Hazmat, Toon Enemy, Punk (female)** — Quaternius, CC0 1.0. Original model pages and source/output hashes are in `manifest.json`. Packs: [Ultimate Modular Men](https://poly.pizza/bundle/Ultimate-Modular-Men-Pack-ZiH8muWqwQ), [Toon Shooter Game Kit](https://quaternius.com/packs/toonshootergamekit.html), [Ultimate Modular Women](https://quaternius.com/packs/ultimatemodularwomen.html).
+- **Soldier (female)** — Quaternius, [Poly Pizza source](https://poly.pizza/m/oAArCNHjFB), **[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)** as stated on the downloaded listing. The author's full pack page states CC0; this converted file conservatively follows its own CC BY listing. Changes: removed unused animation clips and compacted GLB buffers; runtime scales the model to the game's soldier height and poses its arms/legs. Author attribution, source, license and modifications are also shown in the game's asset credits.
+- **Animated Characters Survivors** — Kenney, [source](https://kenney.nl/assets/animated-characters-survivors), CC0 1.0. Converted the original FBX mesh and separate Idle/Run/Jump clips with FBX2glTF 0.9.7, corrected the common skeleton root, matched animation targets by bone name, and use all four original PNG textures unchanged. Original `Kenney-License.txt` is retained.
+- **SWAT** — Quaternius, CC0 1.0; reused from `../free/swat.glb` with provenance in that directory's manifest.
+
+Toon characters' embedded weapons were removed so the game controls their gun geometry. Only the gameplay animation palettes are shipped for the other Quaternius models; full originals remain in ignored `output/assets/enemies/raw/`. These are cosmetic models: weapon stats, AI and hitboxes do not change. Kenney zombie textures are appearances only, with the same shooter AI.
+
+Acquisition: `npm run assets:fetch-enemies` on Windows (Node + Python; downloads the official FBX2glTF converter into ignored output). None of these acquisition tools are required to run/build the game. Verified 2026-10-06.
