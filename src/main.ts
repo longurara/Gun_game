@@ -21,7 +21,7 @@ import { preloadFreeAssets } from './free-assets';
 import { instantiateAircraft, preloadAircraftAssets } from './aircraft-assets';
 import { preloadEnemyAssets } from './enemy-assets';
 import { prepareCoverageAssets, coverageParts, hasCoverageModel } from './coverage-assets';
-import { createCoverageVehicle, VEHICLE_ASSETS } from './coverage-vehicles';
+import { createCoverageVehicle, createCoverageWheels, spinVehicleWheel, VEHICLE_ASSETS } from './coverage-vehicles';
 import type { CoverageModel } from './coverage-assets';
 import { applyCoverageSurface } from './coverage-materials';
 import { vfxCard, vfxMaterial, coverageSky } from './coverage-vfx';
@@ -1147,10 +1147,10 @@ function createCarModel(v: Vehicle): CarModel {
     const car = build(v);
     // Quad, tuk-tuk and sidecar keep their distinct chassis and use the same authored wheel kit.
     for (const [i, pivot] of car.wheels.entries()) {
-      const wheels = coverageParts(scene, kindOf(v) === 'quad' ? 'k-wheel-racing' : 'k-wheel-default', pivot, [.32, .84, .84], `kit-wheel-${v.id}-${i}`);
+      const wheels = createCoverageWheels(scene, kindOf(v) === 'quad' ? 'k-wheel-racing' : 'k-wheel-default', pivot, `kit-wheel-${v.id}-${i}`);
       if (!wheels) continue;
       for (const old of pivot.getChildMeshes()) if (!wheels.includes(old as Mesh)) old.setEnabled(false);
-      for (const wheel of wheels) { wheel.position.y = -.42; wheel.metadata = { ...wheel.metadata, solid: true, car: true }; car.bodies.push(wheel); wheel.receiveShadows = true; shadows.addShadowCaster(wheel); }
+      for (const wheel of wheels) { wheel.metadata = { ...wheel.metadata, solid: true, car: true }; car.bodies.push(wheel); wheel.receiveShadows = true; shadows.addShadowCaster(wheel); }
       car.kitWheels = true;
     }
     return car;
@@ -1427,7 +1427,7 @@ function renderVehicles(dt: number) {
     if ((kindOf(v) === 'bike' || kindOf(v) === 'scooter') && car.lastYaw !== undefined && dt > 0) lean = Math.max(-0.5, Math.min(0.5, Math.atan2(Math.sin(v.yaw - car.lastYaw), Math.cos(v.yaw - car.lastYaw)) / dt * v.speed * 0.012));
     car.lastYaw = v.yaw;
     car.root.rotation.set(pitch, v.yaw, roll - lean);
-    for (const wheel of car.wheels) wheel.rotation.x += v.speed * dt / 0.42;
+    for (const wheel of car.wheels) spinVehicleWheel(wheel, v.speed * dt);
     if (v.health <= 0 && !car.wrecked) {
       car.wrecked = true;
       const burnt = material('car-burnt', '#242322');

@@ -90,3 +90,55 @@ test('island streams kit buildings near player and retains textured sky',async()
   await page.waitForTimeout(1000);await page.evaluate(()=>(window as any).__LASTLIGHT__.scene.render());
   await page.screenshot({path:'output/playwright/coverage-island.png'});assert.deepEqual(errors,[]);await page.close();
 });
+
+
+test('vehicle wheels stay circular, centred and upright after travel and reversing', async () => {
+  const page = await browser.newPage({viewport:{width:1280,height:720}}),errors:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(url);await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
+  await page.evaluate(async()=>{
+    const g=(window as any).__LASTLIGHT__,m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets(g.scene);
+    (window as any).__WHEEL_SOURCES__=g.scene.meshes.filter((p:any)=>p.metadata?.template&&['k-sedan','k-wheel-default','k-wheel-racing'].includes(p.metadata.coverageAsset)).map((mesh:any)=>({mesh,positions:Array.from(mesh.getVerticesData('position'))}));
+  });
+  await page.click('#map-choice button[data-value="range"]');await page.click('#start-button');
+  await page.waitForFunction(()=>(window as any).__LASTLIGHT__.simulation.state.phase==='playing');await page.waitForTimeout(500);
+  const results=await page.evaluate(async()=>{
+    const g=(window as any).__LASTLIGHT__;g.engine.stopRenderLoop();const m=await import('../../src/coverage-vehicles.ts');
+    const sourceUnchanged=(window as any).__WHEEL_SOURCES__.every(({mesh,positions}:any)=>positions.every((value:number,index:number)=>value===mesh.getVerticesData('position')[index]));
+    const report=[];
+    for(const vehicle of g.simulation.state.vehicles){
+      const root=g.scene.getTransformNodeByName('car-'+vehicle.id);
+      const wheels=root.getChildMeshes().filter((p:any)=>p.isEnabled()&&p.metadata?.coverageAsset&&/wheel/i.test(p.metadata.sourceName));
+      for(const part of wheels){
+        const pivot=part.parent,axis=pivot.metadata?.spinAxis??'x',radial=['x','y','z'].filter(a=>a!==axis);
+        const radius=pivot.metadata?.radius??.42,baseline=pivot.rotation.clone();const samples=[];
+        for(const angle of [0,Math.PI/4,Math.PI/2,Math.PI,-Math.PI/2]){
+          pivot.rotation.setAll(0);m.spinVehicleWheel(pivot,angle*radius);
+          const matrix=part.computeWorldMatrix(true).multiply(root.computeWorldMatrix(true).clone().invert()),positions=part.getVerticesData('position');
+          const V=root.position.constructor,min=new V(Infinity,Infinity,Infinity),max=new V(-Infinity,-Infinity,-Infinity);
+          for(let i=0;i<positions.length;i+=3){const point=V.TransformCoordinates(V.FromArray(positions,i),matrix);min.minimizeInPlace(point);max.maximizeInPlace(point);}
+          const size=max.subtract(min),centre=min.add(max).scale(.5);samples.push({diameters:radial.map(a=>size[a]),centre:centre.asArray()});
+        }
+        pivot.rotation.copyFrom(baseline);
+        report.push({kind:vehicle.kind,axis,samples});
+      }
+    }
+    const v=g.simulation.state.vehicles.find((v:any)=>v.kind==='car'),camera=g.scene.activeCamera;
+    const V=camera.position.constructor;camera.position.set(v.position.x+5,1.4,v.position.z-6);camera.setTarget(new V(v.position.x,.85,v.position.z));
+    g.scene.render();return {sourceUnchanged,report};
+  });
+  assert.equal(results.sourceUnchanged,true,'fitted wheels must not alter cached GLBs');
+  for(const kind of ['car','coupe','pickup','van','quad','tuktuk','sidecar'])assert.ok(results.report.some((r:any)=>r.kind===kind),kind);
+  for(const wheel of results.report){
+    const first=wheel.samples[0];
+    assert.ok(Math.abs(first.diameters[0]-first.diameters[1])<.001,`${wheel.kind}: tyre must start circular`);
+    for(const sample of wheel.samples){
+      assert.ok(Math.abs(sample.diameters[0]-sample.diameters[1])<.001,`${wheel.kind}: wheel flattened while rotating`);
+      assert.ok(sample.diameters.every((diameter:number,i:number)=>Math.abs(diameter/first.diameters[i]-1)<.12),`${wheel.kind}: tyre size changed while rotating`);
+      assert.ok(sample.centre.every((value:number,i:number)=>Math.abs(value-first.centre[i])<.001),`${wheel.kind}: wheel centre moved`);
+    }
+  }
+  await page.waitForTimeout(800);await page.evaluate(()=>(window as any).__LASTLIGHT__.scene.render());
+  await page.screenshot({path:'output/playwright/vehicle-wheels-fixed.png'});
+  assert.deepEqual(errors,[]);await page.close();
+});
