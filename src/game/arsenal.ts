@@ -55,7 +55,7 @@ const LEVER = 'Shotgun cần gạt';
 const CARBINE = 'Carbine';
 const BOLT = 'Súng ngắm nòng trượt';
 
-/** The first eight are the original guns, unchanged; everything after them is new. */
+/** The first eight are the original guns, unchanged; everything after them is new (the last block is the PUBG roster). */
 export const ARSENAL: readonly ArsenalEntry[] = [
   // ---------------------------------------------------------------- original eight (ids are load-bearing)
   { id: 'rifle', label: 'AR-26', cls: 'ar', tier: 1, ammo: '556', mods: {}, look: 'fixed rail curved dot flash blk poly' },
@@ -220,5 +220,74 @@ export const ARSENAL: readonly ArsenalEntry[] = [
   ...rows('launcher', [
     ['m79', 'M-79', 3, '40mm', {}, 'wood box plain blk wood', 'Súng phóng lựu'],
     ['panzer', 'Panzerfaust', 3, 'rocket', { dmg: 1.7, loud: 1.3, reload: 1.6, rec: 1.2 }, 'skel box plain brake gry od', 'Súng phóng rocket'],
+  ]),
+
+  // ---------------------------------------------------------------- the PUBG roster: the real names, in the same classes and calibres
+  ...rows('pistol', [
+    ['p92', 'P92', 1, '9mm', { dmg: 1.0, rate: 1.0, mag: 15 }, 'std blk wood'],
+    ['p1911', 'P1911', 1, '45acp', { dmg: 1.15, rate: 0.9, mag: 7, reload: 1.05, rec: 1.15 }, 'std slv dwood'],
+    ['r1895', 'R1895', 1, '357', { dmg: 1.5, rate: 0.62, mag: 7, reload: 1.9, rec: 1.4, range: 0.9 }, 'revolver blk dwood', REVOLVER],
+    ['r45', 'R45', 1, '45acp', { dmg: 1.38, rate: 0.72, mag: 6, reload: 1.6, rec: 1.4 }, 'revolver long blk wood', REVOLVER],
+    ['p18c', 'P18C', 2, '9mm', { dmg: 0.72, rate: 2.1, mag: 20, reload: 1.1, spread: 1.3, range: 0.85, mode: 'auto' }, 'machine light blk poly', MACHINE_PISTOL],
+    ['skorpion', 'Skorpion', 1, '9mm', { dmg: 0.66, rate: 2.2, mag: 20, reload: 1.2, spread: 1.4, range: 0.8, mode: 'auto' }, 'machine short blk poly', MACHINE_PISTOL],
+    ['deagle', 'Desert Eagle', 3, '357', { dmg: 1.85, rate: 0.64, mag: 7, reload: 1.5, rec: 1.8, spread: 0.85, range: 1.15 }, 'hand slv poly'],
+  ]),
+  ...rows('smg', [
+    ['ump45', 'UMP45', 1, '45acp', { dmg: 1.3, rate: 0.85, mag: 25, reload: 1.1, rec: 1.05 }, 'fold slim straight dot plain blk tan'],
+    ['vector', 'Vector', 2, '45acp', { dmg: 1.0, rate: 1.6, mag: 19, rec: 0.8, spread: 0.9, range: 0.95 }, 'skel short straight holo comp vgrip blk poly'],
+    ['tommygun', 'Tommy Gun', 2, '45acp', { dmg: 1.28, rate: 0.8, mag: 50, reload: 1.4, rec: 1.2, spread: 1.15 }, 'wood wood drum irons flash blk dwood'],
+    ['microuzi', 'Micro UZI', 1, '9mm', { dmg: 0.85, rate: 1.5, mag: 25, rec: 0.85, spread: 1.25, range: 0.8 }, 'fold short straight irons plain blk poly'],
+    ['bizon', 'PP-19 Bizon', 1, '9mm', { dmg: 0.98, rate: 1.0, mag: 53, reload: 1.4, rec: 0.95, range: 0.95 }, 'fixed slim drum irons plain blk poly'],
+    ['mp5k', 'MP5K', 1, '9mm', { dmg: 0.96, rate: 1.2, mag: 30, rec: 0.9 }, 'fold short straight irons flash blk poly'],
+    ['mp9', 'MP9', 1, '9mm', { dmg: 0.88, rate: 1.5, mag: 30, rec: 0.8, spread: 1.2, range: 0.85 }, 'none short stick dot plain blk poly'],
+    ['js9', 'JS9', 2, '9mm', { dmg: 1.04, rate: 1.2, mag: 30, reload: 0.95, rec: 0.9 }, 'fixed slim straight dot plain gry poly'],
+    ['p90', 'P90', 3, '9mm', { dmg: 1.15, rate: 1.3, mag: 50, reload: 1.2, rec: 0.75, spread: 0.8, range: 1.1 }, 'bullpup slim inner holo plain blk wht'],
+  ]),
+  ...rows('ar', [
+    ['m416', 'M416', 2, '556', { dmg: 1.05, rate: 1.0, mag: 30, rec: 0.85, spread: 0.85 }, 'adj quad curved dot comp vgrip blk poly'],
+    ['scarl', 'SCAR-L', 2, '556', { dmg: 1.08, rate: 0.95, mag: 30, rec: 0.9, spread: 0.85 }, 'adj rail curved dot flash agrip blk tan'],
+    ['m16a4', 'M16A4', 2, '556', { dmg: 1.3, rate: 1.2, mag: 30, rec: 0.8, spread: 0.7, range: 1.1, mode: 'semi' }, 'fixed vent straight acog plain blk poly'],
+    ['aug', 'AUG A3', 3, '556', { dmg: 1.12, rate: 1.15, mag: 30, rec: 0.7, spread: 0.7, range: 1.05 }, 'bullpup slim curved x2 flash blk tan', BULLPUP],
+    ['qbz', 'QBZ', 1, '556', { dmg: 1.0, rate: 1.0, mag: 30, rec: 0.95, spread: 0.95 }, 'bullpup short curved dot plain blk od', BULLPUP],
+    ['g36c', 'G36C', 2, '556', { dmg: 1.0, rate: 1.1, mag: 30, range: 0.9, rec: 0.85 }, 'fold short curved dot plain blk poly', CARBINE],
+    ['k2', 'K2', 2, '556', { dmg: 1.05, rate: 1.0, mag: 30, rec: 0.9 }, 'fold vent curved irons brake blk poly'],
+    ['famas', 'FAMAS', 2, '556', { dmg: 0.98, rate: 1.45, mag: 25, rec: 0.8 }, 'bullpup short curved irons carry blk od', BULLPUP],
+    ['ace32', 'ACE32', 2, '762', { dmg: 1.42, rate: 0.9, mag: 30, rec: 1.1, spread: 0.85 }, 'fold mlok curved x2 brake blk poly'],
+    ['akm', 'AKM', 1, '762', { dmg: 1.48, rate: 0.85, mag: 30, rec: 1.35, range: 0.95 }, 'wood wood banana irons brake blk dwood'],
+    ['groza', 'Groza', 3, '762', { dmg: 1.5, rate: 1.0, mag: 30, rec: 1.0, spread: 0.8 }, 'bullpup rail curved dot flash blk dwood', BULLPUP],
+    ['beryl', 'Beryl M762', 2, '762', { dmg: 1.5, rate: 1.05, mag: 30, rec: 1.3, spread: 0.9 }, 'fixed mlok banana holo brake vgrip blk poly'],
+    ['mutant', 'Mk47 Mutant', 2, '762', { dmg: 1.5, rate: 1.1, mag: 20, rec: 1.0, spread: 0.75, mode: 'semi' }, 'fold rail curved dot comp blk od'],
+  ]),
+  ...rows('dmr', [
+    ['sks', 'SKS', 1, '762', { dmg: 1.05, rate: 1.15, mag: 10, rec: 1.0 }, 'wood wood inner x4 plain blk dwood'],
+    ['mini14', 'Mini14', 1, '556', { dmg: 0.88, rate: 1.3, mag: 20, rec: 0.8, spread: 0.9 }, 'wood wood box x4 plain blk dwood'],
+    ['slr', 'SLR', 2, '762', { dmg: 1.25, rate: 1.0, mag: 10, rec: 1.15, spread: 0.9 }, 'thumb vent box x4 brake blk tan'],
+    ['qbu', 'QBU', 2, '556', { dmg: 0.95, rate: 1.25, mag: 10, rec: 0.8, spread: 0.85 }, 'bullpup slim box x4 flash blk tan'],
+    ['mk14', 'Mk14 EBR', 3, '762', { dmg: 1.2, rate: 1.4, mag: 20, rec: 1.0, spread: 0.7, range: 1.1, mode: 'auto' }, 'adj rail box x6 brake vgrip blk tan'],
+    ['mk12', 'Mk12', 3, '556', { dmg: 1.0, rate: 1.3, mag: 20, rec: 0.7, spread: 0.6, range: 1.1 }, 'fixed quad curved x4 comp bipod blk poly'],
+    ['vss', 'VSS', 2, '9mm', { dmg: 1.0, rate: 1.2, mag: 10, rec: 0.8, spread: 0.7, loud: 0.3, mode: 'auto' }, 'skel short box x4 supp blk wood'],
+    ['win94', 'Win94', 1, '45acp', { dmg: 1.0, rate: 1.1, mag: 8, rec: 0.9, spread: 1.1, zoom: 2, range: 0.9 }, 'wood wood inner x2 plain slv wood'],
+  ]),
+  ...rows('sniper', [
+    ['kar98k', 'Kar98k', 1, '762', { dmg: 1.05, rate: 1.05, mag: 5, spread: 0.9 }, 'wood inner x6 flash blk dwood', BOLT],
+    ['mosin', 'Mosin Nagant', 1, '762', { dmg: 1.0, rate: 0.95, mag: 5 }, 'wood inner x4 plain blk dwood', BOLT],
+    ['m24', 'M24', 2, '762', { dmg: 1.1, rate: 1.15, mag: 5, spread: 0.75, range: 1.05 }, 'adj inner x6 plain bipod blk od', BOLT],
+    ['awm', 'AWM', 3, '300', { dmg: 1.5, rate: 1.0, mag: 5, spread: 0.5, range: 1.15, zoom: 8 }, 'thumb inner x8 brake bipod gry od', BOLT],
+  ]),
+  ...rows('amr', [
+    ['lynxamr', 'Lynx AMR', 3, '50cal', { dmg: 1.4, rate: 1.05, mag: 5, spread: 0.55, zoom: 10, range: 1.12 }, 'thumb box x10 brake bipod blk tan'],
+  ]),
+  ...rows('shotgun', [
+    ['s1897', 'S1897', 1, '12g', { dmg: 1.1, rate: 0.95, mag: 5, pellets: 8, spread: 0.95 }, 'pump slv wood', PUMP],
+    ['s686', 'S686', 1, '12g', { dmg: 1.5, rate: 0.9, mag: 2, pellets: 8, spread: 1.0, reload: 0.8, range: 0.95 }, 'break wood slv', BREAK],
+    ['sawedoff', 'Sawed-off', 1, '12g', { dmg: 1.5, rate: 0.9, mag: 2, pellets: 8, spread: 1.4, reload: 0.75, range: 0.7 }, 'sawn short blk dwood', SAWN],
+    ['s12k', 'S12K', 2, '12g', { dmg: 0.88, rate: 1.5, mag: 5, pellets: 8, spread: 1.0 }, 'auto rail ext dot flash blk poly', AUTO_SHOTGUN],
+    ['o12', 'O12', 2, '12g', { dmg: 0.95, rate: 1.45, mag: 5, pellets: 8, spread: 0.9 }, 'auto short blk tan', AUTO_SHOTGUN],
+    ['dbs', 'DBS', 3, '12g', { dmg: 1.05, rate: 1.0, mag: 14, pellets: 9, spread: 0.85, reload: 1.2 }, 'pump rail ext blk poly', PUMP],
+  ]),
+  ...rows('lmg', [
+    ['dp28', 'DP-28', 2, '762', { dmg: 1.2, rate: 0.85, mag: 47, rec: 1.1, spread: 0.9 }, 'wood wood drum irons plain bipod blk dwood'],
+    ['m249', 'M249', 3, '556', { dmg: 1.05, rate: 1.1, mag: 100, rec: 0.9, spread: 0.9 }, 'fixed rail belt irons plain bipod carry blk od'],
+    ['mg3', 'MG3', 3, '762', { dmg: 1.1, rate: 1.55, mag: 75, reload: 1.1, spread: 0.9 }, 'fixed chunky belt irons flash bipod carry gry poly'],
   ]),
 ];
