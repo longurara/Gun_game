@@ -15,6 +15,8 @@ import type { WeaponModel } from './weapon-models';
 import type { WeaponType } from './types';
 import { outfitFor } from './outfits';
 import type { Outfit } from './outfits';
+import { instantiateSwat } from './free-assets';
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup.js';
 
 type Rgb = [number, number, number];
 const TIER: Rgb[] = [[1, 1, 1], [0.55, 0.6, 0.5], [0.3, 0.52, 0.88], [0.92, 0.7, 0.22]];
@@ -86,11 +88,16 @@ export class Soldier {
   private readonly vest: InstancedMesh[];
   private gearKey = '';
   private kick = 0;
+  private swat: ReturnType<typeof instantiateSwat> = null;
+  private swatClip: AnimationGroup | null = null;
+  private swatTime = 0;
+  private jersey: import('@babylonjs/core/Materials/standardMaterial.js').StandardMaterial | null = null;
   private readonly tmp = { s: new Vector3(), t: new Vector3(), e: new Vector3(), axis: new Vector3(), pole: new Vector3(), dir: new Vector3(), q: new Quaternion() };
 
   constructor(private readonly scene: Scene, private readonly id: string, isPlayer: boolean, private readonly shadows: ShadowGenerator, friend = false, skinId?: string) {
     const outfit = outfitFor(id, isPlayer, friend, skinId);
     const root = this.root = new TransformNode(`actor-${id}`, scene);
+    const bodyMeshes: InstancedMesh[] = [];
     const attach = (part: PartName, parent: TransformNode, tint: Rgb): InstancedMesh[] => {
       const out: InstancedMesh[] = [];
       for (const source of partSources(scene, part, FABRIC_PARTS.includes(part) && outfit.camo)) {
@@ -101,6 +108,7 @@ export class Soldier {
         instance.metadata = { actorId: id };
         shadows.addShadowCaster(instance);
         out.push(instance);
+        bodyMeshes.push(instance);
       }
       return out;
     };
@@ -130,6 +138,21 @@ export class Soldier {
     this.gun.scaling.setAll(GUN_SCALE);
     this.flash = this.gun; // replaced as soon as a weapon is set
     this.setGear(0, 0);
+    if ((isPlayer || friend) && (!skinId || skinId === 'default')) {
+      this.swat = instantiateSwat(scene, root, id);
+      if (this.swat) {
+        for (const mesh of bodyMeshes) if (!this.helmet.includes(mesh) && !this.vest.includes(mesh)) mesh.setEnabled(false);
+        for (const mesh of root.getChildMeshes()) {
+          if (!mesh.name.includes('-swat-')) continue;
+          mesh.isPickable = true; mesh.metadata = { actorId: id, freeAsset: 'swat' };
+          shadows.addShadowCaster(mesh);
+          if (friend && mesh.material?.name === 'free-Swat') {
+            this.jersey ??= mesh.material.clone(`${id}-swat-jersey`) as import('@babylonjs/core/Materials/standardMaterial.js').StandardMaterial;
+            this.jersey.diffuseColor.set(...outfit.fabric); mesh.material = this.jersey;
+          }
+        }
+      }
+    }
   }
 
   /** Draw the gun the actor currently holds, building its model on first use. */
@@ -152,7 +175,7 @@ export class Soldier {
     if (key === this.gearKey) return;
     this.gearKey = key;
     for (const mesh of this.helmet) { mesh.setEnabled(helmet > 0); if (helmet > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[helmet], 1); }
-    for (const mesh of this.headgear) mesh.setEnabled(helmet === 0);
+    for (const mesh of this.headgear) mesh.setEnabled(!this.swat && helmet === 0);
     for (const mesh of this.vest) { mesh.setEnabled(vest > 0); if (vest > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[vest], 1); }
   }
 
@@ -161,13 +184,19 @@ export class Soldier {
   endFlash(): void { this.flash.setEnabled(false); }
 
   setEnabled(enabled: boolean): void { this.root.setEnabled(enabled); }
-  dispose(): void { this.root.dispose(false, false); }
+  dispose(): void {
+    for (const mesh of this.root.getChildMeshes()) this.shadows.removeShadowCaster(mesh);
+    this.swat?.entries.dispose();
+    this.root.dispose(false, false);
+    this.jersey?.dispose();
+  }
 
   /** Walk cycle with knee bend, then the arms are solved to hold the gun's two hand positions. */
   pose(dt: number, p: Pose): void {
     this.kick = Math.max(0, this.kick - dt * 9);
     const walk = Math.min(1, p.moving / 5);
     const crouch = Math.max(0, Math.min(1, p.crouch ?? 0)), prone = Math.max(0, Math.min(1 - crouch, p.prone ?? 0));
+    if (this.swat) { this.poseSwat(dt, p, crouch, prone); return; }
     // Crouched or lying down the stride shrinks; a crouch bends the hips and knees deeply (the caller lowers the body).
     const amplitude = 1 - crouch * 0.75 - prone * 0.7;
     for (let i = 0; i < 2; i++) {
@@ -184,6 +213,76 @@ export class Soldier {
     this.gun.rotation.x = pitch + breathe * 2;
     this.gun.position.set(0.1, 1.36 + breathe - bob * 0.6, 0.3 - this.kick * 0.045);
     this.solveArms(pitch + breathe * 2);
+  }
+
+  private poseSwat(dt: number, p: Pose, crouch: number, prone: number): void {
+    const swat = this.swat!;
+    for (const rest of swat.rest) {
+      rest.node.position.copyFrom(rest.position);
+      if (rest.rotation) rest.node.rotationQuaternion!.copyFrom(rest.rotation);
+    }
+    const name = p.healing || p.reloading ? 'Interact' : p.moving > .3 && !p.showcase ? 'Run_Shoot' : 'Idle_Gun_Pointing';
+    const clip = swat.entries.animationGroups.find(group => group.name.endsWith(`|${name}`));
+    if (clip && this.swatClip !== clip) {
+      this.swatClip?.stop(); this.swatClip = clip; this.swatTime = 0;
+      clip.start(true); clip.pause();
+    }
+    if (clip) {
+      this.swatTime += dt * (p.moving > .3 && !p.showcase ? Math.max(.25, p.moving / 5) : 1);
+      const fps = clip.targetedAnimations[0]?.animation.framePerSecond ?? 30;
+      clip.goToFrame(clip.from + (this.swatTime * fps) % Math.max(1, clip.to - clip.from));
+    }
+    this.root.computeWorldMatrix(true).invertToRef(swat.inverse);
+    // The authored rig uses independent foot controls. Keep them on the ground while folding the legs.
+    if (crouch > .001) for (const leg of swat.legs) {
+      if (!leg.upper || !leg.lower || !leg.end || !leg.foot) continue;
+      leg.foot.computeWorldMatrix(true);
+      const foot = Vector3.TransformCoordinates(leg.foot.getAbsolutePosition(), swat.inverse);
+      foot.y += .477 * crouch;
+      this.solveImportedLimb(leg.upper, leg.lower, leg.end, foot, new Vector3(0, 0, 1));
+      const worldFoot = Vector3.TransformCoordinates(foot, this.root.getWorldMatrix());
+      const parentInverse = (leg.foot.parent as TransformNode).computeWorldMatrix(true).clone().invert();
+      Vector3.TransformCoordinatesToRef(worldFoot, parentInverse, leg.foot.position);
+    }
+    const pitch = (p.showcase ? .25 : p.reloading ? .55 : p.healing ? .75 : 0) - prone * (Math.PI / 2 - .12);
+    this.gun.rotation.x = pitch;
+    this.gun.position.set(.1, 1.36, .3 - this.kick * .045);
+    if (this.current) for (let side = 0; side < 2; side++) {
+      const arm = swat.arms[side];
+      if (!arm.upper || !arm.lower || !arm.end) continue;
+      const anchor = (side === 1 ? this.current.grip : this.current.fore).scale(GUN_SCALE);
+      const hand = new Vector3(this.gun.position.x + anchor.x, this.gun.position.y + anchor.y * Math.cos(pitch) - anchor.z * Math.sin(pitch), this.gun.position.z + anchor.y * Math.sin(pitch) + anchor.z * Math.cos(pitch));
+      this.solveImportedLimb(arm.upper, arm.lower, arm.end, hand, new Vector3(side === 1 ? .55 : -.55, -1, -.25));
+    }
+  }
+
+  /** Two-bone IK in actor space; transforming directions into the parent also handles the GLB's mirrored root. */
+  private solveImportedLimb(upper: TransformNode, lower: TransformNode, end: TransformNode, target: Vector3, pole: Vector3): void {
+    const inverse = this.swat!.inverse;
+    const local = (node: TransformNode) => { node.computeWorldMatrix(true); return Vector3.TransformCoordinates(node.getAbsolutePosition(), inverse); };
+    const s = local(upper), knee = local(lower), tip = local(end);
+    const aLength = Vector3.Distance(s, knee), bLength = Vector3.Distance(knee, tip);
+    const axis = target.subtract(s);
+    const distance = Math.max(Math.abs(aLength - bLength) + .002, Math.min(aLength + bLength - .002, axis.length()));
+    axis.normalize();
+    const along = (distance * distance + aLength * aLength - bLength * bLength) / (2 * distance);
+    const height = Math.sqrt(Math.max(0, aLength * aLength - along * along));
+    pole.subtractInPlace(axis.scale(Vector3.Dot(pole, axis))).normalize();
+    const elbow = s.add(axis.scale(along)).add(pole.scale(height));
+    const rotate = (node: TransformNode, child: TransformNode, destination: Vector3) => {
+      node.computeWorldMatrix(true); child.computeWorldMatrix(true);
+      const parentInverse = (node.parent as TransformNode).computeWorldMatrix(true).clone().invert();
+      const position = node.getAbsolutePosition();
+      const from = Vector3.TransformNormal(child.getAbsolutePosition().subtract(position), parentInverse).normalize();
+      const worldTarget = Vector3.TransformCoordinates(destination, this.root.getWorldMatrix());
+      const to = Vector3.TransformNormal(worldTarget.subtract(position), parentInverse).normalize();
+      const delta = Quaternion.Identity();
+      Quaternion.FromUnitVectorsToRef(from, to, delta);
+      node.rotationQuaternion = delta.multiply(node.rotationQuaternion ?? Quaternion.Identity());
+      node.computeWorldMatrix(true);
+    };
+    rotate(upper, lower, elbow);
+    rotate(lower, end, s.add(axis.scale(distance)));
   }
 
   /** Two-bone arm IK: the right hand holds the grip, the left the fore-end. */

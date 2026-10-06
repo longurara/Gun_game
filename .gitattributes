@@ -2,3 +2,7 @@
 *.png binary
 *.jpg binary
 *.ico binary
+# Preserve downloaded files byte-for-byte so the source manifest checksums survive a checkout.
+assets-source/free-buildings/** -text
+src/assets/ui/kenney/License.txt -text
+*.glb binary

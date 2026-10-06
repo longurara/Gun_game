@@ -1,0 +1,142 @@
+[
+  {
+    "file": "swat.glb",
+    "title": "SWAT",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/Btfn3G5Xv4",
+    "sourceUrl": "https://static.poly.pizza/713f6535-f4f3-4367-a4c6-ced126ae0936.glb.br",
+    "bytes": 1560900,
+    "sha256": "a835107bac833eb916c494e10997ae1709e85957ea6f6c59ace3c9a66f6d1fec"
+  },
+  {
+    "file": "gun-3.glb",
+    "title": "Shotgun",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/DcNE0HVdW8",
+    "sourceUrl": "https://static.poly.pizza/032e6589-3188-41bc-b92b-e25528344275.glb.br",
+    "bytes": 43684,
+    "sha256": "cc6e3dee173d845a032d6e12c9261caadaf47f7c56c34d4f780f472aa663f7f9"
+  },
+  {
+    "file": "gun-5.glb",
+    "title": "Assault Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/K2lXTYFSLC",
+    "sourceUrl": "https://static.poly.pizza/b3e6be61-0299-4866-a227-58f5f3fe610b.glb.br",
+    "bytes": 74028,
+    "sha256": "5cdb78109f81e2f31cd657bbd133c2c63c3bc0d55a4e7ba4264f09456452a5d7"
+  },
+  {
+    "file": "gun-6.glb",
+    "title": "Assault Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/fpLucho45C",
+    "sourceUrl": "https://static.poly.pizza/db2d564c-63b2-4316-a89e-0f7d7a2416c9.glb.br",
+    "bytes": 78616,
+    "sha256": "34f9ea1e664444b024e29c3ad5e910912716b570fe803ce965df19c8ce6907a1"
+  },
+  {
+    "file": "gun-7.glb",
+    "title": "Pistol",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/Jyn9qex4ba",
+    "sourceUrl": "https://static.poly.pizza/3b53f0fe-f86e-451c-816d-6ab9bd265cdc.glb.br",
+    "bytes": 60144,
+    "sha256": "267c2dc0652798aeac335e89c739111ace0ba1090a361c1de16d7bf09ab1b472"
+  },
+  {
+    "file": "gun-9.glb",
+    "title": "Revolver",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/9C26wSpMS0",
+    "sourceUrl": "https://static.poly.pizza/9e728565-67a3-44db-9567-982320abff09.glb.br",
+    "bytes": 79988,
+    "sha256": "3e661102b0c277625559316b6d5b6762536e70ac2b071fb9ef0f5f96f4d22158"
+  },
+  {
+    "file": "gun-14.glb",
+    "title": "Shotgun",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/ZmPTnh7njL",
+    "sourceUrl": "https://static.poly.pizza/f71d6771-f512-4374-bd23-ba00b564db68.glb.br",
+    "bytes": 55352,
+    "sha256": "128a0075192f82582e2e2acc363108cabcb32335086f16b1fa2f5e1186b2ff43"
+  },
+  {
+    "file": "gun-17.glb",
+    "title": "Submachine Gun",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/7ehatxr7FY",
+    "sourceUrl": "https://static.poly.pizza/fb8ae707-d5b9-4eb8-ab8c-1c78d3c1f710.glb.br",
+    "bytes": 70976,
+    "sha256": "69df22d1aa8603d66366d20c46755cca2a19e1cabe8c1db1b72edb491ae48699"
+  },
+  {
+    "file": "gun-18.glb",
+    "title": "Sniper Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/i65hEldsw6",
+    "sourceUrl": "https://static.poly.pizza/2def4aa0-1f3a-40dd-aa92-0661ce39ae50.glb.br",
+    "bytes": 95200,
+    "sha256": "095e918bd89823b1ca726eac0016d7c9daee15cc6f71010ab251fb0365819f02"
+  },
+  {
+    "file": "gun-19.glb",
+    "title": "Sniper Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/XCIC2Ae4Rb",
+    "sourceUrl": "https://static.poly.pizza/701c17ec-1b9b-4091-8c8b-54ed125078b9.glb.br",
+    "bytes": 74692,
+    "sha256": "c69b8d4088176580819c20f44fc80d7742e6ad00ba1ca09cd064d8677b1c4be5"
+  },
+  {
+    "file": "gun-20.glb",
+    "title": "Sniper Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/ASOMZIErq3",
+    "sourceUrl": "https://static.poly.pizza/f03e21b7-e3b7-49fd-b47d-d1908649fcee.glb.br",
+    "bytes": 76652,
+    "sha256": "a780e291a22babe8c3472ae9fd0c0f4b98f22382e25c7da3f5507a5761dffc5b"
+  },
+  {
+    "file": "gun-22.glb",
+    "title": "Submachine Gun",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/nsP3JukU73",
+    "sourceUrl": "https://static.poly.pizza/100fd5db-d5e8-4db7-8ad3-9a96cc217e56.glb.br",
+    "bytes": 83140,
+    "sha256": "c71d4c083e296cd8cbbbebb70d7016d399cd551af5aa293617443df765b54c40"
+  },
+  {
+    "file": "gun-23.glb",
+    "title": "Bullpup",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/iKAlIbHUFD",
+    "sourceUrl": "https://static.poly.pizza/44e99086-b803-4f8f-b1e4-302068cff16a.glb.br",
+    "bytes": 141252,
+    "sha256": "55d2040d95e550f0debd9104d8e470ae430ecf5f1fec5334bef937ff03fb61f9"
+  },
+  {
+    "file": "gun-24.glb",
+    "title": "Assault Rifle",
+    "creator": "Quaternius",
+    "license": "CC0 1.0",
+    "page": "https://poly.pizza/m/Bgvuu4CUMV",
+    "sourceUrl": "https://static.poly.pizza/9a0e478c-de82-4773-9b70-a0219bb0057c.glb.br",
+    "bytes": 133980,
+    "sha256": "a6b90047927c65d0026bb19b5d4625b5ed3270e4ea5e39619cc50f0770aa6259"
+  }
+]

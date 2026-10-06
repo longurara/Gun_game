@@ -14,8 +14,8 @@ export interface SkinDef {
 }
 
 export const SKINS: readonly SkinDef[] = [
-  { id: 'default', name: 'Sinh tồn', blurb: 'Bộ đồ xanh ngọc quen thuộc.', unlock: { kind: 'free' }, swatch: ['#5cae9e', '#f2b84d'],
-    outfit: { camo: false, fabric: [0.36, 0.68, 0.62], skin: [0.92, 0.72, 0.56], hair: [0.32, 0.2, 0.12], hat: [0.95, 0.72, 0.3], headgear: 'cap' } },
+  { id: 'default', name: 'Đặc nhiệm SWAT', blurb: 'Đồ đặc nhiệm, kính bảo hộ và animation chuyển động. Có sẵn cho mọi người.', unlock: { kind: 'free' }, swatch: ['#344350', '#171d24'],
+    outfit: { camo: false, fabric: [0.2, 0.26, 0.31], skin: [0.92, 0.72, 0.56], hair: [0.12, 0.1, 0.08], hat: [0.09, 0.11, 0.14], headgear: 'beanie' } },
   { id: 'jungle', name: 'Rừng xanh', blurb: 'Rằn ri rừng nhiệt đới. Mở khóa khi hạ gục 1 đối thủ.', unlock: { kind: 'kills', n: 1 }, swatch: ['#7a9a52', '#3d4a2e'],
     outfit: { camo: true, fabric: [0.62, 0.8, 0.48], skin: [0.92, 0.72, 0.56], hair: [0.1, 0.08, 0.07], hat: [0.25, 0.3, 0.22], headgear: 'beanie' } },
   { id: 'desert', name: 'Sa mạc', blurb: 'Rằn ri cát. Mở khóa khi hạ gục 10 đối thủ.', unlock: { kind: 'kills', n: 10 }, swatch: ['#d6b878', '#8a6f43'],

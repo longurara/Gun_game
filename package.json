@@ -10,10 +10,13 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "tsx --test tests/e2e/*.e2e.ts",
+    "assets:fetch": "node scripts/fetch-free-assets.mjs",
+    "assets:fetch-buildings": "node scripts/fetch-building-assets.mjs",
     "test:scenarios": "tsx tests/match-scenarios.ts"
   },
   "dependencies": {
     "@babylonjs/core": "9.29.0",
+    "@babylonjs/loaders": "9.29.0",
     "@supabase/realtime-js": "^2.117.2",
     "@supabase/supabase-js": "^2.117.2"
   },

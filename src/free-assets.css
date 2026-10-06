@@ -1,0 +1,35 @@
+/* Kenney UI Pack 2.0 (CC0). Vector assets stay sharp at every screen density. */
+:root {
+  --kenney-action: url('./assets/ui/kenney/yellow-button_rectangle_depth_flat.svg');
+  --kenney-neutral: url('./assets/ui/kenney/grey-button_rectangle_depth_flat.svg');
+  --kenney-check: url('./assets/ui/kenney/yellow-icon_checkmark.svg');
+}
+.lobby #start-button, .dialog .button-primary {
+  background: transparent;
+  border: 8px solid transparent;
+  border-image: var(--kenney-action) 8 fill / 8px / 0 stretch;
+  box-shadow: 0 10px 28px #0005;
+  color: #211a07;
+  transition: filter .15s, transform .15s;
+}
+.lobby #start-button:hover, .dialog .button-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.lobby #start-button:active, .dialog .button-primary:active { transform: translateY(2px); }
+.lobby #start-button .start-label small { color: #514113; }
+.lobby #multi-button {
+  background: transparent;
+  border: 8px solid transparent;
+  border-image: var(--kenney-neutral) 8 fill / 8px / 0 stretch;
+  color: var(--ink);
+}
+.lobby #multi-button:hover { filter: brightness(1.08); }
+.lobby .seg button.on::after {
+  content: ''; width: 14px; height: 13px; flex: none;
+  background: var(--kenney-check) center / contain no-repeat;
+}
+.profile-chip dl > div:first-child dt::before {
+  content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -2px;
+  background: url('./assets/ui/kenney/yellow-star.svg') center / contain no-repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lobby #start-button, .dialog .button-primary { transition: none; }
+}

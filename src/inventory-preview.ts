@@ -9,6 +9,7 @@ import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { Soldier } from './soldier';
 import type { Actor } from './types';
+import { preloadFreeAssets } from './free-assets';
 
 /** A small, independent portrait scene; the game owns its render cadence. */
 export class InventoryPreview {
@@ -18,6 +19,8 @@ export class InventoryPreview {
   private shadows: ShadowGenerator | null = null;
   private soldier: Soldier | null = null;
   private actorId: string | null = null;
+  private skinId = '';
+  private assetsReady = false;
   private visible = false;
   private failed = false;
   private disposed = false;
@@ -42,20 +45,22 @@ export class InventoryPreview {
   }
 
   /** Time is in seconds, matching the Soldier pose and the main game clock. */
-  update(player: Actor, time: number): void {
+  update(player: Actor, time: number, skinId = 'default'): void {
     if (!this.visible || this.failed || this.disposed) return;
     if (this.canvas.clientWidth < 1 || this.canvas.clientHeight < 1) return;
     try {
       if (!this.engine) this.initialize();
       if (!this.scene || !this.shadows) return;
+      if (!this.assetsReady) return;
       this.resize();
-      if (!this.soldier || this.actorId !== player.id) {
+      if (!this.soldier || this.actorId !== player.id || this.skinId !== skinId) {
         if (this.soldier) {
           for (const mesh of this.soldier.root.getChildMeshes()) this.shadows.removeShadowCaster(mesh);
           this.soldier.dispose();
         }
-        this.soldier = new Soldier(this.scene, player.id, true, this.shadows);
+        this.soldier = new Soldier(this.scene, player.id, true, this.shadows, false, skinId);
         this.actorId = player.id;
+        this.skinId = skinId;
         this.soldier.root.rotation.y = -0.34;
       }
       this.soldier.setGear(Math.max(0, Math.min(3, player.helmet)), Math.max(0, Math.min(3, player.vest)));
@@ -105,6 +110,7 @@ export class InventoryPreview {
     shadows.normalBias = 0.015;
     this.size = '';
     this.resize();
+    void preloadFreeAssets(scene).then(() => { if (!this.disposed && !scene.isDisposed) this.assetsReady = true; });
   }
 
   private resize(): void {

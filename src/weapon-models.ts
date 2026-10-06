@@ -13,6 +13,7 @@ import type { GunGeometry } from './gun-builder';
 import { surfaceMaterial } from './surface-materials';
 import type { SurfaceFinish } from './surface-materials';
 import type { WeaponType } from './types';
+import { freeGun } from './free-assets';
 
 export interface WeaponModel {
   root: TransformNode; flash: AbstractMesh;
@@ -20,7 +21,7 @@ export interface WeaponModel {
   grip: Vector3; fore: Vector3;
 }
 
-interface Template { meshes: Mesh[]; geometry: GunGeometry }
+interface Template { meshes: Mesh[]; geometry: Pick<GunGeometry, 'muzzle' | 'grip' | 'fore'> }
 const templates = new WeakMap<Scene, Map<WeaponType, Template>>();
 const flashes = new WeakMap<Scene, Mesh>();
 
@@ -31,6 +32,12 @@ function templateFor(weapon: WeaponType, scene: Scene): Template {
   const existing = byWeapon.get(weapon);
   if (existing && existing.meshes.every(mesh => !mesh.isDisposed())) return existing;
   const config = WEAPONS[weapon];
+  const imported = freeGun(scene, config.kind, config.look);
+  if (imported && imported.meshes.every(mesh => !mesh.isDisposed())) {
+    const template = { meshes: imported.meshes, geometry: imported };
+    byWeapon.set(weapon, template);
+    return template;
+  }
   const geometry = buildGun(config.kind, config.look, config.tier);
   const meshes: Mesh[] = [];
   for (const [finish, data] of geometry.bag.groups) {

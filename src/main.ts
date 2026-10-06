@@ -14,6 +14,8 @@ import './optics.css';
 import './breath.css';
 import './range.css';
 import './stats.css';
+import './free-assets.css';
+import { preloadFreeAssets } from './free-assets';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -185,7 +187,7 @@ const ui = new GameUI({
     settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro();
     sim?.setImmortal(settings.immortal);
     // A new outfit: rebuild the player's soldier (in the lobby it is the one on show).
-    if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.root.dispose(false, true); models.delete(sim.localId); } }
+    if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.soldier.dispose(); models.delete(sim.localId); } }
   },
   onSelectWeapon: selectWeapon,
   onRangeEquip: weapon => doRangeEquip(weapon),
@@ -502,7 +504,7 @@ function beginMultiplayer(info: MatchStart) {
   matchSkins.clear();
   info.setup.players.forEach((player, index) => { if (player.skin && skinById(player.skin)) matchSkins.set(actorIdFor(index), player.skin); });
   // Everyone's soldier is rebuilt in the outfit they chose.
-  for (const model of models.values()) model.root.dispose(false, true);
+  for (const model of models.values()) model.soldier.dispose();
   models.clear();
   net = info.role === 'host'
     ? { role: 'host', host: new HostSession(sim, info.transport, info.setup), transport: info.transport }
@@ -2347,6 +2349,8 @@ try {
   grading.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
   grading.exposure = 1.22;
   grading.contrast = 1.22;
+  ui.setLoading('Đang chuẩn bị nhân vật và vũ khí…');
+  await preloadFreeAssets(scene);
   buildWorld(); applySettings();
   ui.setLoading(null);
   engine.runRenderLoop(() => {
@@ -2531,7 +2535,7 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
       glideReady: !!ui.waypoint && !!sim.player.air && sim.player.air.mode !== 'plane', glideOn: autoGlide,
     });
     scene.render();
-    if (ui.inventoryOpen) inventoryPreview?.update(sim.player, sim.state.elapsed);
+    if (ui.inventoryOpen) inventoryPreview?.update(sim.player, sim.state.elapsed, ui.currentSkin());
   });
   if (import.meta.env.DEV) {
     Object.assign(window, { __LASTLIGHT__: { simulation: sim, engine, scene, beginMultiplayer, getCamera: () => ({ yaw, pitch }), setCamera: (nextYaw: number, nextPitch: number) => { yaw = nextYaw; pitch = nextPitch; }, net: () => net, assist: () => ({ targets: assistTargets, scale: lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel()) }) } });
