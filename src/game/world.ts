@@ -248,6 +248,9 @@ function generate(spec: WorldSpec): IslandData {
     const t = clamp01(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1));
     return distance(x, z, ax + dx * t, az + dz * t);
   };
+  /** A footprint centred here, reaching `reach` metres out, touches a road. */
+  const onRoad = (x: number, z: number, reach: number): boolean =>
+    roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < road.width / 2 + reach);
   const lakes: Lake[] = [];
   for (let attempt = 0; attempt < 500 && lakes.length < spec.lakes.count; attempt++) {
     const x = (random() * 2 - 1) * (half - spec.lakes.edge), z = (random() * 2 - 1) * (half - spec.lakes.edge);
@@ -305,6 +308,11 @@ function generate(spec: WorldSpec): IslandData {
       const w = 1 - smooth(clamp01((d - seg.half) / BANK));
       if (w > strongest) { strongest = w; height = natural + (seg.la + (seg.lb - seg.la) * t - 0.55 - natural) * w; }
     });
+    if (strongest > 0) {
+      // Where a road crosses a river the ground stays up as a causeway, so the road is not drowned or cut by the channel.
+      const along = roadDistance(x, z);
+      if (along < 16) height = natural + (height - natural) * smooth(clamp01((along - 5) / 11));
+    }
     for (const lake of lakes) {
       const dx = x - lake.x, dz = z - lake.z;
       if (Math.abs(dx) > lake.r * 1.9 || Math.abs(dz) > lake.r * 1.9) continue;
@@ -401,6 +409,8 @@ function generate(spec: WorldSpec): IslandData {
         const id = `${town.id}-h${houseIndex++}`;
         const w = alongX ? width : depth, d = alongX ? depth : width;
         const mirror = random() < 0.5, storeys = random() < 0.7 ? 3 : 2;
+        // A road between towns runs straight to the centre, so it must not go through a house: skip the plot.
+        if (onRoad(cx, cz, Math.hypot(w, d) / 2)) { if (!block) { random(); random(); } continue; }
         if (block && flat(cx, cz, w, d, base)) {
           addParts(placeParts(buildTower({ id, width: 26, depth: 14, storeys, base, flavor: 'apartment' }), cx, cz, !alongX, mirror));
           continue;
@@ -418,7 +428,9 @@ function generate(spec: WorldSpec): IslandData {
       const x = town.x + Math.cos(angle) * r, z = town.z + Math.sin(angle) * r;
       if (Math.abs(alongX ? z - town.z : x - town.x) < 9) continue;
       if (obstacles.some(o => o.kind === 'roof' && Math.abs(x - o.x) < o.width / 2 + 2 && Math.abs(z - o.z) < o.depth / 2 + 2)) continue;
-      obstacles.push({ id: `${town.id}-c${i}`, x, z, width: 2 + random() * 2, depth: 2 + random() * 2, height: 1.2 + random() * 0.8, kind: 'crate', base });
+      const width = 2 + random() * 2, depth = 2 + random() * 2, height = 1.2 + random() * 0.8;
+      if (onRoad(x, z, Math.max(width, depth))) continue;
+      obstacles.push({ id: `${town.id}-c${i}`, x, z, width, depth, height, kind: 'crate', base });
       lootSpots.push({ x, z, y: base, tier: 1 });
     }
   }
@@ -470,6 +482,7 @@ function generate(spec: WorldSpec): IslandData {
       if (!corners.every(([ox, oz]) => landOk(x + ox, z + oz, 3) && !riverNear(x + ox, z + oz, 10) && !nearTown(x + ox, z + oz, 10))) continue;
       if (Math.abs(terrain(x + w / 2, z) - terrain(x - w / 2, z)) > 7 || Math.abs(terrain(x, z + d / 2) - terrain(x, z - d / 2)) > 7) continue;
       if (fields.some(f => Math.abs(f.x - x) < (f.w + w) / 2 + 10 && Math.abs(f.z - z) < (f.d + d) / 2 + 10)) continue;
+      if (corners.some(([ox, oz]) => onRoad(x + ox, z + oz, 6)) || onRoad(x, z, Math.hypot(w, d) / 2)) continue;
       fields.push({ x, z, w, d, crop: Math.floor(random() * 3) as 0 | 1 | 2 });
       made++;
     }

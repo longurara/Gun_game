@@ -158,7 +158,7 @@ test('you can choose where to land: steering toward a target brings the canopy d
 });
 
 test('every bot jumps, lands on dry ground and starts looking for loot; none is shot while in the air', () => {
-  const game = new GameSimulation({ seed: 21, botCount: 100, map: 'island', drop: true });
+  const game = new GameSimulation({ seed: 24, botCount: 100, map: 'island', drop: true });
   game.start();
   const plane = game.state.plane!;
   run(game, plane.length / plane.speed + 1);

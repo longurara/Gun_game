@@ -284,6 +284,9 @@ export class IslandRenderer {
     this.propMaterial.subMaterials = [plainProps, woodProps, barkProps, plasterProps, roofProps, rockProps];
     this.roadMaterial = make('island-roads');
     useGeneratedAlbedo(this.roadMaterial, GENERATED_TEXTURES.asphalt, 0.5, 1.1);
+    // Distant terrain is a coarse mesh that can rise above the draped road; pull the road forward so it never gets cut.
+    this.roadMaterial.zOffset = -4;
+    this.roadMaterial.zOffsetUnits = -4;
     this.foliageMaterial = createFoliageMaterial(scene);
     this.facadeMaterial = createFacadeMaterial(scene);
     for (const obstacle of world.obstacles) this.bucket(this.byChunk, this.keyAt(obstacle.x, obstacle.z), obstacle);

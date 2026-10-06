@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
-import { coastMask, createIsland, createIslandWorld, ISLAND_HALF } from '../src/game/world.ts';
+import { coastMask, createIsland, createIslandWorld, createValley, ISLAND_HALF } from '../src/game/world.ts';
 import { isWeaponKind, WEAPONS } from '../src/game/weapons.ts';
 import type { PlayerInput } from '../src/types.ts';
 
@@ -25,6 +25,31 @@ test('the island is generated once, identically, with towns, roads, lakes, farml
   const match = createIslandWorld();
   match.obstacles.length = 0;
   assert.ok(createIslandWorld().obstacles.length > 5000);
+});
+
+test('roads are never cut: no house, crate or field lies on a road, and a river does not sink one', () => {
+  const segDist = (x: number, z: number, a: { x: number; z: number }, b: { x: number; z: number }) => {
+    const dx = b.x - a.x, dz = b.z - a.z, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+  };
+  for (const map of ['island', 'valley'] as const) {
+    const { world, terrain } = map === 'island' ? createIsland() : createValley();
+    for (const o of world.obstacles) {
+      if (o.kind === 'tree' || o.kind === 'floor') continue;
+      for (const road of world.roads) assert.ok(segDist(o.x, o.z, road.a, road.b) >= road.width / 2 + Math.min(o.width, o.depth) / 2 - 0.5, `${map}: ${o.id} sits on a road`);
+    }
+    for (const f of world.fields!) for (const road of world.roads) assert.ok(segDist(f.x, f.z, road.a, road.b) > road.width / 2, `${map}: a field is on a road`);
+    // Along every road the ground stays above the water that crosses it.
+    for (const road of world.roads) {
+      const length = Math.hypot(road.b.x - road.a.x, road.b.z - road.a.z);
+      for (let s = 0; s <= length; s += 4) {
+        const x = road.a.x + (road.b.x - road.a.x) * s / length, z = road.a.z + (road.b.z - road.a.z) * s / length;
+        for (const river of world.water!.rivers) river.points.forEach((p, i) => {
+          if (Math.hypot(p.x - x, p.z - z) < 4) assert.ok(terrain(x, z) > p.level + 0.1, `${map}: a river drowns the road at ${x.toFixed(0)},${z.toFixed(0)}`);
+        });
+      }
+    }
+  }
 });
 
 test('terrain is smooth and bounded; the coast fades into open sea and the land is walkable-steep at worst', () => {
