@@ -45,7 +45,7 @@ import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, ammoTypeOf } from './game/weapons';
-import type { Actor, GameSettings, GyroMode, Loot, LootKind, PlayerInput, Vehicle, WeaponType } from './types';
+import type { Actor, AmmoType, GameSettings, GyroMode, Loot, LootKind, PlayerInput, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { MobileControls } from './mobile-controls';
@@ -848,6 +848,7 @@ function renderActors(dt: number) {
   const island = sim.world.id !== 'arena';
   const focus = focusPosition();
   const time = performance.now() * 0.001;
+  let newModels = 0;
   for (const actor of sim.state.actors) {
     let model = models.get(actor.id);
     // Riders of the plane are inside it; nobody is drawn there.
@@ -859,7 +860,12 @@ function renderActors(dt: number) {
       model?.root.setEnabled(false);
       continue;
     }
-    if (!model) { model = createCharacter(actor); models.set(actor.id, model); model.last.set(actor.position.x, actor.position.y, actor.position.z); }
+    if (!model) {
+      // A soldier costs a few tens of milliseconds to build; a city full of bots would stall the frame, so only a couple appear per frame.
+      if (!actor.isPlayer && newModels >= 2) continue;
+      if (!actor.isPlayer) newModels++;
+      model = createCharacter(actor); models.set(actor.id, model); model.last.set(actor.position.x, actor.position.y, actor.position.z);
+    }
     model.root.setEnabled(!actor.vehicleId);
     const pos = new Vector3(actor.position.x, actor.position.y, actor.position.z);
     const speed = Vector3.Distance(pos, model.last) / Math.max(dt, 0.001);
@@ -1103,7 +1109,7 @@ function buildSupplyModel(kind: SupplyKind, mat: StandardMaterial, root: Transfo
   }
 }
 
-const AMMO_COLOR: Record<string, string> = { '9mm': '#e0c070', '45acp': '#d8a860', '357': '#d09070', '556': '#9cc27a', '762': '#c8b078', '12g': '#d46a5a', '300': '#8fb4d8', '50cal': '#d8d27a' };
+const AMMO_COLOR: Record<AmmoType, string> = { '9mm': '#e0c070', '45acp': '#d8a860', '357': '#d09070', '556': '#9cc27a', '762': '#c8b078', '12g': '#d46a5a', '300': '#8fb4d8', '50cal': '#d8d27a', bolt: '#a4bf88', '40mm': '#d5a063', rocket: '#b99575' };
 
 function createLootNode(loot: Loot): TransformNode {
   const root = new TransformNode(`loot-${loot.id}`, scene);

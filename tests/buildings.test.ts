@@ -197,3 +197,24 @@ test('every warehouse mezzanine can be reached by its ramp, and the valley build
     assert.ok(Math.abs(valley.player.position.y - Math.max(r.y0, r.y1)) < 0.05, `${r.id} reached its floor`);
   }
 });
+
+test('bots crowding a city find routes to their goals instead of flooding the map with failed searches', () => {
+  const game = new GameSimulation({ seed: 5, botCount: 100, map: 'island' });
+  game.start();
+  const sim = game as unknown as { findPath(from: { x: number; z: number }, goal: { x: number; z: number }): unknown[]; world: { towns: Array<{ x: number; z: number; radius: number }> } };
+  let calls = 0, failed = 0;
+  const original = sim.findPath.bind(sim);
+  sim.findPath = (from, goal) => { const path = original(from, goal); calls++; if (!path.length) failed++; return path; };
+  const city = [...sim.world.towns].sort((a, b) => b.radius - a.radius)[0];
+  let moved = 0;
+  for (const bot of game.state.actors) {
+    if (bot.isPlayer || moved >= 30) continue;
+    bot.position.x = city.x + Math.cos(moved * 0.7) * (20 + moved * 4); bot.position.z = city.z + Math.sin(moved * 0.7) * (20 + moved * 4);
+    bot.position.y = game.heightAt(bot.position.x, bot.position.z);
+    moved++;
+  }
+  game.player.position.x = city.x + 10; game.player.position.z = city.z + 10; game.player.position.y = game.heightAt(city.x + 10, city.z + 10);
+  for (let i = 0; i < 600; i++) game.update(1 / 30, idle);
+  assert.ok(calls > 20, `${calls} searches`);
+  assert.ok(failed / calls < 0.25, `${failed} of ${calls} route searches found nothing`);
+});

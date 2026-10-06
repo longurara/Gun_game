@@ -29,6 +29,8 @@ interface Runtime {
   cooldown: number; weaponCooldowns: Record<WeaponType, number>; velocityY: number; reloadWeapon: WeaponType | null;
   targetId: string | null; reaction: number; memory: number; sightTimer: number;
   goal: Vec2 | null; path: Vec2[]; pathTimer: number; stuck: number;
+  /** No route search before this time (a search that found nothing is not repeated at once). */
+  pathHold: number;
   /** Seconds before this actor can throw another grenade. */
   throwCooldown: number;
   meleeCooldown: number;
@@ -1108,7 +1110,7 @@ export class GameSimulation {
     if (!runtime) {
       runtime = {
         cooldown: 0, weaponCooldowns: emptyAmmo(), velocityY: 0, reloadWeapon: null, targetId: null, reaction: 0, memory: 0, sightTimer: 0,
-        goal: null, path: [], pathTimer: 0, stuck: 0, throwCooldown: 0, meleeCooldown: 0, vault: null,
+        goal: null, path: [], pathTimer: 0, stuck: 0, pathHold: 0, throwCooldown: 0, meleeCooldown: 0, vault: null,
         focus: 0, strafeDir: 1, strafeTimer: 0, burstLeft: 0, stillTime: 0,
         lastSeen: null, lastSeenAt: -Infinity, enemyVel: { x: 0, z: 0 }, enemyLast: null,
         heard: null, heardTimer: 0,
@@ -2572,7 +2574,7 @@ export class GameSimulation {
   private followPath(actor: Actor, runtime: Runtime, speed: number, dt: number): number {
     const goal = runtime.goal;
     if (!goal || this.state.phase !== 'playing') return 0;
-    if ((runtime.pathTimer <= 0 || !runtime.path.length) && this.pathBudget <= 0) {
+    if ((runtime.pathTimer <= 0 || !runtime.path.length) && (this.pathBudget <= 0 || this.state.elapsed < runtime.pathHold)) {
       // Out of search budget this step: keep walking toward the goal and plan again shortly.
       runtime.pathTimer = Math.min(runtime.pathTimer, 0) + 0.05;
       const dx = goal.x - actor.position.x, dz = goal.z - actor.position.z, length = Math.hypot(dx, dz) || 1;
@@ -2583,6 +2585,7 @@ export class GameSimulation {
       runtime.path = this.findPath(actor.position, goal);
       runtime.pathTimer = 1 + this.random() * 0.5;
       if (!runtime.path.length) {
+        runtime.pathHold = this.state.elapsed + 1.5;
         // No route (a pickup sealed behind walls, say): give up on it for a while.
         if (runtime.lootRef) { runtime.ignored.set(runtime.lootRef.id, this.state.elapsed + 120); runtime.lootRef = null; }
         runtime.goal = null;
@@ -2749,8 +2752,10 @@ export class GameSimulation {
       target = this.walkable(lead) ? lead : this.snapWalkable(lead, 2) ?? lead;
     }
     if (this.clearPath(from, target)) return [{ ...target }];
-    const cell = this.openWorld ? 2 : 4;
+    // Short hops indoors need a finer lattice: a doorway with a crate behind it is narrower than two coarse cells.
+    const cell = this.openWorld ? (distance2(from, target) <= 22 ? 1 : 2) : 4;
     // Search a box around the route; a big building in the way (a warehouse, an apartment block) can need a wider one.
+    let budget = 2600;
     const search = (margin: number): Vec2[] => {
     const i0 = Math.floor((Math.min(from.x, target.x) - margin) / cell), i1 = Math.ceil((Math.max(from.x, target.x) + margin) / cell);
     const j0 = Math.floor((Math.min(from.z, target.z) - margin) / cell), j1 = Math.ceil((Math.max(from.z, target.z) + margin) / cell);
@@ -2765,18 +2770,39 @@ export class GameSimulation {
     const start = indexOf(from);
     const finish = indexOf(target);
     if (start < 0 || finish < 0) return [];
-    const open = new Set([start]);
+    const finishAt = coordinates(finish);
     const closed = new Set<number>();
     const previous = new Map<number, number>();
     const costs = new Map([[start, 0]]);
-    const heuristics = new Map([[start, distance2(coordinates(start), coordinates(finish))]]);
-    while (open.size) {
-      let current = -1;
-      let cheapest = Infinity;
-      for (const index of open) { const cost = (costs.get(index) ?? Infinity) + (heuristics.get(index) ?? Infinity); if (cost < cheapest) { current = index; cheapest = cost; } }
+    // Binary min-heap of [priority, index]; stale entries are skipped when popped.
+    const heap: Array<[number, number]> = [[distance2(coordinates(start), finishAt), start]];
+    const push = (entry: [number, number]) => {
+      let i = heap.push(entry) - 1;
+      while (i > 0) { const parent = (i - 1) >> 1; if (heap[parent][0] <= heap[i][0]) break; [heap[parent], heap[i]] = [heap[i], heap[parent]]; i = parent; }
+    };
+    const pop = (): [number, number] => {
+      const top = heap[0], last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = i * 2 + 1, r = l + 1; let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i], heap[m]]; i = m;
+        }
+      }
+      return top;
+    };
+    while (heap.length) {
+      const current = pop()[1];
+      if (closed.has(current)) continue;
+      // Give up on a goal that cannot be reached instead of flooding the whole window.
+      if (--budget < 0) return [];
       if (current === finish) {
-        const path: Vec2[] = [coordinates(current)];
-        while (previous.has(current)) { current = previous.get(current)!; path.unshift(coordinates(current)); }
+        let node = current;
+        const path: Vec2[] = [coordinates(node)];
+        while (previous.has(node)) { node = previous.get(node)!; path.unshift(coordinates(node)); }
         if (this.clearPath(path[path.length - 1], target)) path.push({ ...target });
         // A bot hugging a wall stands inside the padded clearance, so no segment from its exact spot passes the check: step to the
         // snapped start cell first, then smooth from there.
@@ -2793,27 +2819,28 @@ export class GameSimulation {
         }
         return smooth;
       }
-      open.delete(current);
       closed.add(current);
       const column = current % width;
       const row = Math.floor(current / width);
+      const here = coordinates(current);
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
         const x = column + dx;
         const z = row + dz;
         if (x < 0 || z < 0 || x >= width || z >= height) continue;
         const neighbor = z * width + x;
-        if (closed.has(neighbor) || !this.clearPath(coordinates(current), coordinates(neighbor))) continue;
+        if (closed.has(neighbor)) continue;
         const cost = (costs.get(current) ?? Infinity) + cell * Math.hypot(dx, dz);
         if (cost >= (costs.get(neighbor) ?? Infinity)) continue;
+        const at = coordinates(neighbor);
+        if (!this.clearPath(here, at)) continue;
         previous.set(neighbor, current);
         costs.set(neighbor, cost);
-        heuristics.set(neighbor, distance2(coordinates(neighbor), coordinates(finish)));
-        open.add(neighbor);
+        push([cost + distance2(at, finishAt), neighbor]);
       }
     }
     return [];
     };
     const found = search(this.openWorld ? 14 : 24);
-    return found.length || !this.openWorld ? found : search(46);
+    return found.length || !this.openWorld || budget <= 0 ? found : search(46);
   }
 }
