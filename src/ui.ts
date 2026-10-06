@@ -17,6 +17,7 @@ import { ZERO_DISTANCE } from './game/ballistics';
 import { SCOPE_FROM } from './optics';
 import { AMMO_LABEL, ARMOR_DURABILITY, ARMOR_NAMES, CLASS_BASE, GUNS_BY_CLASS, isSidearm, slotOrder, WEAPON_ORDER, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
+import { loadingScreen } from './loading-screen';
 
 type Callbacks = {
   onStart: (settings: GameSettings) => void;
@@ -320,7 +321,7 @@ export class GameUI {
       <section id="stats-screen" class="stats-screen" aria-label="Thống kê trận đấu" hidden><div class="stats-card"><div class="stats-head"><h2>THỐNG KÊ TRẬN ĐẤU</h2><button id="stats-close" type="button" aria-label="Đóng">✕</button></div><div class="stats-body"><div class="stats-map"><canvas id="stats-route" width="880" height="880" aria-label="Bản đồ đường đi của bạn"></canvas><div class="stats-legend"><span><i style="background:#6fe08a"></i>Điểm xuất phát</span><span><i style="background:#8fe39a"></i>→<i style="background:#ffb347"></i>Đi bộ / lái xe</span><span><i style="background:#e8503a"></i>Hạ gục</span><span><i class="x">✕</i>Nơi bạn gục</span></div></div><div class="stats-side"><div id="stats-lights"></div><div id="stats-weapons"></div><h3 id="stats-kills-title">CÁC LẦN HẠ GỤC</h3><div id="stats-kills"></div></div></div></div></section>
       <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="replay-bar" class="replay-bar" hidden><span id="replay-title">PHÁT LẠI · 8 GIÂY CUỐI</span><small id="replay-detail"></small><button id="replay-stop" type="button">ĐÓNG</button></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
-      <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
+      ${loadingScreen}
     `;
     root.querySelectorAll<HTMLElement>('[id]').forEach(element => this.elements.set(element.id, element));
     this.inventory = new InventoryView(root, {
@@ -1397,8 +1398,25 @@ export class GameUI {
     this.hide('error-banner', false);
     this.setLoading(null);
   }
-  public setLoading(message: string | null): void {
+  public setLoading(message: string | null, stage: 0 | 1 | 2 = 0): void {
     this.hide('loading-screen', message === null);
-    if (message !== null) this.text('loading-text', message);
+    if (message === null) return;
+    this.text('loading-text', message);
+    this.text('loading-step-count', `0${stage + 1} / 03`);
+    const info = MAP_INFO[this.settings.map];
+    this.text('loading-map', info.title);
+    this.text('loading-map-size', info.size);
+    this.text('loading-map-code', this.settings.map.toUpperCase());
+    this.el('loading-screen').querySelectorAll<HTMLElement>('.loading-steps li').forEach((step, index) => {
+      step.dataset.state = index < stage ? 'complete' : index === stage ? 'active' : 'pending';
+      if (index === stage) step.setAttribute('aria-current', 'step');
+      else step.removeAttribute('aria-current');
+    });
+    // The menu already rendered this preview. Reuse it instead of generating another world.
+    const canvas = this.el('loading-map-canvas') as HTMLCanvasElement;
+    if (canvas.dataset.map !== this.settings.map) {
+      canvas.getContext('2d')?.drawImage(this.el('menu-map') as HTMLCanvasElement, 0, 0, canvas.width, canvas.height);
+      canvas.dataset.map = this.settings.map;
+    }
   }
 }
