@@ -9,13 +9,15 @@ import type { PartName } from '../src/soldier-geometry.ts';
 import { paintSurface } from '../src/surface-textures.ts';
 import type { SurfaceKind } from '../src/surface-textures.ts';
 
+/** Crossbows and launchers follow their own rules (one round, explosions). */
+const SPECIAL = new Set<string>(['bow', 'launcher']);
 const dps = (id: string) => WEAPONS[id].damage * WEAPONS[id].pellets / WEAPONS[id].fireInterval;
 
 test('the armoury holds more than a hundred distinct guns across every class and calibre', () => {
   assert.ok(ARSENAL.length >= 100, `${ARSENAL.length} guns`);
   assert.equal(new Set(ARSENAL.map(g => g.id)).size, ARSENAL.length, 'ids are unique');
   assert.equal(new Set(ARSENAL.map(g => g.label)).size, ARSENAL.length, 'names are unique');
-  for (const cls of Object.keys(CLASS_BASE)) assert.ok(GUNS_BY_CLASS[cls as keyof typeof GUNS_BY_CLASS].length >= 4, `class ${cls} is thin`);
+  for (const cls of Object.keys(CLASS_BASE)) assert.ok(SPECIAL.has(cls) ? GUNS_BY_CLASS[cls as keyof typeof GUNS_BY_CLASS].length >= 2 : GUNS_BY_CLASS[cls as keyof typeof GUNS_BY_CLASS].length >= 4, `class ${cls} is thin`);
   for (const ammo of AMMO_ORDER) assert.ok(ARSENAL.some(g => g.ammo === ammo), `no gun fires ${ammo}`);
   for (const tier of [1, 2, 3] as const) assert.ok(ARSENAL.filter(g => g.tier === tier).length >= 15, `tier ${tier} is thin`);
   assert.equal(WEAPON_ORDER.length, ARSENAL.length);
@@ -25,9 +27,9 @@ test('the armoury holds more than a hundred distinct guns across every class and
 test('every gun has sane, class-appropriate stats and no gun dominates its class', () => {
   for (const id of WEAPON_ORDER) {
     const g = WEAPONS[id], base = CLASS_BASE[g.kind];
-    assert.ok(g.damage > 0 && g.pellets >= 1 && g.magazine >= 2 && g.fireInterval >= 0.04 && g.reloadTime > 0.5, `${id} has odd basic stats`);
+    assert.ok(g.damage > 0 && g.pellets >= 1 && g.magazine >= (SPECIAL.has(g.kind) ? 1 : 2) && g.fireInterval >= 0.04 && g.reloadTime > 0.5, `${id} has odd basic stats`);
     assert.ok(g.aimSpread <= g.spread && g.range > g.preferredRange && g.zoom >= 1, `${id} has inconsistent accuracy or range`);
-    assert.ok(g.ammoPickup > 0 && g.loudness > 20 && g.value >= base.value, `${id} has odd support stats`);
+    assert.ok(g.ammoPickup > 0 && (SPECIAL.has(g.kind) || g.loudness > 20) && g.value >= base.value, `${id} has odd support stats`);
     assert.equal(isSidearm(id), g.kind === 'pistol');
     const ratio = dps(id) / (base.damage * base.pellets / base.fireInterval);
     assert.ok(ratio > 0.5 && ratio < 1.75, `${id} damage output is ${ratio.toFixed(2)}× its class`);

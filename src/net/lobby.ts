@@ -8,7 +8,8 @@ import type { NetMessage, Transport } from './transport';
 
 export interface RoomConfig { map: MatchSetup['map']; botCount: number; difficulty: MatchSetup['difficulty'] }
 /** `uid` is the player's account id when they are signed in (used to recognise friends and send invites). */
-export interface RosterEntry { id: string; name: string; uid?: string }
+export interface RosterEntry { id: string; name: string; uid?: string; skin?: string }
+const cleanSkin = (value: unknown): string | undefined => typeof value === 'string' && /^[a-z0-9_-]{1,24}$/.test(value) ? value : undefined;
 export type LobbyPhase = 'connecting' | 'joining' | 'waiting' | 'starting' | 'closed' | 'error';
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -39,6 +40,7 @@ export class Lobby {
   private lastHello = -Infinity;
   private lastRoster = -Infinity;
   private startedAt: number | null = null;
+  private skin: string | undefined;
   /** The time of the latest tick: a heartbeat is stamped with it. */
   private now = 0;
 
@@ -59,6 +61,12 @@ export class Lobby {
   private fail(why: string): void { if (this.phase === 'starting') return; this.phase = 'error'; this.error = why; this.changed(); }
 
   setName(name: string): void { this.name = name; }
+  /** The outfit this player chose; it travels with the roster so everybody draws them in it. */
+  setSkin(skin: string | undefined): void {
+    this.skin = cleanSkin(skin);
+    const mine = this.players.find(player => player.id === this.me);
+    if (mine) mine.skin = this.skin;
+  }
   setConfig(config: RoomConfig): void {
     if (this.role !== 'host') return;
     this.config = config;
@@ -70,7 +78,7 @@ export class Lobby {
   start(nowMs = 0): MatchSetup | null {
     if (this.role !== 'host' || this.phase !== 'waiting') return null;
     const seed = Math.floor(this.random() * 2 ** 31);
-    const setup: MatchSetup = { seed, map: this.config.map, botCount: this.config.botCount, difficulty: this.config.difficulty, drop: this.config.map !== 'arena', players: this.players.map(player => ({ clientId: player.id, name: player.name })) };
+    const setup: MatchSetup = { seed, map: this.config.map, botCount: this.config.botCount, difficulty: this.config.difficulty, drop: this.config.map !== 'arena', players: this.players.map(player => ({ clientId: player.id, name: player.name, ...(player.skin ? { skin: player.skin } : {}) })) };
     this.setup = setup;
     this.phase = 'starting';
     this.startedAt = nowMs;
@@ -93,7 +101,8 @@ export class Lobby {
         const known = this.players.find(player => player.id === from);
         if (!known && this.players.length >= MAX_PLAYERS) { this.transport.send({ k: 'reject', to: from, why: 'full' }); return; }
         this.lastSeen.set(from, this.now);
-        if (known) { known.name = name; if (uid) known.uid = uid; } else this.players.push({ id: from, name, ...(uid ? { uid } : {}) });
+        const skin = cleanSkin(message.skin);
+        if (known) { known.name = name; if (uid) known.uid = uid; if (skin) known.skin = skin; } else this.players.push({ id: from, name, ...(uid ? { uid } : {}), ...(skin ? { skin } : {}) });
         this.broadcastRoster();
         this.changed();
       } else if (message.k === 'bye') {
@@ -147,7 +156,7 @@ export class Lobby {
     if (this.startedAt === null) this.startedAt = nowMs;
     if (nowMs - this.lastHello >= HELLO_INTERVAL) {
       this.lastHello = nowMs;
-      this.transport.send({ k: 'hello', name: this.name, ...(this.uid ? { uid: this.uid } : {}) });
+      this.transport.send({ k: 'hello', name: this.name, ...(this.uid ? { uid: this.uid } : {}), ...(this.skin ? { skin: this.skin } : {}) });
     }
     if (this.phase === 'connecting' || this.phase === 'joining') {
       this.phase = 'joining';

@@ -174,3 +174,16 @@ html[data-input="touch"] .inventory-weapon-drop,html[data-input="touch"] .invent
 @media(prefers-reduced-motion:reduce){.inventory-screen *{scroll-behavior:auto!important}}
 
 @media (orientation:portrait){html[data-input="touch"] .inventory-toggle{top:calc(92px + env(safe-area-inset-top));}}
+
+/* Backpack capacity and the parts bolted to each gun. */
+.inventory-capacity { display: grid; gap: 5px; margin: 0 0 10px; font-size: 11px; letter-spacing: 1.2px; color: #b9c6ab; }
+.inventory-capacity > i { display: block; height: 5px; background: #ffffff1c; border-radius: 3px; overflow: hidden; }
+.inventory-capacity b { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, #8fd16a, #d8f0c0); transform-origin: left; transition: transform .2s; }
+.inventory-capacity b.full { background: linear-gradient(90deg, #f0b43c, #ef7a48); }
+.inventory-attachments { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 9px; }
+.inventory-attachment { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 7px; font: inherit; font-size: 10.5px; letter-spacing: .5px; color: #8f9d88; background: #ffffff0a; border: 1px dashed #ffffff22; border-radius: 3px; cursor: default; text-align: left; }
+.inventory-attachment[hidden] { display: none; }
+.inventory-attachment .inventory-attachment-icon svg { width: 14px; height: 14px; }
+.inventory-attachment.on { color: #f1ecd0; background: #f0b43c1c; border: 1px solid #f0b43c66; cursor: pointer; }
+.inventory-attachment.on:hover:not(:disabled) { background: #f0b43c33; }
+.inventory-attachment.on::after { content: "✕"; margin-left: auto; font-size: 9px; opacity: .6; }

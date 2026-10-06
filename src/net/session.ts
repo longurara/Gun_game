@@ -3,7 +3,7 @@
  * runs a mirror, predicts its own movement so controls feel immediate, and draws everybody else a moment in the past,
  * blended between snapshots. Neither knows about Supabase: they talk through a `Transport`.
  */
-import type { Actor, GameEvent, LootKind, PlayerInput, Stance, Vec3, WeaponType } from '../types';
+import type { Actor, GameEvent, LootKind, PlayerInput, Projectile, Stance, Vec3, WeaponType } from '../types';
 import type { GameSimulation } from '../game/simulation';
 import { WEAPON_ORDER } from '../game/weapons';
 import { applySnapshot, netRates, PROTOCOL_VERSION, SnapshotBuilder } from './protocol';
@@ -15,7 +15,7 @@ import type { NetMessage, Transport } from './transport';
 export interface MatchSetup {
   seed: number; map: 'island' | 'valley' | 'arena'; botCount: number; difficulty: 'easy' | 'normal'; drop: boolean;
   /** In join order: index 0 is the host. */
-  players: Array<{ clientId: string; name: string }>;
+  players: Array<{ clientId: string; name: string; skin?: string }>;
 }
 
 export const actorIdFor = (index: number): string => `p${index}`;
@@ -175,6 +175,22 @@ export class HostSession {
     switch (command) {
       case 'reload': sim.reload(actor); break;
       case 'heal': sim.heal(actor); break;
+      case 'use': sim.useSupply(argument, actor); break;
+      case 'throw': {
+        if (!Array.isArray(argument) || argument.length < 4) break;
+        const [kind, x, y, z] = argument as unknown[];
+        const target = { x: num(x, NaN), y: num(y, NaN), z: num(z, NaN) };
+        if (Number.isFinite(target.x + target.y + target.z) && Math.hypot(target.x - actor.position.x, target.z - actor.position.z) < 200) sim.throwGrenade(actor, kind, target);
+        break;
+      }
+      case 'throwsel': sim.cycleThrow(actor, argument); break;
+      case 'melee': sim.meleeStrike(actor); break;
+      case 'attach': {
+        const [kind, weapon] = Array.isArray(argument) ? argument as unknown[] : [argument];
+        sim.attachPart(actor, kind, typeof weapon === 'string' ? weapon : actor.weapon);
+        break;
+      }
+      case 'detach': if (Array.isArray(argument) && typeof argument[0] === 'string') sim.detachPart(actor, argument[0], argument[1]); break;
       case 'interact': sim.interact(actor); break;
       case 'inventory-pickup':
         if (typeof argument === 'string' && argument.length > 0 && argument.length <= 128) sim.pickupLoot(argument, actor);
@@ -263,6 +279,8 @@ export class ClientSession {
   private excessPeak = 0;
   private delay = 0.1;
   private lastFrameAt = 0;
+  /** Grenades as the last snapshot had them, and when it arrived: they are flown on from there each frame. */
+  private flight: { at: number; list: Projectile[] } = { at: 0, list: [] };
   /** The host time the screen was showing at the last frame: what the player was looking at when they pulled the trigger. */
   private viewT = NaN;
   private lastTickAt = 0;
@@ -378,6 +396,7 @@ export class ClientSession {
     const cars = new Map<number, PoseRow>();
     for (const [index, x, y, z, yaw] of snap.c) cars.set(index, { x, y, z, yaw });
     this.buffer.push({ at: now, t: snap.t, poses, cars });
+    this.flight = { at: now, list: (this.sim.state.projectiles ?? []).map(p => ({ ...p })) };
     while (this.buffer.length > 24) this.buffer.shift();
     if (result.local && !result.flightRegress) this.reconcile(result.local, echoCt);
     if (result.ownCar) this.reconcileCar(result.ownCar, echoCt);
@@ -492,6 +511,14 @@ export class ClientSession {
 
   /** Call every frame before drawing: place everybody else where they were a moment ago, blended between snapshots. */
   frame(nowMs: number): void {
+    // A grenade moves smoothly between snapshots: carry each on along the velocity it was thrown with.
+    if (this.flight.list.length) {
+      const t = Math.min(0.25, Math.max(0, (nowMs - this.flight.at) / 1000));
+      this.sim.state.projectiles = this.flight.list.map(p => {
+        const x = p.x + p.vx * t, z = p.z + p.vz * t;
+        return { ...p, x, z, y: Math.max(this.sim.heightAt(x, z) + 0.12, p.y + p.vy * t - 8 * t * t) };
+      });
+    }
     const latest = this.buffer[this.buffer.length - 1];
     if (!latest || this.clockOffset === null) return;
     const dt = this.lastFrameAt > 0 ? Math.min(0.25, Math.max(0, (nowMs - this.lastFrameAt) / 1000)) : 0;

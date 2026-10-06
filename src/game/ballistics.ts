@@ -10,12 +10,12 @@ export const GRAVITY = 36;
 
 /** Muzzle velocity in m/s by class: pistols and shotguns are slow, rifles fast, sniper rifles fastest. */
 export const MUZZLE_VELOCITY: Record<WeaponClass, number> = {
-  pistol: 360, smg: 400, shotgun: 400, ar: 740, br: 800, lmg: 750, dmr: 830, sniper: 920, amr: 960,
+  pistol: 360, smg: 400, shotgun: 400, ar: 740, br: 800, lmg: 750, dmr: 830, sniper: 920, amr: 960, bow: 130, launcher: 45,
 };
 
 /** Metres at which each class's sights are zeroed: scoped guns at 100 m, others close in. */
 export const ZERO_DISTANCE: Record<WeaponClass, number> = {
-  pistol: 40, smg: 50, shotgun: 25, ar: 60, br: 70, lmg: 70, dmr: 100, sniper: 100, amr: 100,
+  pistol: 40, smg: 50, shotgun: 25, ar: 60, br: 70, lmg: 70, dmr: 100, sniper: 100, amr: 100, bow: 60, launcher: 50,
 };
 
 /** Shots shorter than this fly straight: the drop is under a few centimetres and not worth tracing in pieces. */

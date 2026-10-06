@@ -70,10 +70,14 @@ test('after a few seconds of play the mirror shows the same positions, health, z
 test('items picked up on the host, gear dropped by the dead and crate loot all reach the mirror', () => {
   const { host, mirror, run } = pair('valley');
   run(1);
-  const target = host.state.loot.find(l => l.active)!;
+  // A medkit is taken whole (ammo stacks can be taken in part and stay on the ground).
+  const target = host.state.loot.find(l => l.active && l.kind === 'medkit')!;
   const index = host.state.loot.indexOf(target);
   host.humans[2].position = { ...target.position };
-  assert.ok(host.interact(host.humans[2]));
+  // Pick that exact item: several pickups now sit close together (a stack of rooms), so the nearest may be another.
+  assert.ok(host.pickupLoot(target.id, host.humans[2]));
+  // Bring the bot near the people so its row is in the snapshots (far-away actors are not sent).
+  host.actorById('bot-1')!.position = { ...host.humans[2].position };
   (host as unknown as { damage(a: unknown, n: number, s?: string): void }).damage(host.actorById('bot-1'), 999, 'p0');
   run(1);
   assert.equal(mirror.state.loot[index].active, false, 'the pickup is mirrored');

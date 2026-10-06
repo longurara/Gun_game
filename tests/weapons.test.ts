@@ -82,13 +82,15 @@ for (const weapon of WEAPON_ORDER) {
     assert.equal(game.reload(), true);
     assert.equal(game.shootPlayer({ x: 0, y: 1.1, z: 0 }, true), false);
     game.update(WEAPONS[weapon].reloadTime + 0.05, idle);
-    assert.equal(game.player.ammo[weapon], 2);
-    assert.equal(game.player.reserve[calibre], 0);
+    const loaded = Math.min(2, WEAPONS[weapon].magazine);
+    assert.equal(game.player.ammo[weapon], loaded);
+    assert.equal(game.player.reserve[calibre], 2 - loaded);
     assert.equal(game.player.reloading, 0);
     assert.equal(game.reload(), false);
   });
 
-  test(`${weapon}: aimed shots deal damage in range, stop beyond range, and obey the configured cadence`, () => {
+  // A launcher's blast is covered by its own tests (tests/special.test.ts): it has no instant hit.
+  if (WEAPONS[weapon].kind !== 'launcher' && WEAPONS[weapon].magazine > 1) test(`${weapon}: aimed shots deal damage in range, stop beyond range, and obey the configured cadence`, () => {
     const { game, target } = shootingRange(weapon, 5);
     const aim = { x: 0, y: 1.1, z: 5 };
     assert.equal(game.shootPlayer(aim, true), true);

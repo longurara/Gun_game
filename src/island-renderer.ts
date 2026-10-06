@@ -7,7 +7,7 @@ import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial.js';
 import { SubMesh } from '@babylonjs/core/Meshes/subMesh.js';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import type { Field, Obstacle, WorldConfig } from './types';
+import type { Field, Floor, Obstacle, WorldConfig } from './types';
 import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase } from './game/world';
 import { groundBumpTexture, groundDetailTexture, IslandDecor } from './island-decor';
 import { ATLAS, CardBatch, createFacadeMaterial, createFoliageMaterial } from './island-foliage';
@@ -97,8 +97,10 @@ class Geometry {
   quad(a: number[], b: number[], c: number[], d: number[], outward: number[], color: Rgb): void { this.quadC(a, b, c, d, outward, color, color, color, color); }
 
   /** Axis-aligned box standing on `y0`. Sides darken toward the ground (`ao`), faking the light lost near the base. */
-  box(cx: number, y0: number, cz: number, w: number, h: number, d: number, color: Rgb, ao = 0.72): void {
+  box(cx: number, y0: number, cz: number, w: number, h: number, d: number, color: Rgb, ao = 0.72, underside = false): void {
     const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, y1 = y0 + h;
+    // A floor slab is seen from below as a ceiling: give it a bottom face.
+    if (underside) this.quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], shade(color, 0.72));
     this.quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [0, 1, 0], shade(color, 1.08));
     const side = (a: number[], b: number[], c: number[], e: number[], out: number[], k: number) => {
       const top = shade(color, k), bottom = shade(color, k * ao);
@@ -233,6 +235,8 @@ interface Bank { ax: number; az: number; bx: number; bz: number; half: number }
 export class IslandRenderer {
   private readonly chunks = new Map<number, Chunk>();
   private readonly byChunk = new Map<number, Obstacle[]>();
+  private readonly proxiesByChunk = new Map<number, Obstacle[]>();
+  private readonly stairsByChunk = new Map<number, Floor[]>();
   private readonly fieldsByChunk = new Map<number, Field[]>();
   private readonly banksByChunk = new Map<number, Bank[]>();
   /** 1 = distant silhouette, 2 = full detail. */
@@ -283,6 +287,8 @@ export class IslandRenderer {
     this.foliageMaterial = createFoliageMaterial(scene);
     this.facadeMaterial = createFacadeMaterial(scene);
     for (const obstacle of world.obstacles) this.bucket(this.byChunk, this.keyAt(obstacle.x, obstacle.z), obstacle);
+    for (const proxy of world.proxies ?? []) this.bucket(this.proxiesByChunk, this.keyAt(proxy.x, proxy.z), proxy);
+    for (const floor of world.floors ?? []) if (floor.y0 !== floor.y1) this.bucket(this.stairsByChunk, this.keyAt(floor.x, floor.z), floor);
     for (const field of world.fields ?? []) {
       for (const key of this.keysCovering(field.x - field.w / 2, field.z - field.d / 2, field.x + field.w / 2, field.z + field.d / 2)) this.bucket(this.fieldsByChunk, key, field);
     }
@@ -559,6 +565,25 @@ export class IslandRenderer {
     }
   }
 
+  /** A stair ramp drawn as steps: a column for every tread, rising from the low end to the high end. */
+  private steps(g: Geometry, ramp: Floor): void {
+    const alongX = ramp.axis === 'x';
+    const length = alongX ? ramp.width : ramp.depth, breadth = alongX ? ramp.depth : ramp.width;
+    const low = Math.min(ramp.y0, ramp.y1), count = Math.max(4, Math.round(length / 0.3)), run = length / count;
+    g.finish = 'plain';
+    for (let i = 0; i < count; i++) {
+      const t = (i + 1) / count;
+      // The riser of tread i sits at the surface height at the far side of its run (towards the high end).
+      const along = alongX ? ramp.x - length / 2 + (i + 0.5) * run : ramp.z - length / 2 + (i + 0.5) * run;
+      const surface = ramp.y0 + (ramp.y1 - ramp.y0) * (i + 0.5) / count;
+      const top = Math.max(low + 0.05, surface);
+      void t;
+      const color = shade(PALETTE.concrete, 1.06 - (i % 2) * 0.07);
+      if (alongX) g.box(along, low, ramp.z, run, top - low, breadth, color, 0.85);
+      else g.box(ramp.x, low, along, breadth, top - low, run, color, 0.85);
+    }
+  }
+
   /** `far` builds a cheap silhouette (house boxes and one-piece trees) for chunks at the edge of view. */
   private buildProps(cx: number, cz: number, far = false): { props: Mesh | null; foliage: Mesh | null; facade: Mesh | null } {
     const geometry = new Geometry();
@@ -612,6 +637,7 @@ export class IslandRenderer {
           break;
         }
         case 'building': this.block(geometry, panels, obstacle, bottom, height, seed); break;
+        case 'floor': geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.concrete, 0.95 + cellHash(obstacle.x, obstacle.z) * 0.08), 0.9, true); break;
         case 'crate': geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.crate, 0.9 + seed * 0.2), 0.7); break;
         case 'rock': this.boulder(geometry, obstacle, bottom, height, seed); break;
         case 'tree':
@@ -621,6 +647,14 @@ export class IslandRenderer {
         default: geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, PALETTE.stone);
       }
     }
+    // From a distance a tall building is one solid block with its roof deck; close up the walls and floors do the job.
+    if (far) for (const proxy of this.proxiesByChunk.get(key) ?? []) {
+      geometry.finish = 'plaster';
+      const base = obstacleBase(proxy), seed = hashString(proxy.id);
+      this.block(geometry, panels, proxy, base, proxy.height, seed);
+    }
+    // Stairs: each ramp is a flight of steps, solid down to where it starts.
+    if (!far) for (const ramp of this.stairsByChunk.get(key) ?? []) this.steps(geometry, ramp);
     if (!far) this.scatterBushes(cx, cz, cards, key);
     const mesh = geometry.build(`props-${cx}-${cz}`, this.scene, this.propMaterial);
     if (mesh) { mesh.metadata = { solid: true }; mesh.receiveShadows = true; }

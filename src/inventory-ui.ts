@@ -4,6 +4,11 @@ import {
   armorKind, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, WEAPONS,
 } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
+import { isSupplyKind, SUPPLIES, SUPPLY_ORDER } from './game/supplies';
+import { isMeleeKind, MELEE } from './game/melee';
+import { ATTACH, ATTACH_ORDER, ATTACH_SLOTS, attachmentsOf, capacityOf, fits, isAttachKind, isPackKind, magazineOf, PACKS, usedSpace } from './game/gear';
+import type { AttachKind, AttachSlot } from './game/gear';
+import type { SupplyKind, UseKind } from './game/supplies';
 
 export type InventoryCallbacks = {
   onClose: () => void;
@@ -11,6 +16,11 @@ export type InventoryCallbacks = {
   onPickup: (lootId: string) => void;
   onDrop: (kind: LootKind, amount: number) => void;
   onHeal: () => void;
+  /** Use a healing item or a boost from the pack. */
+  onUse?: (kind: UseKind) => void;
+  /** Put a spare part on the gun in hand, or take one off a named gun. */
+  onAttach?: (kind: AttachKind) => void;
+  onDetach?: (weapon: WeaponType, slot: AttachSlot) => void;
   onOpenChange?: (open: boolean) => void;
 };
 
@@ -27,11 +37,45 @@ const icons = {
   medkit: '<path d="M8 5V3h8v2M3 7h18v14H3zM9 14h6m-3-3v6"/>',
   helmet: '<path d="M4 16v-4a8 8 0 0 1 16 0v4l-4 1v4h-5v-5zm0 0H2m18 0h2"/>',
   vest: '<path d="m8 3 4 3 4-3 4 5-3 3v10H7V11L4 8zM9 12h6m-6 4h6"/>',
+  bandage: '<rect x="3" y="8" width="18" height="8" rx="4"/><path d="M10 8v8m4-8v8"/>',
+  firstaid: '<path d="M4 7h16v13H4zM9 7V4h6v3M12 10v7m-3.5-3.5h7"/>',
+  pill: '<rect x="7" y="8" width="10" height="13" rx="2"/><path d="M8 8V5h8v3M7 13h10"/>',
+  can: '<path d="M7 5h10v16H7zM7 9h10M7 17h10M10 3h4"/>',
+  grenade: '<circle cx="12" cy="14" r="6"/><path d="M10 8V5h4v3M14 5l3-2"/>',
+  smoke: '<path d="M7 20h10v-6H7zM9 14V9h6v5M12 9V5m-3 0h6"/>',
+  flash: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.5 5.5 8 8m8 8 2.5 2.5m0-13L16 8M8 16l-2.5 2.5"/>',
+  molotov: '<path d="M10 3h4v4l3 5v8H7v-8l3-5zM9 13h6"/><path d="M12 1c1 1 1 2 0 2"/>',
+  melee: '<path d="m4 20 9-9m0 0 5-7 2 2-7 5zM3 21l3-3"/>',
+  pack: '<path d="M8 6a4 4 0 0 1 8 0v1H8zM5 9h14v12H5zM9 14h6M12 12v4"/>',
+  scope: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16"/>',
+  muzzle: '<path d="M3 10h12v4H3zM15 9h6v6h-6zM18 11v2"/>',
+  grip: '<path d="M8 3h8v6H8zM9 9l-1 12h6l2-12"/>',
+  magazine: '<path d="M7 3h8l2 18H7zM9 8h6M9 13h6"/>',
 };
-function itemIcon(kind: LootKind): string {
+const ATTACH_ICON: Record<AttachSlot, keyof typeof icons> = { scope: 'scope', muzzle: 'muzzle', grip: 'grip', mag: 'magazine' };
+const SUPPLY_ICON: Record<SupplyKind, keyof typeof icons> = { bandage: 'bandage', firstaid: 'firstaid', painkiller: 'pill', energy: 'can', frag: 'grenade', smoke: 'smoke', flash: 'flash', molotov: 'molotov' };
+export function itemIcon(kind: LootKind): string {
   if (isWeaponKind(kind)) return weaponHudIcon(kind);
-  const name = kind === 'medkit' ? 'medkit' : isArmorKind(kind) ? parseArmor(kind).slot : 'ammo';
+  const name = kind === 'medkit' ? 'medkit' : isSupplyKind(kind) ? SUPPLY_ICON[kind] : isPackKind(kind) ? 'pack' : isMeleeKind(kind) ? 'melee' : isAttachKind(kind) ? ATTACH_ICON[ATTACH[kind as AttachKind].slot] : isArmorKind(kind) ? parseArmor(kind).slot : 'ammo';
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icons[name] + '</svg>';
+}
+const SLOT_LABEL: Record<AttachSlot, string> = { scope: 'Ống ngắm', muzzle: 'Đầu nòng', grip: 'Tay cầm', mag: 'Băng đạn' };
+function attachDetail(kind: AttachKind): string {
+  const part = ATTACH[kind];
+  const bits = [part.zoom ? `Phóng đại ${part.zoom}×` : '', part.loud ? 'Giảm tiếng nổ' : '', part.recoil ? 'Giảm giật' : '', part.spread ? 'Chụm đạn hơn' : '', part.mag ? 'Thêm ' + Math.round((part.mag - 1) * 100) + '% đạn' : ''].filter(Boolean);
+  return bits.join(' · ') || 'Phụ kiện súng';
+}
+/** The grey line under a carried item: what it does. */
+function supplyDetail(kind: LootKind): string {
+  if (kind === 'medkit') return 'Hồi phục thể lực';
+  if (isPackKind(kind)) return `+${PACKS[kind].bonus} sức chứa`;
+  if (isMeleeKind(kind)) return `Vung bằng phím X · ${MELEE[kind].damage} sát thương`;
+  if (isAttachKind(kind)) return attachDetail(kind);
+  if (!isSupplyKind(kind)) return '';
+  const config = SUPPLIES[kind];
+  if (config.group === 'heal') return `Hồi ${config.heal} HP · tối đa ${config.cap} HP`;
+  if (config.group === 'boost') return `+${config.boost} tăng lực · hồi dần`;
+  return 'Ném bằng phím G';
 }
 function write(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value;
@@ -59,6 +103,8 @@ export class InventoryView {
   private readonly status: HTMLElement;
   private readonly nearbyCount: HTMLElement;
   private readonly carriedCount: HTMLElement;
+  private readonly capacityText: HTMLElement;
+  private readonly capacityFill: HTMLElement;
   private readonly nearbyRows = new Map<string, ItemRow>();
   private readonly carriedRows = new Map<LootKind, ItemRow>();
   private readonly weapons: WeaponSlot[] = [];
@@ -86,7 +132,7 @@ export class InventoryView {
       '<div class="inventory-section-title"><h3 id="inventory-nearby-title">XUNG QUANH</h3><span id="inventory-nearby-count">0 VẬT PHẨM</span></div><p class="inventory-column-note">Trong tầm nhặt</p>',
       '<div id="inventory-nearby-list" class="inventory-item-list"></div><div id="inventory-nearby-empty" class="inventory-empty"><span class="inventory-empty-icon">' + itemIcon('556Ammo') + '</span><p>Không có vật phẩm gần bạn.</p><small>Đến gần đồ trên mặt đất để nhặt.</small></div></section>',
       '<section class="inventory-column inventory-carried" aria-labelledby="inventory-carried-title">',
-      '<div class="inventory-section-title"><h3 id="inventory-carried-title">VẬT TƯ</h3><span id="inventory-carried-count">0 LOẠI</span></div><p class="inventory-column-note">Đạn dự trữ &amp; cứu thương</p>',
+      '<div class="inventory-section-title"><h3 id="inventory-carried-title">VẬT TƯ</h3><span id="inventory-carried-count">0 LOẠI</span></div><p class="inventory-column-note">Đạn dự trữ, hồi phục, lựu đạn &amp; phụ kiện</p><div class="inventory-capacity"><span id="inventory-capacity-text">BA LÔ 0 / 60</span><i><b id="inventory-capacity-fill"></b></i></div>',
       '<div id="inventory-carried-list" class="inventory-item-list"></div><div id="inventory-carried-empty" class="inventory-empty"><span class="inventory-empty-icon">' + itemIcon('medkit') + '</span><p>Kho vật tư đang trống.</p><small>Tìm đạn và cứu thương trong các ngôi nhà.</small></div></section>',
       '<section class="inventory-character-panel" aria-label="Nhân vật và giáp đang trang bị">',
       '<div class="inventory-character-heading"><span>NGƯỜI SINH TỒN</span><i>TRANG BỊ HIỆN TẠI</i></div><div class="inventory-character-stage"><div class="inventory-character-halo" aria-hidden="true"></div><canvas id="inventory-character" width="560" height="800" aria-label="Nhân vật 3D và vũ khí đang cầm"></canvas><div class="inventory-armor-slots"></div></div>',
@@ -108,6 +154,8 @@ export class InventoryView {
     this.status = this.element('inventory-status');
     this.nearbyCount = this.element('inventory-nearby-count');
     this.carriedCount = this.element('inventory-carried-count');
+    this.capacityText = this.element('inventory-capacity-text');
+    this.capacityFill = this.element('inventory-capacity-fill');
     this.close.dataset.inventoryAction = 'close';
     this.createArmor();
     this.createWeaponSlots();
@@ -199,6 +247,10 @@ export class InventoryView {
   private updateCarried(player: Actor): void {
     const kinds: Array<{ kind: LootKind; count: number; ammo?: AmmoType }> = [];
     if (player.medkits > 0) kinds.push({ kind: 'medkit', count: integer(player.medkits) });
+    for (const supply of SUPPLY_ORDER) if (player.supplies[supply] > 0) kinds.push({ kind: supply, count: integer(player.supplies[supply]) });
+    if (player.melee) kinds.push({ kind: player.melee, count: 1 });
+    if (player.pack > 0) kinds.push({ kind: ('pack' + player.pack) as LootKind, count: 1 });
+    for (const part of ATTACH_ORDER) if ((player.parts?.[part] ?? 0) > 0) kinds.push({ kind: part, count: integer(player.parts[part]) });
     for (const ammo of AMMO_ORDER) if (player.reserve[ammo] > 0) kinds.push({ kind: ammoKindOf(ammo), count: integer(player.reserve[ammo]), ammo });
     const liveKinds = new Set(kinds.map(item => item.kind));
     for (const [kind, row] of this.carriedRows) {
@@ -209,28 +261,45 @@ export class InventoryView {
       if (!row) {
         row = this.createItemRow(kind, 'drop');
         row.action.dataset.kind = kind;
-        if (kind === 'medkit') {
+        if (isAttachKind(kind)) {
+          const attach = document.createElement('button');
+          attach.type = 'button'; attach.className = 'inventory-action inventory-action-primary';
+          attach.dataset.inventoryAction = 'attach'; attach.dataset.useKind = kind; attach.setAttribute('aria-label', 'Gắn ' + lootLabel(kind).toLowerCase());
+          row.root.querySelector('.inventory-item-actions')!.prepend(attach);
+          row.secondary = attach;
+        }
+        if (kind === 'medkit' || (isSupplyKind(kind) && SUPPLIES[kind].group !== 'throw')) {
           const heal = document.createElement('button');
           heal.type = 'button'; heal.className = 'inventory-action inventory-action-primary';
-          heal.dataset.inventoryAction = 'heal'; heal.setAttribute('aria-label', 'Dùng túi cứu thương');
+          heal.dataset.inventoryAction = kind === 'medkit' ? 'heal' : 'use'; heal.dataset.useKind = kind; heal.setAttribute('aria-label', 'Dùng ' + lootLabel(kind).toLowerCase());
           row.root.querySelector('.inventory-item-actions')!.prepend(heal);
           row.secondary = heal;
         }
         this.carriedRows.set(kind, row);
       }
-      write(row.count, '×' + count);
-      write(row.detail, ammo ? 'Đạn dự trữ' : player.healing > 0 ? 'Đang hồi máu · ' + player.healing.toFixed(1) + ' s' : 'Hồi phục thể lực');
-      const amount = ammo ? Math.min(30, count) : 1;
+      write(row.count, isPackKind(kind) ? 'ĐANG ĐEO' : isMeleeKind(kind) ? 'PHÍM X' : '×' + count);
+      write(row.detail, ammo ? 'Đạn dự trữ' : player.healing > 0 && (player.healKind ?? 'medkit') === kind ? 'Đang dùng · ' + player.healing.toFixed(1) + ' s' : supplyDetail(kind));
+      const amount = ammo ? Math.min(30, count) : isAttachKind(kind) ? count : 1;
       row.action.dataset.amount = String(amount);
       row.action.disabled = !player.alive || !!player.air || !!player.vehicleId;
       write(row.action, ammo ? 'BỎ ' + amount : 'BỎ');
       row.action.setAttribute('aria-label', 'Bỏ ' + amount + ' ' + lootLabel(kind));
-      if (row.secondary) {
-        row.secondary.disabled = !player.alive || player.health >= 99 || player.healing > 0 || !!player.air || !!player.vehicleId;
-        write(row.secondary, player.healing > 0 ? 'ĐANG DÙNG' : 'DÙNG');
+      if (row.secondary && isAttachKind(kind)) {
+        row.secondary.disabled = !player.alive || !fits(kind, player.weapon) || !!player.air || !!player.vehicleId;
+        write(row.secondary, attachmentsOf(player, player.weapon)[ATTACH[kind].slot] === kind ? 'ĐÃ GẮN' : 'GẮN');
+        if (!row.secondary.disabled && attachmentsOf(player, player.weapon)[ATTACH[kind].slot] === kind) row.secondary.disabled = true;
+      } else if (row.secondary) {
+        const config = isSupplyKind(kind) ? SUPPLIES[kind] : null;
+        const useless = config ? (config.group === 'heal' ? player.health >= config.cap : player.boost >= 100) : player.health >= 99;
+        row.secondary.disabled = !player.alive || useless || player.healing > 0 || !!player.air || !!player.vehicleId;
+        write(row.secondary, player.healing > 0 && (player.healKind ?? 'medkit') === kind ? 'ĐANG DÙNG' : 'DÙNG');
       }
       if (this.carriedList.children[index] !== row.root) this.carriedList.insertBefore(row.root, this.carriedList.children[index] ?? null);
     });
+    const used = usedSpace(player), capacity = capacityOf(player);
+    write(this.capacityText, `BA LÔ ${player.pack ? 'CẤP ' + player.pack : 'KHÔNG CÓ'} · ${Math.ceil(used)} / ${capacity}`);
+    this.capacityFill.style.transform = `scaleX(${Math.min(1, used / capacity)})`;
+    this.capacityFill.classList.toggle('full', used / capacity > 0.9);
     this.carriedEmpty.hidden = kinds.length > 0;
     write(this.carriedCount, kinds.length + ' LOẠI');
   }
@@ -243,6 +312,15 @@ export class InventoryView {
       root.dataset.slot = String(index + 1);
       root.innerHTML = '<div class="inventory-slot-top"><span class="inventory-slot-number">0' + (index + 1) + '</span><span class="inventory-slot-type">' + (index === 2 ? 'VŨ KHÍ PHỤ' : 'VŨ KHÍ CHÍNH') + '</span><button class="inventory-weapon-drop" type="button" data-inventory-action="drop">BỎ</button></div><button class="inventory-weapon-select" type="button" data-inventory-action="select"><span class="inventory-weapon-name"></span><span class="inventory-weapon-category"></span><span class="inventory-weapon-art"></span><span class="inventory-weapon-ammo"><b></b><small></small></span><span class="inventory-equipped-label">ĐANG CẦM</span></button>';
       this.weapons.push({ root, select: root.querySelector<HTMLButtonElement>('.inventory-weapon-select')!, label: root.querySelector<HTMLElement>('.inventory-weapon-name')!, category: root.querySelector<HTMLElement>('.inventory-weapon-category')!, icon: root.querySelector<HTMLElement>('.inventory-weapon-art')!, rounds: root.querySelector<HTMLElement>('.inventory-weapon-ammo b')!, reserve: root.querySelector<HTMLElement>('.inventory-weapon-ammo small')!, drop: root.querySelector<HTMLButtonElement>('.inventory-weapon-drop')! });
+      const worn = document.createElement('div');
+      worn.className = 'inventory-attachments';
+      for (const slotName of ATTACH_SLOTS) {
+        const part = document.createElement('button');
+        part.type = 'button'; part.className = 'inventory-attachment'; part.dataset.inventoryAction = 'detach'; part.dataset.slot = slotName;
+        part.innerHTML = '<span class="inventory-attachment-icon">' + itemIcon(slotName === 'scope' ? 'scope2' : slotName === 'muzzle' ? 'suppressor' : slotName === 'grip' ? 'vgrip' : 'extmag') + '</span><span class="inventory-attachment-name"></span>';
+        worn.append(part);
+      }
+      root.append(worn);
       list.append(root);
     }
   }
@@ -263,7 +341,17 @@ export class InventoryView {
       write(slot.category, config ? config.category + ' · ' + AMMO_LABEL[config.ammoType] : index === 2 ? 'Nhặt một khẩu súng ngắn' : 'Nhặt một vũ khí chính');
       if (config) setIcon(slot.icon, weapon!);
       else if (slot.icon.dataset.kind) { slot.icon.innerHTML = ''; delete slot.icon.dataset.kind; }
-      write(slot.rounds, config ? integer(player.ammo[weapon!]) + ' / ' + config.magazine : '—');
+      write(slot.rounds, config ? integer(player.ammo[weapon!]) + ' / ' + magazineOf(player, weapon!) : '—');
+      const worn = weapon ? attachmentsOf(player, weapon) : {};
+      slot.root.querySelectorAll<HTMLButtonElement>('.inventory-attachment').forEach(part => {
+        const slotName = part.dataset.slot as AttachSlot, kind = worn[slotName];
+        part.hidden = !config;
+        part.disabled = !kind || !player.alive || !!player.air || !!player.vehicleId;
+        part.dataset.weapon = weapon ?? '';
+        part.classList.toggle('on', !!kind);
+        write(part.querySelector<HTMLElement>('.inventory-attachment-name')!, kind ? ATTACH[kind].label : SLOT_LABEL[slotName]);
+        part.setAttribute('aria-label', kind ? 'Tháo ' + ATTACH[kind].label.toLowerCase() : SLOT_LABEL[slotName] + ' trống');
+      });
       write(slot.reserve, config ? integer(player.reserve[config.ammoType]) + ' dự trữ' : '');
       slot.drop.hidden = !config;
       slot.drop.disabled = !config || player.ownedWeapons.length <= 1 || !player.alive || !!player.air || !!player.vehicleId;
@@ -314,6 +402,10 @@ export class InventoryView {
     if (!player || !player.alive) return;
     if (action === 'select' && button.dataset.weapon && player.ownedWeapons.includes(button.dataset.weapon)) this.callbacks.onSelectWeapon(button.dataset.weapon);
     if (action === 'pickup' && !player.air && !player.vehicleId && button.dataset.lootId && this.nearby.has(button.dataset.lootId)) this.callbacks.onPickup(button.dataset.lootId);
+    const useKind = button.dataset.useKind;
+    if (action === 'attach' && useKind && isAttachKind(useKind) && (player.parts?.[useKind] ?? 0) > 0 && !player.air && !player.vehicleId) this.callbacks.onAttach?.(useKind);
+    if (action === 'detach' && button.dataset.weapon && button.dataset.slot && !player.air && !player.vehicleId) this.callbacks.onDetach?.(button.dataset.weapon, button.dataset.slot as AttachSlot);
+    if (action === 'use' && useKind && isSupplyKind(useKind) && player.supplies[useKind] > 0 && player.healing <= 0 && !player.air && !player.vehicleId) this.callbacks.onUse?.(useKind as UseKind);
     if (action === 'heal' && player.medkits > 0 && player.health < 99 && player.healing <= 0 && !player.air && !player.vehicleId) this.callbacks.onHeal();
     if (action === 'drop' && !player.air && !player.vehicleId && button.dataset.kind) {
       const kind = button.dataset.kind;

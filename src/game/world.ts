@@ -1,4 +1,6 @@
-import type { Field, Lake, LootSpot, MapId, Obstacle, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
+import type { Field, Floor, Lake, LootSpot, MapId, Obstacle, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
+import { buildHangar, buildTower, DOOR_HEIGHT, DOOR_WIDTH, HOUSE_HEIGHT, placeParts, WALL_THICKNESS, wallPieces } from './buildings';
+import type { Parts } from './buildings';
 import { SpatialGrid } from './spatial';
 
 /** The island is generated from a fixed seed so every match is played on the same map. */
@@ -35,6 +37,8 @@ export interface WorldSpec {
   rivers: { count: number; edge: number; start: number };
   forestScale: number; fieldScale: number; rocks: number; rockEdge: number; wildCaches: number; wildEdge: number;
   spawnStep: number; spawnEdge: number; carStart: [number, number]; carStep: [number, number];
+  /** Stair towers in the wild. */
+  towers: number;
 }
 
 const ISLAND_SPEC: WorldSpec = {
@@ -45,7 +49,7 @@ const ISLAND_SPEC: WorldSpec = {
   lakes: { count: 7, edge: 520, radius: [55, 70], height: [8, 52], gap: 160 },
   rivers: { count: 3, edge: 700, start: 48 },
   forestScale: 1, fieldScale: 1, rocks: 520, rockEdge: 120, wildCaches: 90, wildEdge: 200,
-  spawnStep: 190, spawnEdge: 260, carStart: [90, 80], carStep: [260, 120],
+  spawnStep: 190, spawnEdge: 260, carStart: [90, 80], carStep: [260, 120], towers: 8,
 };
 
 /** A 1 x 1 km valley ringed by hills: a few settlements, lakes, forest and a bot-heavy fight. */
@@ -57,13 +61,10 @@ const VALLEY_SPEC: WorldSpec = {
   lakes: { count: 3, edge: 150, radius: [24, 12], height: [8, 46], gap: 50 },
   rivers: { count: 0, edge: 200, start: 40 },
   forestScale: 2.6, fieldScale: 0.55, rocks: 120, rockEdge: 50, wildCaches: 60, wildEdge: 70,
-  spawnStep: 70, spawnEdge: 100, carStart: [50, 40], carStep: [150, 60],
+  spawnStep: 70, spawnEdge: 100, carStart: [50, 40], carStep: [150, 60], towers: 3,
 };
 
-export const WALL_THICKNESS = 0.4;
-export const HOUSE_HEIGHT = 3.3;
-export const DOOR_WIDTH = 2.6;
-export const DOOR_HEIGHT = 2.5;
+export { WALL_THICKNESS, HOUSE_HEIGHT, DOOR_WIDTH, DOOR_HEIGHT };
 
 export const obstacleBase = (o: Obstacle): number => o.base ?? 0;
 export const obstacleBottom = (o: Obstacle): number => obstacleBase(o) + (o.bottom ?? 0);
@@ -170,31 +171,6 @@ function placeTowns(random: () => number, spec: WorldSpec, coast: (x: number, z:
   return towns;
 }
 
-/** Wall segment along one axis with rectangular openings (doors and windows) cut out. */
-function wallPieces(
-  id: string, kind: Obstacle['kind'], base: number, axis: 'x' | 'z', fixed: number, from: number, to: number,
-  openings: Array<{ start: number; end: number; low: number; high: number }>,
-): Obstacle[] {
-  const pieces: Obstacle[] = [];
-  const sorted = [...openings].sort((a, b) => a.start - b.start);
-  const push = (a: number, b: number, bottom: number, top: number, suffix: string) => {
-    if (b - a < 0.05 || top - bottom < 0.05) return;
-    const mid = (a + b) / 2, len = b - a;
-    pieces.push(axis === 'x'
-      ? { id: `${id}-${suffix}`, x: mid, z: fixed, width: len, depth: WALL_THICKNESS, height: top, bottom: bottom || undefined, kind, base }
-      : { id: `${id}-${suffix}`, x: fixed, z: mid, width: WALL_THICKNESS, depth: len, height: top, bottom: bottom || undefined, kind, base });
-  };
-  let cursor = from;
-  sorted.forEach((opening, i) => {
-    push(cursor, opening.start, 0, HOUSE_HEIGHT, `s${i}`);
-    push(opening.start, opening.end, 0, opening.low, `l${i}`);
-    push(opening.start, opening.end, opening.high, HOUSE_HEIGHT, `h${i}`);
-    cursor = opening.end;
-  });
-  push(cursor, to, 0, HOUSE_HEIGHT, 'e');
-  return pieces;
-}
-
 interface HouseSpec { x: number; z: number; width: number; depth: number; doorSide: 'n' | 's' | 'e' | 'w'; base: number }
 
 function buildHouse(id: string, spec: HouseSpec, obstacles: Obstacle[]): void {
@@ -228,6 +204,8 @@ function generate(spec: WorldSpec): IslandData {
   const towns = placeTowns(random, spec, coast);
 
   const obstacles: Obstacle[] = [];
+  const floors: Floor[] = [];
+  const proxies: Obstacle[] = [];
   const lootSpots: LootSpot[] = [];
   const roads: RoadSegment[] = [];
   const nearTown = (x: number, z: number, margin: number) => towns.some(t => distance(x, z, t.x, t.z) < t.radius + margin);
@@ -385,7 +363,18 @@ function generate(spec: WorldSpec): IslandData {
     return near;
   };
 
-  // Town layout: a main street with houses on both sides; cities add taller solid blocks.
+  const addParts = (parts: Parts) => { obstacles.push(...parts.obstacles); floors.push(...parts.floors); lootSpots.push(...parts.loot); proxies.push(...(parts.proxies ?? [])); };
+  /** Ground under a footprint is level enough to build a big block on. */
+  const flat = (x: number, z: number, w: number, d: number, base: number, tolerance = 0.8): boolean => {
+    for (const ox of [-1, -0.5, 0, 0.5, 1]) for (const oz of [-1, -0.5, 0, 0.5, 1]) if (Math.abs(terrain(x + ox * w / 2, z + oz * d / 2) - base) >= tolerance) return false;
+    return true;
+  };
+  /** Room for a footprint: nothing but trees close to it, and not across the main street. */
+  const clearFor = (x: number, z: number, w: number, d: number, margin: number): boolean =>
+    !obstacles.some(o => o.kind !== 'tree' && Math.abs(x - o.x) < o.width / 2 + w / 2 + margin && Math.abs(z - o.z) < o.depth / 2 + d / 2 + margin)
+    && !obstacles.some(o => o.kind === 'tree' && Math.abs(x - o.x) < w / 2 + 1.5 && Math.abs(z - o.z) < d / 2 + 1.5);
+
+  // Town layout: a main street with houses on both sides; cities add apartment blocks you can climb.
   const tierOf = { city: 3, town: 2, hamlet: 1 } as const;
   for (const town of towns) {
     const base = terrain(town.x, town.z);
@@ -402,16 +391,18 @@ function generate(spec: WorldSpec): IslandData {
       const side = Math.sign(row);
       const offset = side * (14 + (Math.abs(row) - 1) * 46);
       for (let along = -town.radius * 0.85; along < town.radius * 0.85;) {
-        const width = 8 + Math.floor(random() * 8), depth = 7 + Math.floor(random() * 7);
+        // In a city one slot in five is an apartment block: longer than a house, so the slot is sized for it.
+        const block = town.tier === 'city' && random() < 0.2;
+        const width = block ? 26 : 8 + Math.floor(random() * 8), depth = block ? 14 : 7 + Math.floor(random() * 7);
         const cx = alongX ? town.x + along + width / 2 : town.x + offset + side * depth / 2;
         const cz = alongX ? town.z + offset + side * depth / 2 : town.z + along + width / 2;
         along += width + 5 + random() * 10;
         if (Math.hypot(cx - town.x, cz - town.z) > town.radius || random() < 0.12) continue;
         const id = `${town.id}-h${houseIndex++}`;
-        const solidBlock = town.tier === 'city' && random() < 0.3;
         const w = alongX ? width : depth, d = alongX ? depth : width;
-        if (solidBlock) {
-          obstacles.push({ id, x: cx, z: cz, width: w + 4, depth: d + 4, height: 9 + Math.floor(random() * 3) * 3, kind: 'building', base });
+        const mirror = random() < 0.5, storeys = random() < 0.7 ? 3 : 2;
+        if (block && flat(cx, cz, w, d, base)) {
+          addParts(placeParts(buildTower({ id, width: 26, depth: 14, storeys, base, flavor: 'apartment' }), cx, cz, !alongX, mirror));
           continue;
         }
         const doorSide = alongX ? (side > 0 ? 's' : 'n') : (side > 0 ? 'w' : 'e');
@@ -430,6 +421,42 @@ function generate(spec: WorldSpec): IslandData {
       obstacles.push({ id: `${town.id}-c${i}`, x, z, width: 2 + random() * 2, depth: 2 + random() * 2, height: 1.2 + random() * 0.8, kind: 'crate', base });
       lootSpots.push({ x, z, y: base, tier: 1 });
     }
+  }
+
+  // Landmarks: every city gets a hospital and a warehouse, every town a warehouse (a big building you can fight inside).
+  const cityIndex = new Map<string, number>();
+  for (const town of towns) {
+    if (town.tier === 'hamlet') continue;
+    const wanted: Array<'hospital' | 'hangar'> = town.tier === 'city' ? ['hospital', 'hangar'] : ['hangar'];
+    for (const kind of wanted) {
+      const swapSpot = random() < 0.5;
+      const w = kind === 'hospital' ? 24 : 30, d = kind === 'hospital' ? 14 : 18;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const angle = random() * Math.PI * 2, r = town.radius * (0.35 + random() * 0.55);
+        const x = town.x + Math.cos(angle) * r, z = town.z + Math.sin(angle) * r;
+        const fw = swapSpot ? d : w, fd = swapSpot ? w : d;
+        const base = terrain(x, z);
+        if (Math.hypot(x - town.x, z - town.z) + Math.max(fw, fd) / 2 > town.radius * 0.95) continue;
+        if (!flat(x, z, fw, fd, base) || !clearFor(x, z, fw, fd, 6) || !landOk(x, z, 4) || riverNear(x, z, 12)) continue;
+        // Keep the main streets clear: streets are drawn as roads, so stay off every road segment.
+        if (roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < road.width / 2 + Math.max(fw, fd) / 2 + 2)) continue;
+        const id = `${town.id}-${kind}`;
+        const parts = kind === 'hospital' ? buildTower({ id, width: w, depth: d, storeys: 2, base, flavor: 'hospital' }) : buildHangar({ id, width: w, depth: d, base });
+        addParts(placeParts(parts, x, z, swapSpot, random() < 0.5));
+        cityIndex.set(id, 1);
+        break;
+      }
+    }
+  }
+  // Watch towers: stair towers out in the wild, on level ground, for sniping and a view.
+  for (let made = 0, tries = 0; made < spec.towers && tries < 400; tries++) {
+    const x = (random() * 2 - 1) * (half - spec.wildEdge), z = (random() * 2 - 1) * (half - spec.wildEdge);
+    const base = terrain(x, z);
+    const swapSpot = random() < 0.5, fw = swapSpot ? 14 : 6.4, fd = swapSpot ? 6.4 : 14;
+    if (nearTown(x, z, 30) || !landOk(x, z, 6) || riverNear(x, z, 12) || !flat(x, z, fw, fd, base, 0.2) || !clearFor(x, z, fw, fd, 8)) continue;
+    if (roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < road.width / 2 + 12)) continue;
+    addParts(placeParts(buildTower({ id: `tower-${made}`, width: 6.4, depth: 14, storeys: 3, base, flavor: 'tower' }), x, z, swapSpot, random() < 0.5));
+    made++;
   }
 
   // Farmland patches near the smaller settlements.
@@ -502,7 +529,7 @@ function generate(spec: WorldSpec): IslandData {
   return {
     terrain,
     world: {
-      id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots,
+      id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots, floors, proxies,
       // Without a sea, put the waterline far below any terrain so no shore, beach or open water is ever drawn.
       water: { seaLevel: spec.sea ? SEA_LEVEL : -60, lakes, rivers }, fields,
     },

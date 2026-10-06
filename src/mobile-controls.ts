@@ -15,6 +15,8 @@ export interface MobileCallbacks {
   /** Toggle crouching / lying down. */
   onCrouch?(): void;
   onProne?(): void;
+  /** Throw the selected grenade. */
+  onThrow?(): void;
 }
 
 export interface JoystickInput {
@@ -45,7 +47,7 @@ export function getJoystickInput(deltaX: number, deltaY: number, radius: number,
   };
 }
 
-type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'weapon' | 'pause' | 'fullscreen' | 'gyro' | 'glide' | 'crouch' | 'prone';
+type Action = 'aim' | 'reload' | 'interact' | 'heal' | 'throw' | 'weapon' | 'pause' | 'fullscreen' | 'gyro' | 'glide' | 'crouch' | 'prone';
 type PointerRole =
   | { kind: 'look'; target: HTMLElement; x: number; y: number }
   | { kind: 'joystick'; target: HTMLElement; centerX: number; centerY: number; radius: number }
@@ -59,6 +61,7 @@ const ICONS = {
   reload: '<path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/>',
   interact: '<path d="M5 9h14v12H5zm0 0 7-6 7 6m-7 1v7m-3-3 3 3 3-3"/>',
   heal: '<path d="M4 6h16v15H4zm5 0V3h6v3m-3 5v6m-3-3h6"/>',
+  throw: '<circle cx="12" cy="14" r="6"/><path d="M10 8V5h4v3M14 5l3-2"/>',
   weapon: '<path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/>',
   pause: '<path d="M8 5v14M16 5v14" stroke-width="4"/>',
   fullscreen: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/>',
@@ -113,7 +116,7 @@ export class MobileControls {
       </div>
       <div class="touch-utility-actions touch-action-row">
         ${button('reload', 'Nạp đạn')}${button('interact', 'Nhặt đồ')}
-        ${button('heal', 'Hồi máu')}${button('weapon', 'Đổi súng')}
+        ${button('heal', 'Hồi máu')}${button('throw', 'Ném')}${button('weapon', 'Đổi súng')}
       </div>
       <div class="touch-top-actions">
         ${button('gyro', 'Con quay', 'touch-gyro')}
@@ -199,8 +202,10 @@ export class MobileControls {
     this.callbacks.onJump(false);
   }
 
-  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean; gyroAvailable?: boolean; gyroOn?: boolean; glideReady?: boolean; glideOn?: boolean; stance?: 'stand' | 'crouch' | 'prone' }): void {
+  update(state: { aiming: boolean; canPickup: boolean; reloading: boolean; healing: boolean; canThrow?: boolean; gyroAvailable?: boolean; gyroOn?: boolean; glideReady?: boolean; glideOn?: boolean; stance?: 'stand' | 'crouch' | 'prone' }): void {
     this.aimActive = state.aiming;
+    const toss = this.buttons.get('touch-throw');
+    if (toss) { toss.hidden = !state.canThrow; toss.disabled = !state.canThrow; }
     const gyro = this.buttons.get('touch-gyro')!;
     gyro.hidden = !state.gyroAvailable;
     gyro.classList.toggle('is-active', !!state.gyroOn);
@@ -368,6 +373,7 @@ export class MobileControls {
       case 'reload': this.callbacks.onReload(); break;
       case 'interact': this.callbacks.onInteract(); break;
       case 'heal': this.callbacks.onHeal(); break;
+      case 'throw': this.callbacks.onThrow?.(); break;
       case 'weapon': this.callbacks.onCycleWeapon(); break;
       case 'pause': this.callbacks.onPause(); break;
       case 'gyro': this.callbacks.onGyroToggle?.(); break;

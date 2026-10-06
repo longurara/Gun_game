@@ -15,6 +15,8 @@ export interface ControllerOptions {
   begin(start: MatchStart): void;
   /** The signed-in account, if any: it decides the player's name and lets friends recognise them. */
   identity?(): { name: string; uid: string } | null;
+  /** The outfit the player has chosen, shown to the others in the match. */
+  skin?(): string | undefined;
   /** Friends to mark in the roster and online friends who can be invited. */
   friends?(): { friendIds: string[]; invitable: Array<{ id: string; name: string }> };
   /** The room code the player is waiting in (null when none), so friends can see and join it. */
@@ -66,6 +68,7 @@ export class MultiplayerController {
     const who = this.options.identity?.();
     const lobby = new Lobby(transport, who?.name ?? name, role, this.options.config(), Math.random, who?.uid);
     this.lobby = lobby;
+    lobby.setSkin(this.options.skin?.());
     lobby.onChange(() => this.render());
     lobby.onStart(setup => {
       window.clearInterval(this.timer);

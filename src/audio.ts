@@ -99,7 +99,7 @@ export class GameAudio {
         if (distance > 170) return;
         const attenuation = 1 / (1 + Math.pow(distance / 22, 1.55));
         this.currentPan = event.actorId === this.localId ? null : this.panFor(event.from, playerPosition);
-        this.gunshot(event.weapon, attenuation, distance);
+        this.gunshot(event.weapon, attenuation, distance, event.silenced === true);
         this.currentPan = null;
         if (event.actorId === this.localId && event.hitId) this.hit();
         break;
@@ -134,6 +134,33 @@ export class GameAudio {
           this.noise(0.22, 0.2 * gain, 'lowpass', 900);
           this.tone(70, 0.2, 0.2 * gain, 'square', 0, 38);
         }
+        break;
+      }
+      case 'melee': {
+        const source = event.actorId === this.localId ? 0 : Math.hypot(event.at.x - playerPosition.x, event.at.z - playerPosition.z);
+        if (source > 60) break;
+        this.noise(0.12, 0.16 / (1 + source / 12), 'bandpass', 1400, 0.05);
+        if (event.hitId) { this.tone(140, 0.12, 0.2 / (1 + source / 12), 'triangle', 0.03, 70); this.noise(0.07, 0.14 / (1 + source / 12), 'lowpass', 700, 0.03); }
+        break;
+      }
+      case 'throw': {
+        const d = Math.hypot(event.from.x - playerPosition.x, event.from.z - playerPosition.z);
+        if (d < 60) this.noise(0.18, 0.12 / (1 + d / 20), 'bandpass', 900, 0.06);
+        break;
+      }
+      case 'smoke': {
+        const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 120) { this.noise(1.1, 0.18 / (1 + d / 30), 'highpass', 2600); this.tone(180, 0.2, 0.08 / (1 + d / 30), 'sine', 0, 90); }
+        break;
+      }
+      case 'flash': {
+        const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 160) { this.noise(0.22, 0.5 / (1 + d / 35), 'highpass', 1800); this.tone(3400, 0.6, 0.1 / (1 + d / 50), 'sine', 0.02, 2600); }
+        break;
+      }
+      case 'fire': {
+        const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 120) { this.noise(0.5, 0.2 / (1 + d / 30), 'lowpass', 900); this.tone(110, 0.4, 0.12 / (1 + d / 30), 'triangle', 0, 70); }
         break;
       }
       case 'explosion': {
@@ -276,12 +303,12 @@ export class GameAudio {
     return !this.disposed && this.volume > 0 && this.context?.state === 'running' && !!this.master;
   }
 
-  private gunshot(weapon: WeaponType, gain: number, distance: number): void {
+  private gunshot(weapon: WeaponType, gain: number, distance: number, silencer = false): void {
     // Distance rolls off high frequencies as well as volume.
     let brightness = Math.max(650, 4500 - distance * 25);
     const config = WEAPONS[weapon];
     // Every gun borrows the report of its class; suppressed ones are muffled.
-    const suppressed = config.loudness < WEAPONS[config.voice].loudness * 0.7;
+    const suppressed = silencer || config.loudness < WEAPONS[config.voice].loudness * 0.7;
     if (suppressed) { gain *= 0.5; brightness *= 0.6; }
     switch (config.voice) {
       case 'rifle':

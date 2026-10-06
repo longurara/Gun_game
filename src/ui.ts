@@ -1,4 +1,10 @@
-import { InventoryView } from './inventory-ui';
+import { InventoryView, itemIcon } from './inventory-ui';
+import { SUPPLIES, SUPPLY_ORDER, THROW_ORDER } from './game/supplies';
+import { ATTACH, ATTACH_SLOTS, attachmentsOf, rigStats } from './game/gear';
+import { MELEE } from './game/melee';
+import { DEFAULT_SKIN, isUnlocked, lockText, SKINS, skinById, usableSkin } from './skins';
+import type { PlayerStats } from './skins';
+import type { SupplyKind } from './game/supplies';
 import type { Actor, Loot, LootKind, AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
 import { remainingGlide } from './game/drop';
@@ -27,10 +33,15 @@ type Callbacks = {
   onInventoryPickup?: (lootId: string) => void;
   onInventoryDrop?: (kind: LootKind, amount: number) => void;
   onInventoryHeal?: () => void;
+  onInventoryUse?: (kind: import('./game/supplies').UseKind) => void;
+  /** Tapping a grenade chip in the health panel chooses it. */
+  onThrowSelect?: (kind: import('./game/supplies').ThrowKind) => void;
+  onInventoryAttach?: (kind: import('./game/gear').AttachKind) => void;
+  onInventoryDetach?: (weapon: WeaponType, slot: import('./game/gear').AttachSlot) => void;
   onInventoryChange?: (open: boolean) => void;
 };
-type BestRecord = { wins: number; kills: number; survival: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false };
+type BestRecord = { wins: number; kills: number; survival: number; /** Every hạ gục so far (kills is the best single match). */ killsTotal: number };
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false, skin: 'default' };
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
 const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
@@ -97,12 +108,14 @@ function readSettings(): GameSettings {
     aimAssist: raw.aimAssist === 'off' || raw.aimAssist === 'low' || raw.aimAssist === 'high' ? raw.aimAssist : defaults.aimAssist,
     recoilScale: clamp(raw.recoilScale, 0.3, 1.5, defaults.recoilScale),
     soundIndicator: typeof raw.soundIndicator === 'boolean' ? raw.soundIndicator : defaults.soundIndicator,
+    skin: skinById(raw.skin) ? raw.skin as string : DEFAULT_SKIN,
   };
 }
 function readBest(): BestRecord {
   const value = readJson(BEST_KEY);
   const raw = value && typeof value === 'object' ? value as Partial<BestRecord> : {};
-  return { wins: Math.floor(clamp(raw.wins, 0, 999999, 0)), kills: Math.floor(clamp(raw.kills, 0, 999999, 0)), survival: clamp(raw.survival, 0, 999999, 0) };
+  const kills = Math.floor(clamp(raw.kills, 0, 999999, 0));
+  return { wins: Math.floor(clamp(raw.wins, 0, 999999, 0)), kills, survival: clamp(raw.survival, 0, 999999, 0), killsTotal: Math.floor(clamp(raw.killsTotal, 0, 9999999, kills)) };
 }
 function formatTime(seconds: number): string {
   const value = Math.max(0, Math.floor(seconds));
@@ -117,6 +130,7 @@ export class GameUI {
   private root: HTMLElement;
   private elements = new Map<string, HTMLElement>();
   private texts = new Map<string, string>();
+  private supplyKey = '';
   private best = readBest();
   private phase: GameState['phase'] | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,6 +151,7 @@ export class GameUI {
     this.root = root;
     root.innerHTML = `
       <div id="damage-vignette" class="damage-vignette" aria-hidden="true"></div>
+      <div id="flash-overlay" class="flash-overlay" aria-hidden="true"></div>
       <section id="menu-screen" class="menu-screen lobby">
         <header class="lobby-top">
           <a class="wordmark" href="#" aria-label="LASTLIGHT, màn hình chính"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>VÙNG SỐNG CUỐI CÙNG</small></span></a>
@@ -174,6 +189,7 @@ export class GameUI {
             <div id="settings-panel" class="settings-panel" hidden>
               <div class="panel-title"><span>CHUẨN BỊ TRƯỚC KHI VÀO TRẬN</span><em>THIẾT LẬP</em></div>
               <p class="settings-copy">Điều chỉnh để chơi thoải mái trên máy của bạn.</p>
+              <section class="set-group"><h3 class="set-title">NHÂN VẬT</h3><div class="set-card"><div id="skin-grid" class="skin-grid" role="radiogroup" aria-label="Trang phục"></div></div></section>
               <section class="set-group"><h3 class="set-title">ÂM THANH</h3><div class="set-card">
                 <label class="set-row set-slider"><span class="set-ico">${icon('sound')}</span><span class="set-text"><b>Âm lượng</b><small>Tiếng súng, nhạc và âm thanh trong trận</small></span><output id="volume-value">60%</output><input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Âm lượng"></label>
               </div></section>
@@ -233,7 +249,7 @@ export class GameUI {
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
         <div id="stance-badge" class="stance-badge" hidden></div><div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
-        <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div></div>
+        <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="boost-track" class="boost-track" hidden aria-label="Thanh tăng lực"><i>TĂNG LỰC</i><div><div id="boost-bar"></div></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div><div id="supply-row" class="supply-row" aria-label="Vật phẩm hồi phục"></div></div>
         <div id="weapon-panel" class="weapon-panel"><div class="weapon-active"><div class="weapon-label"><span id="weapon-name">${WEAPONS.rifle.label}</span><small id="weapon-mode">${FIRE_MODE_LABELS[WEAPONS.rifle.fireMode]}</small><em id="weapon-category">${WEAPONS.rifle.category}</em></div><div class="ammo-count"><strong id="ammo-loaded">${WEAPONS.rifle.magazine}</strong><span>/ <b id="ammo-reserve">0</b></span></div></div><button id="touch-inventory-toggle" class="touch-inventory-toggle" type="button" aria-expanded="false" aria-controls="weapon-inventory">Kho súng ${icon('arrow')}</button><div id="weapon-inventory" class="weapon-slots" aria-label="Vũ khí đang mang"></div><div id="ammo-message" class="ammo-message">R · NẠP ĐẠN</div><div class="weapon-cycle-help">1 · 2 · 3 CHỌN SÚNG <span>Q / CUỘN · ĐỔI SÚNG</span></div></div>
         <div class="minimap-panel"><div class="map-header"><span>BẢN ĐỒ</span><span id="map-stage">VÒNG 1</span></div><canvas id="minimap" width="208" height="208" aria-label="Bản đồ: vị trí của bạn, địa hình và vùng an toàn"></canvas><div class="map-footer"><span><i></i>Vùng an toàn</span><span class="map-north">N ↑</span></div></div>
         <div class="pause-tip"><kbd>ESC</kbd> TẠM DỪNG</div>
@@ -252,6 +268,9 @@ export class GameUI {
       onPickup: id => this.callbacks.onInventoryPickup?.(id),
       onDrop: (kind, amount) => this.callbacks.onInventoryDrop?.(kind, amount),
       onHeal: () => this.callbacks.onInventoryHeal?.(),
+      onUse: kind => this.callbacks.onInventoryUse?.(kind),
+      onAttach: kind => this.callbacks.onInventoryAttach?.(kind),
+      onDetach: (weapon, slot) => this.callbacks.onInventoryDetach?.(weapon, slot),
       onOpenChange: open => {
         if (open) this.root.dataset.inventory = 'open'; else delete this.root.dataset.inventory;
         this.el('inventory-toggle').setAttribute('aria-expanded', String(open));
@@ -278,6 +297,19 @@ export class GameUI {
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
     this.el('volume').addEventListener('input', () => this.changeSettings({ volume: Number((this.el('volume') as HTMLInputElement).value) }));
     this.el('sensitivity').addEventListener('input', () => this.changeSettings({ sensitivity: Number((this.el('sensitivity') as HTMLInputElement).value) }));
+    // Tapping a grenade chip chooses it (phones have no V key).
+    this.el('supply-row').addEventListener('click', event => {
+      const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-supply]');
+      const kind = chip?.dataset.supply;
+      if (kind && (THROW_ORDER as string[]).includes(kind)) this.callbacks.onThrowSelect?.(kind as import('./game/supplies').ThrowKind);
+    });
+    this.el('skin-grid').addEventListener('click', event => {
+      const card = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-skin]');
+      const skin = skinById(card?.dataset.skin);
+      if (!skin) return;
+      if (!isUnlocked(skin, this.unlockStats())) { this.notify(`Chưa mở khóa: ${lockText(skin, this.unlockStats())}`); return; }
+      this.changeSettings({ skin: skin.id });
+    });
     this.el('reset-settings').addEventListener('click', () => { const { difficulty, map, botCount, ...rest } = deviceDefaults(); void difficulty; void map; void botCount; this.changeSettings(rest); });
     this.el('tab-play').addEventListener('click', () => this.showSettings(false));
     this.el('tab-settings').addEventListener('click', () => this.showSettings(true));
@@ -420,12 +452,31 @@ export class GameUI {
     this.text('volume-value', `${Math.round(this.settings.volume * 100)}%`);
     this.text('sensitivity-value', `${this.settings.sensitivity.toFixed(2)}×`);
     this.text('brief-bots', `${this.settings.botCount}`);
+    this.renderSkins();
     // Sliders show how far they are filled.
     this.el('settings-panel').querySelectorAll<HTMLInputElement>('input[type=range]').forEach(range => {
       const min = Number(range.min), max = Number(range.max);
       range.style.setProperty('--fill', `${max > min ? Math.round((Number(range.value) - min) / (max - min) * 100) : 0}%`);
     });
   }
+  /** What counts towards unlocking outfits: this browser's record or the signed-in account's, whichever is higher. */
+  public unlockStats(): PlayerStats {
+    return { wins: Math.max(this.best.wins, this.account?.wins ?? 0), kills: Math.max(this.best.killsTotal, this.account?.kills ?? 0) };
+  }
+  /** The outfit to dress the player in: the chosen one if it has been earned. */
+  public currentSkin(): string { return usableSkin(this.settings.skin, this.unlockStats()); }
+
+  private renderSkins(): void {
+    const grid = this.el('skin-grid'), stats = this.unlockStats(), chosen = usableSkin(this.settings.skin, stats);
+    const key = SKINS.map(skin => skin.id + isUnlocked(skin, stats) + (skin.id === chosen)).join('|');
+    if (grid.dataset.key === key) return;
+    grid.dataset.key = key;
+    grid.innerHTML = SKINS.map(skin => {
+      const open = isUnlocked(skin, stats);
+      return `<button type="button" role="radio" class="skin-card${skin.id === chosen ? ' on' : ''}${open ? '' : ' locked'}" data-skin="${skin.id}" aria-checked="${skin.id === chosen}" aria-label="${skin.name}${open ? '' : ', chưa mở khóa'}"><span class="skin-swatch"><i style="background:${skin.swatch[0]}"></i><i style="background:${skin.swatch[1]}"></i></span><b>${skin.name}</b><small>${open ? skin.blurb.split('.')[0] : lockText(skin, stats)}</small>${open ? '' : '<em aria-hidden="true">🔒</em>'}</button>`;
+    }).join('');
+  }
+
   private showSettings(show: boolean): void {
     this.hide('play-panel', show);
     this.hide('settings-panel', !show);
@@ -437,6 +488,7 @@ export class GameUI {
   /** Show the signed-in player on the main screen (their saved totals), or this browser's own best when signed out. */
   public setAccount(info: { name: string; wins: number; kills: number; matches: number } | null): void {
     this.account = info;
+    this.renderSkins();
     this.el('profile-chip').dataset.signed = info ? 'in' : 'out';
     this.text('spot-name', info ? info.name.toUpperCase() : 'BẠN');
     this.text('profile-name', info ? info.name.toUpperCase() : 'NGƯỜI SINH TỒN');
@@ -511,6 +563,7 @@ export class GameUI {
       this.currentWeapon = player.weapon;
       this.setAim(false, player.weapon);
     }
+    this.el('flash-overlay').style.opacity = state.phase === 'playing' ? `${Math.min(1, Math.max(0, (player.blind ?? 0) / 1.5))}` : '0';
     this.el('damage-vignette').style.opacity = state.phase === 'playing' ? `${Math.min(0.8, Math.max(0, player.hurtTimer) * 2)}` : '0';
     if (state.phase !== 'playing' && state.phase !== 'paused') return;
     const now = performance.now();
@@ -524,11 +577,26 @@ export class GameUI {
     this.el('health-bar').style.transform = `scaleX(${Math.max(0, Math.min(1, player.health / 100))})`;
     this.el('health-bar').classList.toggle('low', player.health < 35);
     this.text('medkits', `${player.medkits}`);
+    // The boost gauge, and the healing items in the pack as small chips.
+    this.hide('boost-track', player.boost <= 0);
+    this.el('boost-bar').style.transform = `scaleX(${Math.max(0, Math.min(1, player.boost / 100))})`;
+    const picked = player.throwKind && player.supplies[player.throwKind] > 0 ? player.throwKind : THROW_ORDER.find(kind => player.supplies[kind] > 0) ?? null;
+    const supplyKey = SUPPLY_ORDER.map(kind => player.supplies[kind]).join(',') + '|' + (picked ?? '') + '|' + (player.melee ?? '');
+    if (supplyKey !== this.supplyKey) {
+      this.supplyKey = supplyKey;
+      const melee = player.melee ? `<span class="supply-chip melee" title="${MELEE[player.melee].label} · X">${itemIcon(player.melee)}<b>X</b></span>` : '';
+      this.el('supply-row').innerHTML = melee + SUPPLY_ORDER.filter(kind => player.supplies[kind] > 0).map(kind => {
+        const throwing = SUPPLIES[kind].group === 'throw';
+        const hint = throwing ? (this.touchMode ? ' · chạm để chọn' : ' · G ném, V đổi loại') : kind === 'painkiller' || kind === 'energy' ? ' · J' : ' · H';
+        return `<span class="supply-chip${throwing ? ' throw' : ''}${kind === picked ? ' picked' : ''}" data-supply="${kind}" title="${SUPPLIES[kind].label}${hint}">${itemIcon(kind)}<b>${player.supplies[kind]}</b></span>`;
+      }).join('');
+    }
     this.el('health-bar').classList.toggle('mid', player.health >= 35 && player.health < 65);
-    this.text('health-status', player.healing > 0 ? 'ĐANG HỒI MÁU' : player.health < 35 ? 'CẦN HỒI MÁU' : 'SẴN SÀNG');
+    this.text('health-status', player.healing > 0 ? (player.healKind && SUPPLIES[player.healKind as SupplyKind]?.group === 'boost' ? 'ĐANG DÙNG THUỐC' : 'ĐANG HỒI MÁU') : player.boost > 0 ? 'TĂNG LỰC' : player.health < 35 ? 'CẦN HỒI MÁU' : 'SẴN SÀNG');
     const weaponConfig = WEAPONS[player.weapon];
     this.text('weapon-name', weaponConfig.label);
-    this.text('weapon-mode', `${FIRE_MODE_LABELS[weaponConfig.fireMode]} · ${weaponConfig.zoom}×`);
+    const rig = rigStats(player, player.weapon), worn = attachmentsOf(player, player.weapon);
+    this.text('weapon-mode', `${FIRE_MODE_LABELS[weaponConfig.fireMode]} · ${rig.zoom}×${rig.silenced ? ' · GIẢM THANH' : ''}${ATTACH_SLOTS.some(slot => worn[slot]) ? ' · ' + ATTACH_SLOTS.filter(slot => worn[slot]).map(slot => ATTACH[worn[slot]!].label.toUpperCase()).filter(label => !label.includes('GIẢM THANH')).join(', ') : ''}`);
     this.text('weapon-category', weaponConfig.category);
     this.text('ammo-loaded', `${player.ammo[player.weapon]}`);
     this.text('ammo-reserve', `${player.reserve[weaponConfig.ammoType]}`);
@@ -558,23 +626,23 @@ export class GameUI {
     }
   }
 
-  public setAim(aiming: boolean, weapon: WeaponType): void {
-    const key = `${this.phase}:${weapon}:${aiming}`;
+  public setAim(aiming: boolean, weapon: WeaponType, zoom = WEAPONS[weapon].zoom): void {
+    const key = `${this.phase}:${weapon}:${aiming}:${zoom}`;
     if (key === this.aimStateKey) return;
     this.aimStateKey = key;
     const config = WEAPONS[weapon];
     const active = aiming && this.phase === 'playing';
-    const scoped = active && config.zoom >= 4;
+    const scoped = active && zoom >= 4;
     this.hide('scope-overlay', !scoped);
     this.hide('crosshair', scoped || this.phase !== 'playing');
     this.el('crosshair').classList.toggle('is-ads', active && !scoped);
-    this.el('crosshair').classList.toggle('sniper-hip', !active && config.zoom >= 4);
+    this.el('crosshair').classList.toggle('sniper-hip', !active && zoom >= 4);
     this.root.dataset.aim = scoped ? 'scope' : active ? 'ads' : 'hip';
     if (scoped) {
       this.text('scope-weapon-name', config.label);
       // The sights are zeroed at a set distance; beyond it the bullet drops, so aim a little higher.
-      this.text('scope-zoom', `${config.zoom}× · ${ZERO_DISTANCE[config.kind]} M`);
-      this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${config.zoom} lần`);
+      this.text('scope-zoom', `${zoom}× · ${ZERO_DISTANCE[config.kind]} M`);
+      this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${zoom} lần`);
     }
   }
 
@@ -954,7 +1022,7 @@ export class GameUI {
     this.text('result-accuracy', `${state.shots > 0 ? Math.min(100, Math.round(state.hits / state.shots * 100)) : 0}%`);
     if (!this.resultSaved) {
       this.resultSaved = true;
-      this.best = { wins: this.best.wins + (won ? 1 : 0), kills: Math.max(this.best.kills, state.kills), survival: Math.max(this.best.survival, survived) };
+      this.best = { wins: this.best.wins + (won ? 1 : 0), kills: Math.max(this.best.kills, state.kills), survival: Math.max(this.best.survival, survived), killsTotal: this.best.killsTotal + state.kills };
       saveJson(BEST_KEY, this.best);
       this.updateBest();
     }

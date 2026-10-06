@@ -1,9 +1,17 @@
-import type { Actor, Airdrop, AmmoType, Stance, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Loot, LootKind, MapId, Obstacle, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
+import type { Actor, Airdrop, AmmoType, Stance, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Fire, Floor, Loot, LootKind, MapId, Obstacle, Projectile, Smoke, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
 import { ACTOR_HEIGHT, ACTOR_RADIUS, createArenaWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
 import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DURABILITY, ARMOR_NAMES, ARMOR_REDUCTION, armorKind, CORE_WEAPONS, emptyAmmo, emptyReserve, GUNS_BY_CLASS, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPON_ORDER } from './weapons';
 import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
 import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
+import { floorSurface, STEP_UP } from './buildings';
+import { kindOf, VEHICLES, vehicleKindFor } from './vehicles';
+import { FISTS, isMeleeKind, MELEE } from './melee';
+import type { MeleeKind } from './melee';
+import { ATTACH, ATTACH_SLOTS, attachmentsOf, capacityOf, emptyParts, fits, isAttachKind, isPackKind, magazineOf, PACK_BASE, PACKS, rigStats, spaceOf, usedSpace } from './gear';
+import type { AttachKind, AttachSlot, PackKind } from './gear';
+import { BOOST_DRAIN, BOOST_MAX, boostRegen, boostSpeed, emptySupplies, HEAL_CAP, isSupplyKind, isThrowKind, isUseKind, SUPPLIES, SUPPLY_ORDER, THROW_ORDER } from './supplies';
+import type { SupplyKind, ThrowKind, UseKind } from './supplies';
 import { movementSpread, NECK, STANCE, stanceOf } from './stance';
 import { holdover, pathOffset, SEGMENT, STRAIGHT_RANGE, ZERO_DISTANCE } from './ballistics';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
@@ -21,6 +29,11 @@ interface Runtime {
   cooldown: number; weaponCooldowns: Record<WeaponType, number>; velocityY: number; reloadWeapon: WeaponType | null;
   targetId: string | null; reaction: number; memory: number; sightTimer: number;
   goal: Vec2 | null; path: Vec2[]; pathTimer: number; stuck: number;
+  /** Seconds before this actor can throw another grenade. */
+  throwCooldown: number;
+  meleeCooldown: number;
+  /** A vault in progress: over a crate or a window sill, from one side to the other. */
+  vault: { t: number; from: Vec3; to: Vec3; peak: number } | null;
   /** Aim convergence on the current target, 0 (just spotted) to 1 (settled). */
   focus: number; strafeDir: 1 | -1; strafeTimer: number; burstLeft: number; stillTime: number;
   lastSeen: Vec2 | null; lastSeenAt: number; enemyVel: Vec2; enemyLast: Vec2 | null;
@@ -44,15 +57,15 @@ interface Arc { velocity: number; zero: number }
 /** How often each class turns up at a loot spot of tier 1 (houses), 2 (big houses) and 3 (cities, military). */
 const CLASS_SPAWN: Record<1 | 2 | 3, Partial<Record<WeaponClass, number>>> = {
   1: { pistol: 0.16, smg: 0.17, shotgun: 0.16, ar: 0.12 },
-  2: { ar: 0.18, smg: 0.08, shotgun: 0.07, br: 0.06, dmr: 0.10, lmg: 0.08, pistol: 0.03 },
-  3: { dmr: 0.11, br: 0.07, sniper: 0.14, amr: 0.08, lmg: 0.09, ar: 0.12, shotgun: 0.01 },
+  2: { ar: 0.18, smg: 0.08, shotgun: 0.07, br: 0.06, dmr: 0.10, lmg: 0.08, pistol: 0.03, bow: 0.01 },
+  3: { dmr: 0.11, br: 0.07, sniper: 0.14, amr: 0.08, lmg: 0.09, ar: 0.12, shotgun: 0.01, bow: 0.02, launcher: 0.025 },
 };
 /** Within a class, a gun of tier t shows up at spot tier s with this weight: rare guns concentrate in the rich spots. */
 const TIER_AFFINITY: Record<1 | 2 | 3, [number, number, number]> = { 1: [1, 0.55, 0.2], 2: [0.3, 1, 0.7], 3: [0.04, 0.4, 1] };
 const GEAR_SPAWN: Record<1 | 2 | 3, Array<[LootKind, number]>> = {
-  1: [['medkit', 0.2], ['helmet1', 0.09], ['vest1', 0.1]],
-  2: [['medkit', 0.17], ['helmet2', 0.11], ['vest2', 0.12]],
-  3: [['medkit', 0.12], ['helmet3', 0.12], ['vest3', 0.14]],
+  1: [['medkit', 0.1], ['bandage', 0.12], ['painkiller', 0.03], ['energy', 0.05], ['smoke', 0.02], ['pack1', 0.025], ['scope2', 0.015], ['extmag', 0.01], ['pan', 0.012], ['sickle', 0.01], ['helmet1', 0.09], ['vest1', 0.1]],
+  2: [['medkit', 0.09], ['bandage', 0.07], ['firstaid', 0.05], ['painkiller', 0.04], ['energy', 0.05], ['frag', 0.04], ['smoke', 0.02], ['flash', 0.02], ['molotov', 0.015], ['pack1', 0.03], ['pack2', 0.02], ['pan', 0.01], ['machete', 0.012], ['crowbar', 0.01], ['scope2', 0.02], ['scope3', 0.02], ['suppressor', 0.015], ['compensator', 0.015], ['vgrip', 0.015], ['agrip', 0.015], ['extmag', 0.02], ['helmet2', 0.11], ['vest2', 0.12]],
+  3: [['medkit', 0.07], ['firstaid', 0.07], ['painkiller', 0.05], ['energy', 0.04], ['bandage', 0.03], ['frag', 0.06], ['smoke', 0.03], ['flash', 0.03], ['molotov', 0.03], ['pack2', 0.03], ['pack3', 0.025], ['scope3', 0.02], ['scope4', 0.025], ['scope6', 0.02], ['suppressor', 0.02], ['compensator', 0.02], ['vgrip', 0.02], ['agrip', 0.02], ['extmag', 0.03], ['helmet3', 0.12], ['vest3', 0.14]],
 };
 export const LOOT_TABLES: Record<1 | 2 | 3, Array<[LootKind, number]>> = { 1: [], 2: [], 3: [] };
 for (const tier of [1, 2, 3] as const) {
@@ -63,10 +76,27 @@ for (const tier of [1, 2, 3] as const) {
     guns.forEach((gun, i) => LOOT_TABLES[tier].push([gun, weight * affinity[i] / total]));
   }
   LOOT_TABLES[tier].push(...GEAR_SPAWN[tier]);
+  // The roll walks the table until the weights run out, so the table must add up to one.
+  const total = LOOT_TABLES[tier].reduce((sum, [, weight]) => sum + weight, 0);
+  LOOT_TABLES[tier] = LOOT_TABLES[tier].map(([kind, weight]) => [kind, weight / total] as [LootKind, number]);
 }
 /** Calibres of the guns people actually start with: spare rounds that always help someone. */
 const COMMON_AMMO: AmmoType[] = ['9mm', '556', '12g', '45acp'];
 
+/** Landing faster than this (m/s, a drop of about 3.7 m) hurts: 8 damage for every m/s above it. */
+const FALL_SAFE_SPEED = 11.5;
+/** Highest thing a person vaults over (a crate, a window sill, a low wall), metres above their feet, and how long it takes. */
+const VAULT_MAX = 1.4, VAULT_SECONDS = 0.5;
+/** Grenades: gravity on a thrown one, blast radius and strength, flash reach, smoke and fire sizes and lifetimes. */
+const GRENADE_GRAVITY = 16;
+const BLASTS = {
+  frag: { radius: 9, damage: 115, vehicle: 190 },
+  shell: { radius: 6.5, damage: 105, vehicle: 170 },
+  rocket: { radius: 9.5, damage: 190, vehicle: 340 },
+} as const;
+const FLASH_RANGE = 42;
+const SMOKE_RADIUS = 6.5, SMOKE_SECONDS = 24;
+const FIRE_RADIUS = 4.2, FIRE_SECONDS = 9, FIRE_DPS = 14;
 const ZERO_INPUT: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
 const NO_PRESSES: ReadonlySet<string> = new Set();
 /** Bots closer than this to the player run full AI every step; closer than LOD_NEAR run it a few times a second. */
@@ -75,9 +105,9 @@ const LOD_NEAR = 650;
 /** Crates are released this high and sink at AIRDROP_FALL m/s, about a minute in the air. */
 const AIRDROP_HEIGHT = 520;
 const AIRDROP_FALL = 9;
-const VEHICLE_RADIUS = 1.7;
 const VEHICLE_REACH = 4.2;
-const VEHICLE_HEALTH = 300;
+/** Shape of what a bullet hits on each kind of vehicle: half width, half length, bottom and top above the ground. */
+const HULLS = { car: { half: 0.95, length: 2.1, low: 0.25, high: 1.7 }, bike: { half: 0.35, length: 1.0, low: 0.15, high: 0.95 }, buggy: { half: 0.8, length: 1.3, low: 0.25, high: 0.95 } } as const;
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
@@ -115,6 +145,10 @@ export class GameSimulation {
   public botsFrozen = false;
   private options: Required<Options>;
   private randomState = 1;
+  /** Loot rolls have their own stream, so adding an item to a table does not reshuffle bots, the plane or the zone. */
+  private lootState = 1;
+  /** Grenade decisions have a stream of their own too, for the same reason. */
+  private throwState = 1;
   private events: GameEvent[] = [];
   private runtimes = new Map<string, Runtime>();
   /** Per human: the last input, whether jump was held, and jump presses that arrived from the network. */
@@ -125,6 +159,8 @@ export class GameSimulation {
   private localActor: Actor | null = null;
   private shrinkStart: { center: Vec2; radius: number } | null = null;
   private obstacleGrid = new SpatialGrid<Obstacle>(24);
+  private floorGrid = new SpatialGrid<Floor>(16);
+  private floorSource: Floor[] | null = null;
   private gridSource: Obstacle[] | null = null;
   private gridCount = -1;
   private actorGrid = new SpatialGrid<Actor>(32);
@@ -168,6 +204,33 @@ export class GameSimulation {
   /** Ground height under a point; the arena is flat. */
   heightAt(x: number, z: number): number {
     return this.world.terrain ? this.world.terrain(x, z) : 0;
+  }
+
+  private floors(): SpatialGrid<Floor> | null {
+    const list = this.world.floors;
+    if (!list || list.length === 0) return null;
+    if (this.floorSource !== list) {
+      this.floorGrid.clear();
+      for (const f of list) this.floorGrid.insertBox(f, f.x - f.width / 2, f.z - f.depth / 2, f.x + f.width / 2, f.z + f.depth / 2);
+      this.floorSource = list;
+    }
+    return this.floorGrid;
+  }
+
+  /**
+   * What someone whose feet are at `feetY` stands on at (x, z): the highest slab or ramp they can step up to (at most STEP_UP
+   * above their feet), or the ground. Floors far above are overhead, not underfoot.
+   */
+  supportHeight(x: number, z: number, feetY: number): number {
+    let best = this.heightAt(x, z);
+    const grid = this.floors();
+    if (!grid) return best;
+    grid.queryBox(x, z, x, z, floor => {
+      if (x < floor.x - floor.width / 2 || x > floor.x + floor.width / 2 || z < floor.z - floor.depth / 2 || z > floor.z + floor.depth / 2) return;
+      const y = floorSurface(floor, x, z);
+      if (y <= feetY + STEP_UP && y > best) best = y;
+    });
+    return best;
   }
 
   private obstacles(): SpatialGrid<Obstacle> {
@@ -319,6 +382,9 @@ export class GameSimulation {
     if (me.alive) {
       const runtime = this.runtime(me);
       runtime.cooldown = Math.max(0, runtime.cooldown - dt);
+      runtime.throwCooldown = Math.max(0, runtime.throwCooldown - dt);
+      runtime.meleeCooldown = Math.max(0, runtime.meleeCooldown - dt);
+      if (me.blind) me.blind = Math.max(0, me.blind - dt);
       for (const weapon of me.ownedWeapons) runtime.weaponCooldowns[weapon] = Math.max(0, runtime.weaponCooldowns[weapon] - dt);
       me.reloading = Math.max(0, me.reloading - dt);
       me.healing = Math.max(0, me.healing - dt);
@@ -413,14 +479,260 @@ export class GameSimulation {
     return true;
   }
 
-  heal(actor: Actor = this.player): boolean {
+  /** Heal with the best item for the actor's health, or with the named one (a medkit, bandage, first aid kit). */
+  heal(actor: Actor = this.player, item?: UseKind): boolean {
     if (this.state.phase !== 'playing' || actor.vehicleId) return false;
-    return this.beginHeal(actor);
+    if (item !== undefined && !isUseKind(item)) return false;
+    return this.beginUse(actor, item);
+  }
+
+  /** Use a healing item, a boost or (a later chapter) pick a grenade: the entry point for the "use" command. */
+  useSupply(kind: unknown, actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || actor.vehicleId || actor.air) return false;
+    if (!isUseKind(kind)) return false;
+    return this.beginUse(actor, kind);
   }
 
   interact(actor: Actor = this.player): boolean {
     const loot = this.lootNear(actor);
     return loot ? this.takeLoot(actor, loot) : false;
+  }
+
+  /**
+   * Swing the carried close-combat weapon (or a fist): the nearest person within reach and in front takes the blow. A mirror
+   * only starts the swing; the host works out who was hit.
+   */
+  meleeStrike(actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || !actor.alive || actor.vehicleId || actor.air) return false;
+    const runtime = this.runtime(actor);
+    const config = actor.melee && isMeleeKind(actor.melee) ? MELEE[actor.melee] : FISTS;
+    if (runtime.meleeCooldown > 1e-7) return false;
+    runtime.meleeCooldown = config.interval;
+    this.cancelHeal(actor);
+    if (this.options.remote) return true;
+    let target: Actor | null = null, best = config.range;
+    for (const other of this.state.actors) {
+      if (other === actor || !other.alive || other.air) continue;
+      const dx = other.position.x - actor.position.x, dz = other.position.z - actor.position.z, d = Math.hypot(dx, dz);
+      if (d > best || Math.abs(other.position.y - actor.position.y) > 1.6) continue;
+      // In front of the swing: within about 55 degrees of where the actor faces.
+      const facing = Math.sin(actor.yaw) * dx + Math.cos(actor.yaw) * dz;
+      if (d > 0.4 && facing / d < 0.57) continue;
+      const chest = { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z };
+      if (!this.lineClear(chest, { x: other.position.x, y: other.position.y + stanceOf(other).chest, z: other.position.z }, true)) continue;
+      target = other; best = d;
+    }
+    this.events.push({ type: 'melee', actorId: actor.id, at: { ...actor.position }, weapon: actor.melee ?? 'fists', ...(target ? { hitId: target.id } : {}) });
+    this.alertNearby(actor, 22);
+    if (target) this.damage(target, this.absorb(target, config.damage, false), actor.id);
+    return true;
+  }
+
+  /** How many of something worth `unit` space each (up to `wanted`) still fit in the pack; bots are not limited. */
+  private roomFor(actor: Actor, unit: number, wanted: number): number {
+    if (!actor.isPlayer || unit <= 0) return wanted;
+    return Math.max(0, Math.min(wanted, Math.floor((capacityOf(actor) - usedSpace(actor) + 1e-6) / unit)));
+  }
+
+  /** Bolt a spare part from the pack onto a gun (the one in hand unless another is named); what was there goes back to the pack. */
+  attachPart(actor: Actor, kind: unknown, weapon: WeaponType = actor.weapon): boolean {
+    if (!actor.alive || !isAttachKind(kind) || actor.parts[kind] <= 0 || !actor.ownedWeapons.includes(weapon) || !fits(kind, weapon)) return false;
+    const slot = ATTACH[kind].slot, worn = (actor.attach[weapon] ??= {});
+    const previous = worn[slot];
+    if (previous === kind) return false;
+    worn[slot] = kind;
+    actor.parts[kind]--;
+    if (previous) actor.parts[previous]++;
+    if (previous === 'extmag') this.trimMagazine(actor, weapon);
+    if (actor.isPlayer) this.tell(actor, `Đã gắn ${ATTACH[kind].label.toLowerCase()}.`);
+    return true;
+  }
+
+  /** Take a part off a gun and put it in the pack (or on the ground when the pack is full). */
+  detachPart(actor: Actor, weapon: WeaponType, slot: unknown): boolean {
+    if (!actor.alive || !ATTACH_SLOTS.includes(slot as AttachSlot)) return false;
+    const worn = actor.attach[weapon], part = worn?.[slot as AttachSlot];
+    if (!worn || !part) return false;
+    delete worn[slot as AttachSlot];
+    if (part === 'extmag') this.trimMagazine(actor, weapon);
+    if (this.roomFor(actor, spaceOf(part), 1) >= 1) actor.parts[part]++; else this.dropLoot(actor, part, 0.9);
+    return true;
+  }
+
+  /** Rounds above a plain magazine go back to the reserve once the extended magazine is gone. */
+  private trimMagazine(actor: Actor, weapon: WeaponType): void {
+    const extra = Math.max(0, actor.ammo[weapon] - magazineOf(actor, weapon));
+    if (extra > 0) { actor.ammo[weapon] -= extra; actor.reserve[WEAPONS[weapon].ammoType] += extra; }
+  }
+
+  /** The grenade G throws: the chosen kind while any is left, otherwise the first kind in the pack. */
+  selectedThrow(actor: Actor = this.player): ThrowKind | null {
+    if (actor.throwKind && actor.supplies[actor.throwKind] > 0) return actor.throwKind;
+    return THROW_ORDER.find(kind => actor.supplies[kind] > 0) ?? null;
+  }
+
+  /** Choose which grenade to throw next: the one after the current one that is still in the pack. */
+  cycleThrow(actor: Actor = this.player, kind?: unknown): ThrowKind | null {
+    const have = THROW_ORDER.filter(item => actor.supplies[item] > 0);
+    if (have.length === 0) { actor.throwKind = null; return null; }
+    if (isThrowKind(kind) && have.includes(kind)) actor.throwKind = kind;
+    else {
+      const current = this.selectedThrow(actor);
+      actor.throwKind = have[(have.indexOf(current ?? have[0]) + 1) % have.length];
+    }
+    return actor.throwKind ?? null;
+  }
+
+  /**
+   * Throw a grenade at a point. It flies in an arc, bounces off the ground and walls and bursts when its fuse runs out (a
+   * molotov on its first impact). On a mirror only the pack is updated; the host throws it and the snapshot shows it.
+   */
+  throwGrenade(actor: Actor, kind: unknown, target: Vec3): boolean {
+    if (this.state.phase !== 'playing' || !actor.alive || actor.vehicleId || actor.air) return false;
+    if (!isThrowKind(kind) || actor.supplies[kind] <= 0) return false;
+    if (![target.x, target.y, target.z].every(Number.isFinite)) return false;
+    const runtime = this.runtime(actor);
+    if (runtime.throwCooldown > 1e-7 || actor.reloading > 0) return false;
+    runtime.throwCooldown = 0.9;
+    this.cancelHeal(actor);
+    actor.supplies[kind]--;
+    if (actor.supplies[kind] <= 0 && actor.throwKind === kind) actor.throwKind = this.selectedThrow(actor);
+    if (this.options.remote) return true;
+    const chest = { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z };
+    const dx = target.x - chest.x, dz = target.z - chest.z, flat = Math.hypot(dx, dz) || 0.001;
+    actor.yaw = Math.atan2(dx, dz);
+    // A 41 degree lob that lands near the aim point: range = v^2 sin(2a) / g.
+    const angle = 0.72, range = Math.max(3, Math.min(48, flat));
+    const speed = Math.min(31, Math.sqrt(range * GRENADE_GRAVITY / Math.sin(2 * angle)));
+    const lift = Math.max(-3, Math.min(5, (target.y - chest.y) * 0.5));
+    const ux = dx / flat, uz = dz / flat;
+    const fuse = kind === 'frag' ? 3.6 : kind === 'flash' ? 2.4 : kind === 'smoke' ? 2.0 : 8;
+    const from = { x: chest.x + ux * 0.6, y: chest.y + 0.15, z: chest.z + uz * 0.6 };
+    this.state.projectiles ??= [];
+    this.state.projectiles.push({
+      id: ++this.projectileCounter, kind, x: from.x, y: from.y, z: from.z,
+      vx: ux * speed * Math.cos(angle), vy: speed * Math.sin(angle) + lift, vz: uz * speed * Math.cos(angle), fuse, owner: actor.id,
+    });
+    this.events.push({ type: 'throw', actorId: actor.id, kind, from, to: { ...target } });
+    this.alertNearby(actor, 30);
+    return true;
+  }
+
+  /** Move every grenade on, bounce it off the world and burst the ones whose time has come. */
+  private stepGrenades(dt: number): void {
+    const state = this.state;
+    const flying = state.projectiles;
+    if (flying && flying.length) {
+      for (let i = flying.length - 1; i >= 0; i--) {
+        const p = flying[i];
+        p.fuse -= dt;
+        p.vy -= GRENADE_GRAVITY * (p.kind === 'rocket' ? 0.06 : p.kind === 'shell' ? 0.3 : 1) * dt;
+        let nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
+        let bounced = false;
+        const length = Math.hypot(nx - p.x, ny - p.y, nz - p.z);
+        if (length > 1e-6) {
+          const from = { x: p.x, y: p.y, z: p.z }, direction = { x: (nx - p.x) / length, y: (ny - p.y) / length, z: (nz - p.z) / length };
+          let hit: number | null = null;
+          this.obstacles().querySegment(p.x, p.z, nx, nz, obstacle => {
+            const distance = obstacleHit(from, direction, obstacle, length);
+            if (distance !== null && (hit === null || distance < hit)) hit = distance;
+          });
+          if (hit !== null) {
+            const stop = Math.max(0, (hit as number) - 0.08);
+            nx = p.x + direction.x * stop; ny = p.y + direction.y * stop; nz = p.z + direction.z * stop;
+            p.vx *= -0.25; p.vz *= -0.25; p.vy *= 0.5;
+            bounced = true;
+          }
+        }
+        const ground = this.supportHeight(nx, nz, ny + 0.2) + 0.12;
+        if (ny <= ground) {
+          ny = ground;
+          if (p.vy < -1.5) { p.vy = -p.vy * 0.35; p.vx *= 0.6; p.vz *= 0.6; bounced = true; }
+          else { p.vy = 0; p.vx *= 0.88; p.vz *= 0.88; }
+        }
+        p.x = nx; p.y = ny; p.z = nz;
+        if ((p.kind === 'molotov' || p.kind === 'shell' || p.kind === 'rocket') && bounced) p.fuse = 0;
+        // A shell or rocket also bursts on anyone it touches (not its owner in the first instant).
+        if ((p.kind === 'shell' || p.kind === 'rocket') && p.fuse > 0 && 6 - p.fuse > 0.12) {
+          for (const actor of state.actors) {
+            if (!actor.alive || actor.air || actor.id === p.owner && 6 - p.fuse < 0.4) continue;
+            if (Math.hypot(actor.position.x - p.x, actor.position.z - p.z) < 0.8 && p.y > actor.position.y - 0.2 && p.y < actor.position.y + stanceOf(actor).height + 0.2) { p.fuse = 0; break; }
+          }
+        }
+        if (p.fuse <= 0) { flying.splice(i, 1); this.detonate(p); }
+      }
+    }
+    // Smoke thins away; fire burns whoever stands in it.
+    if (state.smokes && state.smokes.length) state.smokes = state.smokes.filter(smoke => smoke.until > state.elapsed);
+    const fires = state.fires;
+    if (fires && fires.length) {
+      for (const fire of fires) {
+        fire.tick -= dt;
+        if (fire.tick > 0) continue;
+        fire.tick = 0.25;
+        for (const actor of state.actors) {
+          if (!actor.alive || actor.air || Math.abs(actor.position.y - fire.y) > 2.5) continue;
+          if (Math.hypot(actor.position.x - fire.x, actor.position.z - fire.z) <= fire.radius) this.damage(actor, FIRE_DPS * 0.25, fire.owner);
+        }
+      }
+      state.fires = fires.filter(fire => fire.until > state.elapsed);
+    }
+  }
+
+  private detonate(p: Projectile): void {
+    const state = this.state, position = { x: p.x, y: p.y, z: p.z };
+    if (p.kind === 'frag' || p.kind === 'shell' || p.kind === 'rocket') {
+      const blast = BLASTS[p.kind];
+      const center = { x: p.x, y: p.y + 0.4, z: p.z };
+      this.events.push({ type: 'explosion', position: { ...position }, radius: blast.radius });
+      for (const actor of state.actors) {
+        if (!actor.alive || actor.air) continue;
+        const chest = { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z };
+        const d = Math.hypot(chest.x - center.x, chest.y - center.y, chest.z - center.z);
+        if (d > blast.radius || (d > 0.8 && !this.lineClear(center, chest, true))) continue;
+        const raw = blast.damage * Math.pow(1 - d / blast.radius, 1.15);
+        this.damage(actor, this.absorb(actor, raw, false), p.owner);
+      }
+      for (const car of state.vehicles) {
+        const d = Math.hypot(car.position.x - p.x, car.position.y + 0.8 - p.y, car.position.z - p.z);
+        if (d < blast.radius - 1 && car.health > 0) this.damageVehicle(car, blast.vehicle * (1 - d / (blast.radius - 1)), p.owner);
+      }
+      this.alertNearby(this.actorById(p.owner) ?? this.player, 120);
+    } else if (p.kind === 'smoke') {
+      (state.smokes ??= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, radius: SMOKE_RADIUS, born: state.elapsed, until: state.elapsed + SMOKE_SECONDS });
+      this.events.push({ type: 'smoke', position });
+    } else if (p.kind === 'flash') {
+      const center = { x: p.x, y: p.y + 0.4, z: p.z };
+      this.events.push({ type: 'flash', position });
+      for (const actor of state.actors) {
+        if (!actor.alive || actor.air) continue;
+        const head = { x: actor.position.x, y: actor.position.y + stanceOf(actor).aimY, z: actor.position.z };
+        const d = Math.hypot(head.x - center.x, head.y - center.y, head.z - center.z);
+        if (d > FLASH_RANGE || !this.lineClear(center, head)) continue;
+        // Looking at it hurts most; with your back to it you still catch the glare.
+        const toX = (center.x - head.x) / (d || 1), toZ = (center.z - head.z) / (d || 1);
+        const facing = Math.max(0, Math.sin(actor.yaw) * toX + Math.cos(actor.yaw) * toZ);
+        const seconds = 6 * (1 - d / FLASH_RANGE) * (0.3 + 0.7 * facing);
+        if (seconds > 0.25) actor.blind = Math.max(actor.blind ?? 0, seconds);
+        if (!actor.isPlayer && seconds > 0.25) this.runtime(actor).targetId = null;
+      }
+    } else {
+      (state.fires ??= []).push({ id: p.id, x: p.x, y: p.y, z: p.z, radius: FIRE_RADIUS, until: state.elapsed + FIRE_SECONDS, owner: p.owner, tick: 0 });
+      this.events.push({ type: 'fire', position });
+    }
+  }
+
+  /** A bot with grenades uses them now and then on an enemy it can see at a middling range. */
+  private botThrow(actor: Actor, runtime: Runtime, target: Actor): void {
+    if (runtime.throwCooldown > 0 || !THROW_ORDER.some(kind => actor.supplies[kind] > 0) || this.throwRandom() > 0.006) return;
+    const d = distance2(actor.position, target.position);
+    if (d < 10 || d > 38) return;
+    const options = THROW_ORDER.filter(kind => actor.supplies[kind] > 0 && (kind !== 'smoke' || actor.health < 50) && (kind !== 'flash' || d < 24));
+    if (options.length === 0) return;
+    const kind = options[Math.floor(this.throwRandom() * options.length)];
+    const lead = kind === 'smoke' ? 0.4 : 1;
+    const to = { x: actor.position.x + (target.position.x - actor.position.x) * lead + runtime.enemyVel.x * 0.8, y: target.position.y, z: actor.position.z + (target.position.z - actor.position.z) * lead + runtime.enemyVel.z * 0.8 };
+    this.throwGrenade(actor, kind, to);
   }
 
   /** Pick the inventory row the player chose, rather than whichever item happens to be nearest. */
@@ -453,6 +765,27 @@ export class GameSimulation {
       this.cancelHeal(actor);
       actor.medkits -= count;
       this.dropLoot(actor, kind, 0.8, { amount: count });
+    } else if (isMeleeKind(kind)) {
+      if (amount !== 1 || actor.melee !== kind) return false;
+      actor.melee = null;
+      this.dropLoot(actor, kind, 0.8);
+    } else if (isPackKind(kind)) {
+      if (amount !== 1 || actor.pack !== PACKS[kind as PackKind].level) return false;
+      if (usedSpace(actor) > PACK_BASE) { if (actor.isPlayer) this.tell(actor, 'Hãy vứt bớt đồ trước: không có ba lô thì mang được ít hơn.'); return false; }
+      actor.pack = 0;
+      this.dropLoot(actor, kind, 0.8);
+    } else if (isAttachKind(kind)) {
+      const part = kind as AttachKind, count = Math.min(amount, actor.parts[part]);
+      if (count <= 0) return false;
+      actor.parts[part] -= count;
+      this.dropLoot(actor, part, 0.8, { amount: count });
+    } else if (isSupplyKind(kind)) {
+      const supply = kind as SupplyKind; // (weapon ids are plain strings, so the guard above leaves nothing for the compiler to narrow)
+      const count = Math.min(amount, actor.supplies[supply]);
+      if (count <= 0) return false;
+      if (actor.healing > 0 && actor.healKind === supply) this.cancelHeal(actor);
+      actor.supplies[supply] -= count;
+      this.dropLoot(actor, supply, 0.8, { amount: count });
     } else if (isArmorKind(kind)) {
       const { slot, level } = parseArmor(kind);
       if (amount !== 1 || actor[slot] !== level || actor[`${slot}Hp`] <= 0) return false;
@@ -502,10 +835,47 @@ export class GameSimulation {
         if (equip && actor.isPlayer) { actor.weapon = kind; actor.reloading = 0; this.runtime(actor).reloadWeapon = null; }
         else if (equip) this.botSwitch(actor, kind);
       }
+    } else if (isMeleeKind(kind)) {
+      if (actor.melee === kind) { if (actor.isPlayer) this.tell(actor, 'Bạn đã có món này rồi.'); return false; }
+      if (actor.melee) this.dropLoot(actor, actor.melee, 0.9);
+      actor.melee = kind as MeleeKind;
+    } else if (isPackKind(kind)) {
+      const pack = kind as PackKind, level = PACKS[pack].level;
+      if (level <= actor.pack) {
+        if (actor.isPlayer) this.tell(actor, 'Bạn đã có ba lô tốt hơn.');
+        return false;
+      }
+      // The old pack is left on the ground; what was in it moves into the new one.
+      if (actor.pack > 0) this.dropLoot(actor, `pack${actor.pack}` as PackKind, 0.9);
+      actor.pack = level;
+    } else if (isAttachKind(kind)) {
+      const part = kind as AttachKind, amount = loot.amount ?? 1;
+      if (!Number.isSafeInteger(amount) || amount < 1) return false;
+      const take = Math.min(amount, this.roomFor(actor, spaceOf(part), amount));
+      if (take < 1) { if (actor.isPlayer) this.tell(actor, 'Ba lô đã đầy.'); return false; }
+      actor.parts[part] += take;
+      if (take < amount) { loot.amount = amount - take; return true; }
+      // A person's own gun in hand takes a part it fits straight away when that place is free.
+      if (actor.isPlayer && actor.parts[part] > 0 && fits(part, actor.weapon) && !attachmentsOf(actor, actor.weapon)[ATTACH[part].slot]) this.attachPart(actor, part);
     } else if (kind === 'medkit') {
       const amount = loot.amount ?? 1;
       if (!Number.isSafeInteger(amount) || amount < 1) return false;
-      actor.medkits += amount;
+      const take = Math.min(amount, this.roomFor(actor, spaceOf('medkit'), amount));
+      if (take < 1) { if (actor.isPlayer) this.tell(actor, 'Ba lô đã đầy.'); return false; }
+      actor.medkits += take;
+      if (take < amount) { loot.amount = amount - take; return true; }
+    } else if (isSupplyKind(kind)) {
+      const supply = kind as SupplyKind, config = SUPPLIES[supply], amount = loot.amount ?? config.stack;
+      if (!Number.isSafeInteger(amount) || amount < 1) return false;
+      if (actor.supplies[supply] >= config.max) {
+        if (actor.isPlayer) this.tell(actor, `Bạn không mang thêm được ${config.label.toLowerCase()}.`);
+        return false;
+      }
+      const take = Math.min(amount, config.max - actor.supplies[supply], this.roomFor(actor, spaceOf(supply), amount));
+      if (take < 1) { if (actor.isPlayer) this.tell(actor, 'Ba lô đã đầy.'); return false; }
+      actor.supplies[supply] += take;
+      if (config.group === 'throw' && !actor.throwKind) actor.throwKind = supply as ThrowKind;
+      if (take < amount) { loot.amount = amount - take; return true; }
     } else if (isArmorKind(kind)) {
       const { slot, level } = parseArmor(kind);
       const durability = loot.durability ?? ARMOR_DURABILITY[level];
@@ -522,24 +892,34 @@ export class GameSimulation {
       if (!ammo) return false;
       const amount = loot.amount ?? AMMO_PICKUP[ammo];
       if (!Number.isSafeInteger(amount) || amount < 1) return false;
-      actor.reserve[ammo] += amount;
+      const take = Math.min(amount, this.roomFor(actor, spaceOf(kind, ammo), amount));
+      if (take < 1) { if (actor.isPlayer) this.tell(actor, 'Ba lô đã đầy.'); return false; }
+      actor.reserve[ammo] += take;
+      if (take < amount) { loot.amount = amount - take; return true; }
     }
     loot.active = false;
     return true;
   }
 
   private dropCounter = 0;
+  private projectileCounter = 0;
 
   /** Place an item on the ground beside an actor, keeping its exact inventory contents. */
   private dropLoot(actor: Actor, kind: LootKind, offset: number, contents: Pick<Loot, 'amount' | 'loadedAmmo' | 'durability'> = {}): void {
     const angle = (this.dropCounter * 2.399) % (Math.PI * 2);
     const x = actor.position.x + Math.cos(angle) * offset, z = actor.position.z + Math.sin(angle) * offset;
     const spot = this.walkable({ x, z }, 0.05) ? { x, z } : { x: actor.position.x, z: actor.position.z };
-    this.state.loot.push({ id: `drop-${actor.id}-${this.dropCounter++}`, kind, position: { x: spot.x, y: this.heightAt(spot.x, spot.z), z: spot.z }, active: true, ...contents });
+    this.state.loot.push({ id: `drop-${actor.id}-${this.dropCounter++}`, kind, position: { x: spot.x, y: this.supportHeight(spot.x, spot.z, actor.position.y), z: spot.z }, active: true, ...contents });
   }
 
   /** Slot swaps return rounds to the reserve; manual drops keep them in the dropped magazine. */
   private dropWeapon(actor: Actor, weapon: WeaponType, returnRounds = true): void {
+    // The parts come off and lie beside it; rounds beyond a plain magazine go back to the pack.
+    const worn = attachmentsOf(actor, weapon);
+    for (const slot of ATTACH_SLOTS) { const part = worn[slot]; if (part) this.dropLoot(actor, part, 1.0 + ATTACH_SLOTS.indexOf(slot) * 0.1); }
+    delete actor.attach[weapon];
+    const extra = Math.max(0, actor.ammo[weapon] - WEAPONS[weapon].magazine);
+    if (extra > 0) { actor.ammo[weapon] -= extra; actor.reserve[WEAPONS[weapon].ammoType] += extra; }
     const loaded = actor.ammo[weapon];
     actor.ownedWeapons = actor.ownedWeapons.filter(w => w !== weapon);
     if (returnRounds) actor.reserve[WEAPONS[weapon].ammoType] += loaded;
@@ -569,6 +949,22 @@ export class GameSimulation {
   /** A message only that human should see (in single player it is just a message). */
   private tell(actor: Actor, text: string): void {
     this.events.push(this.options.humans > 1 ? { type: 'message', text, for: actor.id } : { type: 'message', text });
+  }
+
+  private throwRandom(): number {
+    this.throwState = (this.throwState + 0x6d2b79f5) | 0;
+    let value = this.throwState;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  }
+
+  private lootRandom(): number {
+    this.lootState = (this.lootState + 0x6d2b79f5) | 0;
+    let value = this.lootState;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   }
 
   private random(): number {
@@ -614,7 +1010,7 @@ export class GameSimulation {
         isPlayer: human, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: human ? 0 : this.random() * Math.PI * 2,
         health: 100, alive: true, weapon, ownedWeapons: [weapon], helmet: 0, vest: 0, helmetHp: 0, vestHp: 0,
         ammo, reserve,
-        reloading: 0, healing: 0, medkits: 1, hurtTimer: 0,
+        reloading: 0, healing: 0, medkits: 1, hurtTimer: 0, supplies: emptySupplies(), boost: 0, healKind: null, throwKind: null, blind: 0, pack: 0, attach: {}, parts: emptyParts(), melee: null,
       };
       this.runtime(actor);
       return actor;
@@ -623,6 +1019,8 @@ export class GameSimulation {
     this.localActor = actors.find(actor => actor.id === this.options.localId) ?? actors[0];
     const loot: Loot[] = [];
     const add = (kind: LootKind, x: number, z: number, y = 0) => loot.push({ id: `loot-${loot.length}`, kind, position: { x, y, z }, active: true });
+    this.lootState = (this.options.seed ^ 0x2f6e2b1) | 0;
+    this.throwState = (this.options.seed ^ 0x51ed270b) | 0;
     if (island) this.scatterIslandLoot(add);
     else this.scatterArenaLoot(add);
     const profile = this.world.zone;
@@ -633,7 +1031,7 @@ export class GameSimulation {
     zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
     const vehicles: Vehicle[] = this.world.vehicleSpawns.map((spawn, index) => ({
       id: `car-${index}`, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: spawn.yaw, speed: 0,
-      health: VEHICLE_HEALTH, driverId: null, colorIndex: index % 5, hitTimer: 0,
+      kind: vehicleKindFor(index), health: VEHICLES[vehicleKindFor(index)].health, driverId: null, colorIndex: index % 5, hitTimer: 0,
     }));
     const plane = this.options.drop && island && phase === 'playing' ? makePlane(this.world.halfSize, () => this.random()) : null;
     if (plane) {
@@ -645,7 +1043,7 @@ export class GameSimulation {
         if (!actor.isPlayer) this.runtime(actor).drop = this.planDrop(plane);
       }
     }
-    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [], localId: this.localActor?.id };
+    return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [], projectiles: [], smokes: [], fires: [], localId: this.localActor?.id };
   }
 
   /** Weighted gear tables: later tiers (cities, big houses) hold the heavy weapons. */
@@ -654,13 +1052,14 @@ export class GameSimulation {
     for (const spot of this.world.lootSpots) {
       const table = tables[spot.tier];
       for (let pick = 0; pick < 2; pick++) {
-        let roll = this.random();
+        let roll = this.lootRandom();
         let kind: LootKind = table[0][0];
         for (const [candidate, weight] of table) { kind = candidate; if ((roll -= weight) < 0) break; }
-        const x = spot.x + (this.random() - 0.5) * 2.4, z = spot.z + (this.random() - 0.5) * 2.4;
+        const x = spot.x + (this.lootRandom() - 0.5) * 2.4, z = spot.z + (this.lootRandom() - 0.5) * 2.4;
         add(kind, x, z, spot.y);
+        if (pick === 0 && spot.bias === 'medical') add('medkit', x - 0.8, z - 0.6, spot.y);
         if (isWeaponKind(kind)) add(ammoKindFor(kind), x + 0.7, z + 0.5, spot.y);
-        else if (this.random() < 0.5) add(ammoKindOf(COMMON_AMMO[Math.floor(this.random() * COMMON_AMMO.length)]), x + 0.7, z + 0.5, spot.y);
+        else if (this.lootRandom() < 0.5) add(ammoKindOf(COMMON_AMMO[Math.floor(this.lootRandom() * COMMON_AMMO.length)]), x + 0.7, z + 0.5, spot.y);
       }
     }
   }
@@ -709,7 +1108,7 @@ export class GameSimulation {
     if (!runtime) {
       runtime = {
         cooldown: 0, weaponCooldowns: emptyAmmo(), velocityY: 0, reloadWeapon: null, targetId: null, reaction: 0, memory: 0, sightTimer: 0,
-        goal: null, path: [], pathTimer: 0, stuck: 0,
+        goal: null, path: [], pathTimer: 0, stuck: 0, throwCooldown: 0, meleeCooldown: 0, vault: null,
         focus: 0, strafeDir: 1, strafeTimer: 0, burstLeft: 0, stillTime: 0,
         lastSeen: null, lastSeenAt: -Infinity, enemyVel: { x: 0, z: 0 }, enemyLast: null,
         heard: null, heardTimer: 0,
@@ -735,6 +1134,9 @@ export class GameSimulation {
       if (!actor.alive) continue;
       const runtime = this.runtime(actor);
       runtime.cooldown = Math.max(0, runtime.cooldown - dt);
+      runtime.throwCooldown = Math.max(0, runtime.throwCooldown - dt);
+      runtime.meleeCooldown = Math.max(0, runtime.meleeCooldown - dt);
+      if (actor.blind) actor.blind = Math.max(0, actor.blind - dt);
       for (const weapon of actor.ownedWeapons) runtime.weaponCooldowns[weapon] = Math.max(0, runtime.weaponCooldowns[weapon] - dt);
       actor.hurtTimer = Math.max(0, actor.hurtTimer - dt);
       if (actor.reloading > 0) {
@@ -743,7 +1145,7 @@ export class GameSimulation {
           actor.reloading = 0;
           const weapon = runtime.reloadWeapon ?? actor.weapon;
           const ammoType = WEAPONS[weapon].ammoType;
-          const amount = Math.min(WEAPONS[weapon].magazine - actor.ammo[weapon], actor.reserve[ammoType]);
+          const amount = Math.max(0, Math.min(magazineOf(actor, weapon) - actor.ammo[weapon], actor.reserve[ammoType]));
           actor.ammo[weapon] += amount;
           actor.reserve[ammoType] -= amount;
           runtime.reloadWeapon = null;
@@ -753,12 +1155,14 @@ export class GameSimulation {
         actor.healing = Math.max(0, actor.healing - dt);
         if (actor.healing < 1e-7) {
           actor.healing = 0;
-          if (actor.medkits > 0) {
-            actor.medkits--;
-            actor.health = Math.min(100, actor.health + HEAL_AMOUNT);
-            if (actor.isPlayer) this.tell(actor, 'Đã hồi máu.');
-          }
+          this.finishUse(actor);
         }
+      }
+      // A boosted person mends slowly, faster while the gauge is full; the gauge runs down as it does.
+      if (actor.boost > 0) {
+        const regen = boostRegen(actor.boost);
+        if (actor.health < 100) actor.health = Math.min(100, actor.health + regen * dt);
+        actor.boost = Math.max(0, actor.boost - BOOST_DRAIN * dt);
       }
     }
     for (const human of this.humanList) {
@@ -771,30 +1175,80 @@ export class GameSimulation {
     this.pathBudget = 3;
     this.updateBots(dt);
     this.stepVehicles(dt);
+    this.stepGrenades(dt);
     this.applyZone(dt);
     this.checkEnd();
   }
 
+  /** Is there something low straight ahead that can be climbed over, with room to land beyond it? Starts the vault if so. */
+  private tryVault(player: Actor, input: PlayerInput): boolean {
+    const length = Math.hypot(input.moveX, input.moveZ);
+    if (length < 0.3 || player.vehicleId || player.air) return false;
+    const dx = input.moveX / length, dz = input.moveZ / length, feet = player.position.y, p = player.position;
+    const probe = { x: p.x + dx * 0.75, z: p.z + dz * 0.75 };
+    let low = false;
+    let top = 0;
+    this.obstacles().queryBox(probe.x - 0.05, probe.z - 0.05, probe.x + 0.05, probe.z + 0.05, obstacle => {
+      if (probe.x < obstacle.x - obstacle.width / 2 || probe.x > obstacle.x + obstacle.width / 2 || probe.z < obstacle.z - obstacle.depth / 2 || probe.z > obstacle.z + obstacle.depth / 2) return;
+      const up = obstacleTop(obstacle) - feet, from = obstacleBottom(obstacle) - feet;
+      if (from <= 0.4 && up >= 0.4 && up <= VAULT_MAX) { low = true; top = Math.max(top, up); }
+    });
+    if (!low) return false;
+    const height = stanceOf(player).height;
+    for (let reach = 1.1; reach <= 3.2; reach += 0.2) {
+      const x = p.x + dx * reach, z = p.z + dz * reach;
+      if (!this.walkable({ x, z }, ACTOR_RADIUS, feet, ACTOR_HEIGHT)) continue;
+      const ground = this.supportHeight(x, z, feet);
+      if (Math.abs(ground - feet) > 0.7) return false;
+      this.runtime(player).vault = { t: 0, from: { ...p }, to: { x, y: ground, z }, peak: Math.max(top, 0.8) + 0.25 };
+      player.stance = 'stand';
+      this.cancelHeal(player);
+      void height;
+      return true;
+    }
+    return false;
+  }
+
+  private stepVault(player: Actor, runtime: Runtime, dt: number): void {
+    const vault = runtime.vault!;
+    vault.t = Math.min(1, vault.t + dt / VAULT_SECONDS);
+    const k = vault.t;
+    player.position.x = vault.from.x + (vault.to.x - vault.from.x) * k;
+    player.position.z = vault.from.z + (vault.to.z - vault.from.z) * k;
+    player.position.y = vault.from.y + (vault.to.y - vault.from.y) * k + vault.peak * Math.sin(Math.PI * k);
+    runtime.velocityY = 0; runtime.speedNow = 0;
+    if (vault.t >= 1) { player.position.y = vault.to.y; runtime.vault = null; }
+  }
+
   private walkPlayer(player: Actor, dt: number, input: PlayerInput, jumpPressed: boolean): void {
+    const vaulting = this.runtime(player);
+    if (vaulting.vault) { this.stepVault(player, vaulting, dt); return; }
     // Jumping or sprinting from a crouch or lying down first gets you up (if there is room).
     const wasLow = !!player.stance && player.stance !== 'stand';
     if (wasLow && (jumpPressed || (input.sprint && Math.hypot(input.moveX, input.moveZ) > 0.2))) this.setStance('stand', player);
-    if (jumpPressed && !wasLow && player.position.y <= this.heightAt(player.position.x, player.position.z) + 1e-6) {
+    if (jumpPressed && !wasLow && player.position.y <= this.supportHeight(player.position.x, player.position.z, player.position.y) + 1e-6) {
+      // Running at something low: climb over it instead of jumping into it.
+      if (this.tryVault(player, input)) return;
       this.runtime(player).velocityY = 6.7;
       this.cancelHeal(player);
     }
     const stanceData = stanceOf(player);
     const before = { x: player.position.x, z: player.position.z };
-    this.moveActor(player, input.moveX, input.moveZ, input.sprint ? stanceData.sprint : stanceData.speed, dt);
+    this.moveActor(player, input.moveX, input.moveZ, (input.sprint ? stanceData.sprint : stanceData.speed) * boostSpeed(player.boost), dt);
     this.runtime(player).speedNow = Math.hypot(player.position.x - before.x, player.position.z - before.z) / Math.max(dt, 1e-6);
     const playerRuntime = this.runtime(player);
-    const ground = this.heightAt(player.position.x, player.position.z);
+    const ground = this.supportHeight(player.position.x, player.position.z, player.position.y);
     if (player.position.y > ground || playerRuntime.velocityY > 0) {
       playerRuntime.velocityY -= 18 * dt;
       player.position.y = Math.max(ground, player.position.y + playerRuntime.velocityY * dt);
-      // On rolling terrain, stay glued to the ground when walking downhill instead of hopping.
+      // On rolling terrain and down stairs, stay glued to the surface when walking downhill instead of hopping.
       if (this.world.terrain && playerRuntime.velocityY <= 0 && player.position.y - ground < 0.35) player.position.y = ground;
-      if (player.position.y === ground) playerRuntime.velocityY = 0;
+      if (player.position.y === ground) {
+        // Landing from a real fall (off a roof or a mezzanine) hurts; the host decides how much.
+        const impact = -playerRuntime.velocityY;
+        if (impact > FALL_SAFE_SPEED && !this.options.remote) this.damage(player, (impact - FALL_SAFE_SPEED) * 8);
+        playerRuntime.velocityY = 0;
+      }
       this.resolvePenetration(player);
     } else player.position.y = ground;
   }
@@ -891,7 +1345,7 @@ export class GameSimulation {
     if (!this.walkable(point, ACTOR_RADIUS)) return false;
     let covered = false;
     this.obstacles().queryBox(point.x - 0.5, point.z - 0.5, point.x + 0.5, point.z + 0.5, obstacle => {
-      if (obstacle.kind === 'roof' && Math.abs(point.x - obstacle.x) < obstacle.width / 2 + 0.5 && Math.abs(point.z - obstacle.z) < obstacle.depth / 2 + 0.5) { covered = true; return true; }
+      if ((obstacle.kind === 'roof' || obstacle.kind === 'floor') && Math.abs(point.x - obstacle.x) < obstacle.width / 2 + 0.5 && Math.abs(point.z - obstacle.z) < obstacle.depth / 2 + 0.5) { covered = true; return true; }
     });
     return !covered;
   }
@@ -1038,7 +1492,7 @@ export class GameSimulation {
       const guns = GUNS_BY_CLASS[classes[Math.floor(this.random() * classes.length)]].filter(gun => WEAPONS[gun].tier >= 2);
       if (guns.length) contents.push(guns[Math.floor(this.random() * guns.length)]);
     }
-    contents.push('helmet3', 'vest3', 'medkit', 'medkit');
+    contents.push('helmet3', 'vest3', 'medkit', 'medkit', 'pack3');
     for (const kind of [...contents]) if (isWeaponKind(kind)) contents.push(ammoKindFor(kind), ammoKindFor(kind));
     contents.forEach((kind, index) => {
       const angle = index / contents.length * Math.PI * 2;
@@ -1152,11 +1606,12 @@ export class GameSimulation {
 
   /** `predicted`: a mirror's guess at the local player's car; a bump stops it but only the host decides the damage. */
   private driveVehicle(v: Vehicle, throttle: number, steer: number, brake: boolean, dt: number, predicted = false): void {
-    const maxForward = 30, maxReverse = 9;
+    const stats = VEHICLES[kindOf(v)];
+    const maxForward = stats.maxForward, maxReverse = stats.maxReverse;
     if (Math.abs(throttle) > 0.02) {
       const target = throttle > 0 ? maxForward * throttle : maxReverse * throttle;
       const braking = (throttle > 0 && v.speed < -0.3) || (throttle < 0 && v.speed > 0.3);
-      v.speed += clamp(target - v.speed, braking ? -18 * dt : -6 * dt, braking ? 18 * dt : 9 * dt);
+      v.speed += clamp(target - v.speed, braking ? -18 * dt : -6 * dt, braking ? 18 * dt : stats.accel * dt);
     } else v.speed *= Math.exp(-0.45 * dt);
     if (brake) v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 22 * dt);
     // Slopes pull on the car: climbing bleeds speed, descending adds some.
@@ -1164,13 +1619,13 @@ export class GameSimulation {
     const rise = (this.heightAt(v.position.x + sx * 2, v.position.z + cz * 2) - this.heightAt(v.position.x - sx * 2, v.position.z - cz * 2)) / 4;
     v.speed = clamp(v.speed - rise * 9.81 * 0.35 * dt, -maxReverse * 1.2, maxForward * 1.1);
     // Bicycle steering: tighter at low speed, calmer when fast.
-    const lock = 0.6 / (1 + Math.abs(v.speed) * 0.05);
-    v.yaw = wrapAngle(v.yaw + (v.speed / 2.9) * Math.tan(steer * lock) * dt);
+    const lock = stats.lock / (1 + Math.abs(v.speed) * 0.05);
+    v.yaw = wrapAngle(v.yaw + (v.speed / stats.wheelbase) * Math.tan(steer * lock) * dt);
     const distance = v.speed * dt;
     const pieces = Math.max(1, Math.ceil(Math.abs(distance) / 0.8));
     for (let i = 0; i < pieces; i++) {
       const next = { x: v.position.x + Math.sin(v.yaw) * distance / pieces, z: v.position.z + Math.cos(v.yaw) * distance / pieces };
-      if (!this.walkable(next, VEHICLE_RADIUS, v.position.y)) { if (predicted) v.speed = -v.speed * 0.2; else this.crash(v); break; }
+      if (!this.walkable(next, stats.radius, v.position.y)) { if (predicted) v.speed = -v.speed * 0.2; else this.crash(v); break; }
       v.position.x = next.x;
       v.position.z = next.z;
       v.position.y = this.heightAt(next.x, next.z);
@@ -1184,7 +1639,8 @@ export class GameSimulation {
     this.events.push({ type: 'crash', vehicleId: v.id, strength: impact, position: { ...v.position } });
     v.health -= impact * impact * 0.35;
     const driver = this.vehicleDriver(v);
-    if (driver && impact > 9) this.damage(driver, (impact - 9) * 2.2);
+    const hurtAt = VEHICLES[kindOf(v)].hurtAt;
+    if (driver && impact > hurtAt) this.damage(driver, (impact - hurtAt) * 2.2);
     if (v.health <= 0) this.explode(v);
   }
 
@@ -1218,6 +1674,12 @@ export class GameSimulation {
     });
   }
 
+  /** Someone driving a vehicle with no body around them. */
+  private exposedRider(actor: Actor): boolean {
+    const car = this.state.vehicles.find(v => v.id === actor.vehicleId);
+    return !!car && VEHICLES[kindOf(car)].exposed;
+  }
+
   /** Shots wreck a car; the driver takes a little of every hit. */
   private damageVehicle(v: Vehicle, amount: number, sourceId: string): void {
     if (v.health <= 0) return;
@@ -1240,7 +1702,7 @@ export class GameSimulation {
       return { throttle: -0.8, steer: -clamp(diff * 1.8, -1, 1), brake: false };
     }
     const look = clamp(7 + Math.abs(v.speed) * 0.7, 9, 26);
-    const clear = (angle: number) => this.walkable({ x: v.position.x + Math.sin(v.yaw + angle) * look, z: v.position.z + Math.cos(v.yaw + angle) * look }, VEHICLE_RADIUS, v.position.y);
+    const clear = (angle: number) => this.walkable({ x: v.position.x + Math.sin(v.yaw + angle) * look, z: v.position.z + Math.cos(v.yaw + angle) * look }, VEHICLES[kindOf(v)].radius, v.position.y);
     const front = clear(0), left = clear(-0.45), right = clear(0.45);
     let throttle = distance < 14 ? 0 : 0.9;
     if (!front) {
@@ -1325,23 +1787,65 @@ export class GameSimulation {
 
   private beginReload(actor: Actor): boolean {
     const weapon = actor.weapon;
-    if (!actor.alive || actor.reloading > 0 || actor.ammo[weapon] >= WEAPONS[weapon].magazine || actor.reserve[WEAPONS[weapon].ammoType] <= 0) return false;
+    if (!actor.alive || actor.reloading > 0 || actor.ammo[weapon] >= magazineOf(actor, weapon) || actor.reserve[WEAPONS[weapon].ammoType] <= 0) return false;
     this.cancelHeal(actor);
     actor.reloading = WEAPONS[weapon].reloadTime;
     this.runtime(actor).reloadWeapon = weapon;
     return true;
   }
 
-  private beginHeal(actor: Actor): boolean {
-    if (!actor.alive || actor.medkits <= 0 || actor.health >= 100 || actor.healing > 0 || actor.reloading > 0) return false;
-    actor.healing = HEAL_TIME;
-    if (actor.isPlayer) this.tell(actor, 'Đang hồi máu… Hãy đứng yên.');
+  /** Is this item in the pack and of any use right now? */
+  private canUse(actor: Actor, item: UseKind): boolean {
+    if (item === 'medkit') return actor.medkits > 0 && actor.health < HEAL_CAP.medkit;
+    const config = SUPPLIES[item];
+    if (actor.supplies[item] <= 0) return false;
+    return config.group === 'heal' ? actor.health < config.cap : actor.boost < BOOST_MAX;
+  }
+
+  /** The healing item worth using at this health: big healers when badly hurt, cheap ones to top up. */
+  private pickHeal(actor: Actor): UseKind | null {
+    const order: UseKind[] = actor.health < 45 ? ['medkit', 'firstaid', 'bandage'] : actor.health < 75 ? ['bandage', 'firstaid', 'medkit'] : ['firstaid', 'medkit', 'bandage'];
+    return order.find(item => this.canUse(actor, item)) ?? null;
+  }
+
+  private beginUse(actor: Actor, item?: UseKind): boolean {
+    if (!actor.alive || actor.healing > 0 || actor.reloading > 0) return false;
+    const choice = item ?? this.pickHeal(actor);
+    if (!choice || !this.canUse(actor, choice)) return false;
+    actor.healing = choice === 'medkit' ? HEAL_TIME : SUPPLIES[choice].time;
+    actor.healKind = choice;
+    if (actor.isPlayer) this.tell(actor, choice === 'medkit' || SUPPLIES[choice as SupplyKind]?.group === 'heal' ? 'Đang hồi máu… Hãy đứng yên.' : 'Đang dùng… Hãy đứng yên.');
     return true;
+  }
+
+  private beginHeal(actor: Actor): boolean { return this.beginUse(actor); }
+
+  /** The timer ran out: take the item from the pack and apply it. */
+  private finishUse(actor: Actor): void {
+    const item = actor.healKind ?? 'medkit';
+    actor.healKind = null;
+    if (!this.canUse(actor, item)) return;
+    if (item === 'medkit') {
+      actor.medkits--;
+      actor.health = Math.min(HEAL_CAP.medkit, actor.health + HEAL_AMOUNT);
+      if (actor.isPlayer) this.tell(actor, 'Đã hồi máu.');
+      return;
+    }
+    const config = SUPPLIES[item];
+    actor.supplies[item]--;
+    if (config.group === 'heal') {
+      actor.health = Math.min(Math.max(actor.health, config.cap), actor.health + config.heal);
+      if (actor.isPlayer) this.tell(actor, 'Đã hồi máu.');
+    } else {
+      actor.boost = Math.min(BOOST_MAX, actor.boost + config.boost);
+      if (actor.isPlayer) this.tell(actor, 'Thanh tăng lực đã đầy hơn.');
+    }
   }
 
   private cancelHeal(actor: Actor): void {
     if (actor.healing > 0) {
       actor.healing = 0;
+      actor.healKind = null;
       if (actor.isPlayer) this.tell(actor, 'Đã hủy hồi máu.');
     }
   }
@@ -1351,6 +1855,7 @@ export class GameSimulation {
     const weapon = WEAPONS[actor.weapon];
     if (!actor.alive || actor.reloading > 0 || runtime.cooldown > 1e-7 || runtime.weaponCooldowns[actor.weapon] > 1e-7) return false;
     if (actor.ammo[actor.weapon] <= 0) { this.beginReload(actor); return false; }
+    const rig = rigStats(actor, actor.weapon);
     const chest = { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z };
     let direction = { x: target.x - chest.x, y: target.y - chest.y, z: target.z - chest.z };
     let length = Math.hypot(direction.x, direction.y, direction.z);
@@ -1364,6 +1869,19 @@ export class GameSimulation {
     runtime.weaponCooldowns[actor.weapon] = weapon.fireInterval;
     this.cancelHeal(actor);
     if (actor === this.player) this.state.shots++;
+    if (weapon.kind === 'launcher') {
+      const rocket = weapon.ammoType === 'rocket';
+      const speed = rocket ? 62 : 42;
+      const unit = Math.hypot(direction.x, direction.y, direction.z) || 1;
+      (this.state.projectiles ??= []).push({
+        id: ++this.projectileCounter, kind: rocket ? 'rocket' : 'shell', x: from.x, y: from.y, z: from.z,
+        vx: direction.x / unit * speed, vy: direction.y / unit * speed, vz: direction.z / unit * speed, fuse: 6, owner: actor.id,
+      });
+      this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to: { x: from.x + direction.x * 12, y: from.y + direction.y * 12, z: from.z + direction.z * 12 } });
+      this.alertNearby(actor, gunshotLoudness(actor.weapon) * (this.openWorld ? 1 : 0.45));
+      this.checkEnd();
+      return true;
+    }
     let anyHit = false;
     const damageByActor = new Map<Actor, number>();
     let visualHit: Hit = { distance: weapon.range };
@@ -1376,7 +1894,7 @@ export class GameSimulation {
     // Bullets fall over distance in open worlds; the small arena keeps flat shots.
     const arc: Arc | undefined = this.openWorld ? { velocity: weapon.velocity, zero: ZERO_DISTANCE[weapon.kind] } : undefined;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
-      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread + extraSpread);
+      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread * rig.spread + extraSpread);
       const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id, arc);
       if (pellet === 0 || (!visualHit.actor && hit.actor)) { visualHit = hit; visualDirection = ray; }
       if (hit.vehicle) this.damageVehicle(hit.vehicle, weapon.damage, actor.id);
@@ -1389,9 +1907,9 @@ export class GameSimulation {
       }
     }
     const to = visualHit.point ?? { x: from.x + visualDirection.x * visualHit.distance, y: from.y + visualDirection.y * visualHit.distance, z: from.z + visualDirection.z * visualHit.distance };
-    this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to, ...(visualHit.actor ? { hitId: visualHit.actor.id } : {}) });
+    this.events.push({ type: 'shot', actorId: actor.id, weapon: actor.weapon, from, to, ...(visualHit.actor ? { hitId: visualHit.actor.id } : {}), ...(rig.silenced ? { silenced: true } : {}) });
     // On the cramped arena everyone would hear everything; halve the range there.
-    this.alertNearby(actor, gunshotLoudness(actor.weapon) * (this.openWorld ? 1 : 0.45));
+    this.alertNearby(actor, gunshotLoudness(actor.weapon) * rig.loud * (this.openWorld ? 1 : 0.45));
     if (actor === this.player && anyHit) this.state.hits++;
     for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id);
     this.checkEnd();
@@ -1478,11 +1996,15 @@ export class GameSimulation {
       const c = Math.cos(car.yaw), s = Math.sin(car.yaw);
       const localOrigin = { x: dx * c - dz * s, y: origin.y, z: dx * s + dz * c };
       const localDirection = { x: direction.x * c - direction.z * s, y: direction.y, z: direction.x * s + direction.z * c };
-      const hit = rayBox(localOrigin, localDirection, { x: -0.95, y: car.position.y + 0.25, z: -2.1 }, { x: 0.95, y: car.position.y + 1.7, z: 2.1 }, closest.distance);
+      // A car is a tall closed box; a bike or a buggy is low, so a rider sits above it.
+      const hull = HULLS[kindOf(car)];
+      const hit = rayBox(localOrigin, localDirection, { x: -hull.half, y: car.position.y + hull.low, z: -hull.length }, { x: hull.half, y: car.position.y + hull.high, z: hull.length }, closest.distance);
       if (hit !== null && hit < closest.distance) closest = { distance: hit, vehicle: car };
     }
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.id === ignoreId || actor.vehicleId || actor.air) continue;
+      if (!actor.alive || actor.id === ignoreId || actor.air) continue;
+      // Inside a car you are covered; on a bike or in a buggy nothing shields you.
+      if (actor.vehicleId && !this.exposedRider(actor)) continue;
       const p = actor.position;
       const shape = stanceOf(actor);
       const neck = shape.height * NECK;
@@ -1521,12 +2043,14 @@ export class GameSimulation {
       if (!actor.isPlayer || this.options.humans > 1) {
         const dropPosition = (offset: number): Vec3 => {
           const x = actor.position.x + offset;
-          const position = { x, y: this.heightAt(x, actor.position.z), z: actor.position.z };
-          return this.walkable(position, 0.05) ? position : { ...actor.position, y: this.heightAt(actor.position.x, actor.position.z) };
+          const position = { x, y: this.supportHeight(x, actor.position.z, actor.position.y), z: actor.position.z };
+          return this.walkable(position, 0.05, position.y) ? position : { ...actor.position, y: this.supportHeight(actor.position.x, actor.position.z, actor.position.y) };
         };
         this.state.loot.push({ id: `drop-${actor.id}-weapon`, kind: actor.weapon, position: dropPosition(-0.7), active: true });
         this.state.loot.push({ id: `drop-${actor.id}-ammo`, kind: ammoKindFor(actor.weapon), position: dropPosition(0), active: true });
         if (actor.medkits) this.state.loot.push({ id: `drop-${actor.id}-medkit`, kind: 'medkit', position: dropPosition(0.7), active: true, amount: actor.medkits });
+        if (actor.melee) this.dropLoot(actor, actor.melee, 1.5);
+        SUPPLY_ORDER.forEach((kind, i) => { if (actor.supplies[kind] > 0) this.dropLoot(actor, kind, 1.7 + i * 0.1, { amount: actor.supplies[kind] }); });
         // Everything else the bot carried: spare guns and armour, so a fallen enemy is worth searching.
         actor.ownedWeapons.filter(w => w !== actor.weapon).forEach(w => this.dropLoot(actor, w, 1.1));
         for (const slot of ['helmet', 'vest'] as const) if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 1.4, { durability: actor[`${slot}Hp`] });
@@ -1651,6 +2175,7 @@ export class GameSimulation {
     const feet = standing ?? ground;
     let free = true;
     this.obstacles().queryBox(point.x - padding, point.z - padding, point.x + padding, point.z + padding, obstacle => {
+      if (obstacle.kind === 'floor' && feet >= obstacleTop(obstacle) - STEP_UP) return;
       if (feet < obstacleTop(obstacle) && feet + height > obstacleBottom(obstacle)
         && point.x > obstacle.x - obstacle.width / 2 - padding && point.x < obstacle.x + obstacle.width / 2 + padding
         && point.z > obstacle.z - obstacle.depth / 2 - padding && point.z < obstacle.z + obstacle.depth / 2 + padding) { free = false; return true; }
@@ -1677,7 +2202,7 @@ export class GameSimulation {
   }
 
   /** Line of sight between chest-height points, blocked by obstacles and by terrain crests. */
-  private lineClear(from: Vec3, target: Vec3): boolean {
+  private lineClear(from: Vec3, target: Vec3, ignoreSmoke = false): boolean {
     const distance = Math.hypot(target.x - from.x, target.y - from.y, target.z - from.z);
     if (distance < 0.01) return true;
     const direction = { x: (target.x - from.x) / distance, y: (target.y - from.y) / distance, z: (target.z - from.z) / distance };
@@ -1685,10 +2210,28 @@ export class GameSimulation {
     this.obstacles().querySegment(from.x, from.z, target.x, target.z, obstacle => {
       if (obstacleHit(from, direction, obstacle, distance) !== null) { clear = false; return true; }
     });
-    return clear && this.terrainHit(from, direction, distance) === null;
+    return clear && this.terrainHit(from, direction, distance) === null && (ignoreSmoke || !this.smokeBlocks(from, target));
+  }
+
+  /** Does the line between two points pass through a smoke cloud? */
+  private smokeBlocks(from: Vec3, target: Vec3): boolean {
+    const smokes = this.state.smokes;
+    if (!smokes || smokes.length === 0) return false;
+    const dx = target.x - from.x, dy = target.y - from.y, dz = target.z - from.z, length2 = dx * dx + dy * dy + dz * dz;
+    for (const smoke of smokes) {
+      // A cloud swells over its first moments.
+      const swell = Math.min(1, 0.35 + (this.state.elapsed - smoke.born) / 1.6);
+      const r = smoke.radius * swell * 0.92;
+      const cx = smoke.x - from.x, cy = smoke.y + 1.6 - from.y, cz = smoke.z - from.z;
+      const t = length2 > 1e-9 ? Math.max(0, Math.min(1, (cx * dx + cy * dy + cz * dz) / length2)) : 0;
+      const px = from.x + dx * t - smoke.x, py = from.y + dy * t - (smoke.y + 1.6), pz = from.z + dz * t - smoke.z;
+      if (px * px + py * py + pz * pz < r * r) return true;
+    }
+    return false;
   }
 
   private canSee(actor: Actor, enemy: Actor): boolean {
+    if ((actor.blind ?? 0) > 0) return false;
     return this.lineClear(
       { x: actor.position.x, y: actor.position.y + stanceOf(actor).chest, z: actor.position.z },
       { x: enemy.position.x, y: enemy.position.y + stanceOf(enemy).aimY + 0.03, z: enemy.position.z });
@@ -1829,6 +2372,8 @@ export class GameSimulation {
       let bestScore = 0;
       this.lootIndex().queryCircle(actor.position.x, actor.position.z, this.openWorld ? 75 : 55, loot => {
         if (!loot.active) return;
+        // Bots do not climb stairs: anything above the ground floor is for people.
+        if (loot.position.y - this.heightAt(loot.position.x, loot.position.z) > 1.5) return;
         const until = runtime.ignored.get(loot.id);
         if (until !== undefined && until > now) return;
         const utility = lootUtility(actor, loot.kind);
@@ -1951,17 +2496,24 @@ export class GameSimulation {
       else return;
     }
     const exposed = !!target && (visible || now - runtime.lastSeenAt < 2.5);
-    if (!exposed && !evacuating && actor.health < 55 && actor.medkits > 0 && actor.reloading === 0) {
+    if (!exposed && !evacuating && actor.health < 55 && this.pickHeal(actor) && actor.reloading === 0) {
       this.beginHeal(actor);
       return;
     }
+    // A calm bot with a boost in its pack drinks it before the next fight.
+    if (!exposed && !evacuating && actor.boost < 15 && actor.reloading === 0) {
+      const boost = (['painkiller', 'energy'] as const).find(item => this.canUse(actor, item));
+      if (boost && this.random() < 0.02) { this.beginUse(actor, boost); return; }
+    }
+
+    if (target && visible && actor.reloading === 0 && actor.healing === 0) this.botThrow(actor, runtime, target);
 
     let direct: { dx: number; dz: number; speed: number } | null = null;
     let hold = false;
     // A marksman holding a long-range position lies down instead of crouching.
     let lieDown = false;
     let speed = 3.6;
-    const lowHealth = actor.health < 38 && (actor.medkits > 0 || actor.health < 22);
+    const lowHealth = actor.health < 38 && (this.pickHeal(actor) !== null || actor.health < 22);
     if (target) {
       const dx = target.position.x - actor.position.x, dz = target.position.z - actor.position.z;
       const distance = Math.hypot(dx, dz);
@@ -2088,7 +2640,7 @@ export class GameSimulation {
     const outside = distance2(actor.position, zone.center) > Math.max(0, zone.radius - 5);
     const futureUnsafe = zone.isShrinking && distance2(actor.position, zone.nextCenter) > Math.max(0, zone.nextRadius - 7);
     const evacuating = outside || futureUnsafe;
-    if (!evacuating && actor.health < 60 && actor.medkits > 0 && actor.reloading === 0) { this.beginHeal(actor); return; }
+    if (!evacuating && actor.health < 60 && this.pickHeal(actor) && actor.reloading === 0) { this.beginHeal(actor); return; }
     const rival = this.nearestRival(actor, 45);
     if (rival && this.random() < 0.55) { this.resolveDuel(actor, rival); return; }
     const speed = this.pickGoal(actor, runtime, evacuating);
@@ -2198,7 +2750,8 @@ export class GameSimulation {
     }
     if (this.clearPath(from, target)) return [{ ...target }];
     const cell = this.openWorld ? 2 : 4;
-    const margin = this.openWorld ? 14 : 24;
+    // Search a box around the route; a big building in the way (a warehouse, an apartment block) can need a wider one.
+    const search = (margin: number): Vec2[] => {
     const i0 = Math.floor((Math.min(from.x, target.x) - margin) / cell), i1 = Math.ceil((Math.max(from.x, target.x) + margin) / cell);
     const j0 = Math.floor((Math.min(from.z, target.z) - margin) / cell), j1 = Math.ceil((Math.max(from.z, target.z) + margin) / cell);
     const width = i1 - i0 + 1, height = j1 - j0 + 1;
@@ -2225,8 +2778,11 @@ export class GameSimulation {
         const path: Vec2[] = [coordinates(current)];
         while (previous.has(current)) { current = previous.get(current)!; path.unshift(coordinates(current)); }
         if (this.clearPath(path[path.length - 1], target)) path.push({ ...target });
+        // A bot hugging a wall stands inside the padded clearance, so no segment from its exact spot passes the check: step to the
+        // snapped start cell first, then smooth from there.
         const smooth: Vec2[] = [];
         let anchor = { ...from };
+        if (!this.walkable(from)) { anchor = coordinates(start); smooth.push(anchor); }
         for (let i = 0; i < path.length;) {
           let farthest = i;
           for (let j = path.length - 1; j > i; j--) if (this.clearPath(anchor, path[j])) { farthest = j; break; }
@@ -2256,5 +2812,8 @@ export class GameSimulation {
       }
     }
     return [];
+    };
+    const found = search(this.openWorld ? 14 : 24);
+    return found.length || !this.openWorld ? found : search(46);
   }
 }

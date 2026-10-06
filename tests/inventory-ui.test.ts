@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { InventoryView } from '../src/inventory-ui.ts';
 import { emptyAmmo, emptyReserve, WEAPONS } from '../src/game/weapons.ts';
+import { emptySupplies } from '../src/game/supplies.ts';
 import type { Actor, Loot, LootKind } from '../src/types.ts';
 
 function setup() {
@@ -30,6 +31,7 @@ function player(): Actor {
     health: 67, alive: true, weapon: 'rifle', ownedWeapons: ['rifle', 'shotgun', 'pistol'],
     ammo: { ...emptyAmmo(), rifle: 17, shotgun: 3, pistol: 8 }, reserve: { ...emptyReserve(), '556': 83, '12g': 7, '9mm': 24 },
     reloading: 0, healing: 0, medkits: 2, hurtTimer: 0, helmet: 2, helmetHp: 57, vest: 1, vestHp: 32,
+    supplies: emptySupplies(), boost: 0,
   };
 }
 

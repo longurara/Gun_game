@@ -1,4 +1,7 @@
 import type { AmmoKind, AmmoType, ArmorKind, ArmorSlot, LootKind, WeaponClass, WeaponConfig, WeaponType } from '../types';
+import { isSupplyKind, SUPPLIES } from './supplies';
+import { ATTACH, isAttachKind, isPackKind, PACKS } from './gear';
+import { isMeleeKind, MELEE } from './melee';
 import { AMMO_LABEL, AMMO_ORDER, AMMO_PICKUP, ARSENAL, CLASS_BASE } from './arsenal';
 import { MUZZLE_VELOCITY } from './ballistics';
 
@@ -12,7 +15,7 @@ const FURNITURE_COLOR: Record<string, string> = {
 const METAL_COLOR: Record<string, string> = { gld: '#efc54e', crm: '#dfe7ea', ti: '#a9b8c4', blu: '#6f8fb5', slv: '#cdd2d4' };
 /** Core gun whose recorded gunshot each class borrows. */
 const VOICE: Record<WeaponClass, WeaponType> = {
-  pistol: 'pistol', smg: 'smg', ar: 'rifle', br: 'dmr', lmg: 'lmg', shotgun: 'shotgun', dmr: 'dmr', sniper: 'sniper', amr: 'heavySniper',
+  pistol: 'pistol', smg: 'smg', ar: 'rifle', br: 'dmr', lmg: 'lmg', shotgun: 'shotgun', dmr: 'dmr', sniper: 'sniper', amr: 'heavySniper', bow: 'pistol', launcher: 'shotgun',
 };
 
 function accentFor(look: string): string {
@@ -50,7 +53,7 @@ export const CORE_WEAPONS: readonly WeaponType[] = ['rifle', 'shotgun', 'smg', '
 /** Every gun id. The original eight come first and keep the number keys of the arena armoury. */
 export const WEAPON_ORDER: readonly WeaponType[] = ARSENAL.map(entry => entry.id);
 
-export const GUNS_BY_CLASS: Record<WeaponClass, WeaponType[]> = { pistol: [], smg: [], ar: [], br: [], lmg: [], shotgun: [], dmr: [], sniper: [], amr: [] };
+export const GUNS_BY_CLASS: Record<WeaponClass, WeaponType[]> = { pistol: [], smg: [], ar: [], br: [], lmg: [], shotgun: [], dmr: [], sniper: [], amr: [], bow: [], launcher: [] };
 for (const entry of ARSENAL) GUNS_BY_CLASS[entry.cls].push(entry.id);
 
 /** Loadout: two main guns and one sidearm, as in a battle royale. */
@@ -93,6 +96,10 @@ export function emptyReserve(): Record<AmmoType, number> {
 }
 export function lootLabel(kind: LootKind): string {
   if (kind === 'medkit') return 'Túi cứu thương';
+  if (isSupplyKind(kind)) return SUPPLIES[kind].label;
+  if (isPackKind(kind)) return PACKS[kind].label;
+  if (isMeleeKind(kind)) return MELEE[kind].label;
+  if (isAttachKind(kind)) return ATTACH[kind].label;
   if (isArmorKind(kind)) { const { slot, level } = parseArmor(kind); return `${ARMOR_NAMES[slot]} cấp ${level}`; }
   if (isWeaponKind(kind)) return `${WEAPONS[kind].label} · ${WEAPONS[kind].category}`;
   const ammo = ammoTypeOf(kind);

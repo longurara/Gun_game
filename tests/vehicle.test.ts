@@ -35,7 +35,7 @@ test('the island has cars on its roads and the arena has none', () => {
   const island = new GameSimulation({ seed: 1, botCount: 5, map: 'island' });
   island.start();
   assert.ok(island.state.vehicles.length >= 30);
-  for (const v of island.state.vehicles) assert.equal(v.health, 300);
+  for (const v of island.state.vehicles) assert.equal(v.health, v.kind === 'bike' ? 140 : v.kind === 'buggy' ? 220 : 300);
   const arena = new GameSimulation({ seed: 1, botCount: 5 });
   arena.start();
   assert.equal(arena.state.vehicles.length, 0);

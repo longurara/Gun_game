@@ -43,7 +43,7 @@ function pick<T extends string>(list: readonly T[], token: string | undefined): 
 export function parseLook(cls: WeaponClass, text: string): Look {
   const tokens = text.split(/\s+/).filter(Boolean);
   const look: Look = { frame: '', stock: 'fixed', guard: 'rail', mag: 'curved', optic: 'irons', muzzle: 'plain', extras: new Set(), tweaks: new Set(), metal: 'blk', furniture: 'poly' };
-  const bolt = cls === 'sniper' || cls === 'amr';
+  const bolt = cls === 'sniper' || cls === 'amr' || cls === 'bow' || cls === 'launcher';
   let positional: Array<'frame' | 'stock' | 'guard' | 'mag'> = [];
   if (cls === 'pistol' || cls === 'shotgun') positional = ['frame'];
   else if (bolt) positional = ['stock', 'mag'];
@@ -667,7 +667,9 @@ function buildPistol(k: Kit): { muzzle: V3; grip: V3; fore: V3; length: number }
 }
 
 /** Build the geometry for one gun. */
-export function buildGun(cls: WeaponClass, lookText: string, tier: 1 | 2 | 3): GunGeometry {
+export function buildGun(kind: WeaponClass, lookText: string, tier: 1 | 2 | 3): GunGeometry {
+  // Crossbows and launchers are drawn on the frame of a bolt rifle and a heavy bolt gun.
+  const cls: WeaponClass = kind === 'bow' ? 'sniper' : kind === 'launcher' ? 'amr' : kind;
   const look = parseLook(cls, lookText);
   const k = makeKit(look, tier);
   let result: { muzzle: V3; grip: V3; fore: V3; length: number };

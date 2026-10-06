@@ -57,8 +57,10 @@ test('houses can be entered: each has a doorway at least as wide as a walker nee
   const game = new GameSimulation({ seed: 3, botCount: 100, map: 'island' });
   game.start();
   const roofs = game.world.obstacles.filter(o => o.kind === 'roof');
+  // Apartment blocks, hospitals and towers have floor slabs instead of a pitched roof: they count as indoors too.
+  const buildings = game.world.obstacles.filter(o => o.kind === 'roof' || o.kind === 'floor');
   assert.ok(roofs.length >= 300, `${roofs.length} houses`);
-  const inside = (x: number, z: number) => roofs.some(r => Math.abs(x - r.x) < r.width / 2 && Math.abs(z - r.z) < r.depth / 2);
+  const inside = (x: number, z: number) => buildings.some(r => Math.abs(x - r.x) < r.width / 2 && Math.abs(z - r.z) < r.depth / 2);
   const share = game.state.loot.filter(l => inside(l.position.x, l.position.z)).length / game.state.loot.length;
   assert.ok(share > 0.65, `only ${(share * 100).toFixed(0)}% of pickups are indoors`);
   // Heavy weapons are kept inside, not scattered in the open.

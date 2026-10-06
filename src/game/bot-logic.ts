@@ -1,3 +1,4 @@
+import { isSupplyKind, SUPPLIES } from './supplies';
 import type { Actor, LootKind, WeaponType } from '../types';
 import { ammoTypeOf, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPONS } from './weapons';
 
@@ -49,6 +50,12 @@ export function weakestWeapon(group: readonly WeaponType[]): WeaponType {
 /** How much a bot wants an item (0 = leave it). Used to rank pickups by value over distance. */
 export function lootUtility(actor: Actor, kind: LootKind): number {
   if (kind === 'medkit') return actor.medkits >= 3 ? 0 : (actor.health < 70 ? 7 : 4) - actor.medkits;
+  if (isSupplyKind(kind)) {
+    const have = actor.supplies[kind], config = SUPPLIES[kind];
+    if (have >= config.max) return 0;
+    // Healing and boosts matter most when hurt; grenades are a modest extra.
+    return config.group === 'heal' ? (actor.health < 70 ? 5 : 2.5) - have * 0.3 : config.group === 'boost' ? 2 - have * 0.4 : Math.max(0.5, 1.6 - have * 0.5);
+  }
   if (isArmorKind(kind)) {
     const { slot, level } = parseArmor(kind);
     return level > actor[slot] ? 3 + level * 1.5 - actor[slot] : 0;

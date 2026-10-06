@@ -9,6 +9,7 @@ import './social.css';
 import './inventory.css';
 import './settings.css';
 import './lobby-polish.css';
+import './supplies.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -32,6 +33,13 @@ import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import { GameSimulation } from './game/simulation';
 import { DROP, remainingGlide } from './game/drop';
 import { GameUI } from './ui';
+import { isSupplyKind } from './game/supplies';
+import { isAttachKind, isPackKind, rigStats } from './game/gear';
+import { isMeleeKind } from './game/melee';
+import { kindOf, VEHICLES } from './game/vehicles';
+import type { MeleeKind } from './game/melee';
+import type { AttachKind, AttachSlot, PackKind } from './game/gear';
+import type { SupplyKind, ThrowKind, UseKind } from './game/supplies';
 import { GameAudio } from './audio';
 import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
@@ -55,7 +63,8 @@ import { SUPABASE } from './net/config';
 import { normalizeRoomCode } from './net/lobby';
 import { MultiplayerController } from './net/controller';
 import type { MatchStart } from './net/controller';
-import { ClientSession, HostSession, matchOptions } from './net/session';
+import { actorIdFor, ClientSession, HostSession, matchOptions } from './net/session';
+import { skinById } from './skins';
 import type { Transport } from './net/transport';
 import type { ReplayActor } from './replay';
 import { IslandRenderer } from './island-renderer';
@@ -96,7 +105,7 @@ let ambient: HemisphericLight;
 let pipeline: DefaultRenderingPipeline | null = null;
 let lastLootScan = -Infinity;
 const effects: { mesh: Mesh; remaining: number; total?: number; grow?: number }[] = [];
-const carModels = new Map<string, { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean }>();
+const carModels = new Map<string, { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number }>();
 let lastLookAt = -Infinity, wasDriving = false;
 let currentZone: Mesh, currentRing: Mesh, nextRing: Mesh;
 let settings: GameSettings;
@@ -145,11 +154,20 @@ const ui = new GameUI({
   onReplay: startReplay,
   onReplayStop: stopReplay,
   onSpectateExit: () => { if (net) leaveMatch(); else sim.endSpectating(); },
-  onSettings: (next) => { settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro(); },
+  onSettings: (next) => {
+    const outfitChanged = settings?.skin !== next.skin;
+    settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro();
+    // A new outfit: rebuild the player's soldier (in the lobby it is the one on show).
+    if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.root.dispose(false, true); models.delete(sim.localId); } }
+  },
   onSelectWeapon: selectWeapon,
   onInventoryPickup: pickupInventory,
   onInventoryDrop: dropInventory,
   onInventoryHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
+  onThrowSelect: kind => doThrowSelect(kind),
+  onInventoryAttach: kind => doAttach(kind),
+  onInventoryDetach: (weapon, slot) => doDetach(weapon, slot),
+  onInventoryUse: kind => { if (doUse(kind)) { void audio.unlock(); audio.heal(); } },
   onInventoryChange: open => {
     inventoryPreview?.setVisible(open);
     if (open) {
@@ -172,7 +190,7 @@ if (touchDevice) {
   mobile = new MobileControls(canvas, {
     onLook: (dx, dy) => {
       if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
-      const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? WEAPONS[sim.player.weapon].zoom : null);
+      const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? rigStats(sim.player, sim.player.weapon).zoom : null);
       const scale = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
       lookBy(dx * sensitivity * scale, -dy * sensitivity * scale);
     },
@@ -188,7 +206,8 @@ if (touchDevice) {
     },
     onReload: () => { if (doReload()) { void audio.unlock(); audio.reload(); } },
     onInteract: () => { if (!doInteract()) useVehicle(); },
-    onHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
+    onHeal: () => { if (doHeal() || doBoost()) { void audio.unlock(); audio.heal(); } },
+    onThrow: () => { doThrow(); },
     onCycleWeapon: () => cycleWeapon(1),
     onPause: pause,
     onCrouch: () => toggleStance('crouch'),
@@ -268,7 +287,7 @@ function onGyroLook(dYaw: number, dPitch: number) {
   if (sim.state.phase !== 'playing' || gameplayInputBlocked() || settings.gyro === 'off') return;
   // "Khi ngắm": only while looking down the sights or holding the trigger, so walking is never twitchy.
   if (settings.gyro === 'aim' && !aiming && !shooting) return;
-  const zoom = aiming ? WEAPONS[sim.player.weapon].zoom : 1;
+  const zoom = aiming ? rigStats(sim.player, sim.player.weapon).zoom : 1;
   const scale = settings.gyroSensitivity / Math.sqrt(zoom);
   const friction = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
   lookBy(dYaw * scale * friction, dPitch * scale * friction * (settings.gyroInvertY ? -1 : 1));
@@ -284,6 +303,51 @@ function doHeal(): boolean {
   const ok = sim.heal();
   if (ok) net?.client?.queueCommand('heal');
   return ok;
+}
+/** Use a named healing item or boost (the pack, the inventory buttons, the J key). */
+function doUse(kind: UseKind): boolean {
+  const ok = sim.heal(sim.player, kind);
+  if (ok) net?.client?.queueCommand('use', kind);
+  return ok;
+}
+/** Throw the selected grenade at whatever the crosshair points at (or a short lob ahead when it points at the sky). */
+function doThrow(): boolean {
+  const kind = sim.selectedThrow();
+  if (!kind || sim.state.phase !== 'playing' || gameplayInputBlocked()) return false;
+  const ray = camera.getForwardRay(48);
+  const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && mesh.isPickable && !!mesh.metadata?.solid);
+  const aim = pick?.hit && pick.pickedPoint ? pick.pickedPoint : ray.origin.add(ray.direction.scale(26));
+  const target = { x: aim.x, y: aim.y, z: aim.z };
+  if (!sim.throwGrenade(sim.player, kind, target)) return false;
+  net?.client?.queueCommand('throw', [kind, Math.round(target.x * 100) / 100, Math.round(target.y * 100) / 100, Math.round(target.z * 100) / 100]);
+  void audio.unlock();
+  return true;
+}
+/** Put a spare part from the pack on the gun in hand (the inventory's GẮN button). */
+function doAttach(kind: AttachKind): void {
+  if (!sim.attachPart(sim.player, kind)) return;
+  net?.client?.queueCommand('attach', [kind, sim.player.weapon]);
+  void audio.unlock(); audio.heal();
+}
+function doDetach(weapon: string, slot: AttachSlot): void {
+  if (!sim.detachPart(sim.player, weapon, slot)) return;
+  net?.client?.queueCommand('detach', [weapon, slot]);
+}
+/** Swing the carried close-combat weapon (X): the host decides who it hits. */
+function doMelee(): boolean {
+  if (!sim.meleeStrike(sim.player)) return false;
+  net?.client?.queueCommand('melee');
+  void audio.unlock();
+  return true;
+}
+function doThrowSelect(kind?: ThrowKind): void {
+  const chosen = sim.cycleThrow(sim.player, kind);
+  if (chosen) net?.client?.queueCommand('throwsel', chosen);
+}
+/** Drink or take whichever boost is in the pack and would still help. */
+function doBoost(): boolean {
+  const kind = (['painkiller', 'energy'] as const).find(item => sim.player.supplies[item] > 0 && sim.player.boost < 100);
+  return kind ? doUse(kind) : false;
 }
 /**
  * Which of the items in reach E will take. By default the nearest; ↑/↓ (Alt + wheel, a tap on the hint on a phone) pick
@@ -354,6 +418,7 @@ const social = new SocialStore(new SupabaseSocialApi(SUPABASE, createClient as u
 const mp = new MultiplayerController(lobbyView, {
   config: () => ({ map: settings.map, botCount: settings.botCount, difficulty: settings.difficulty }),
   begin: beginMultiplayer,
+  skin: () => ui.currentSkin(),
   identity: () => social.signedIn && social.displayName ? { name: social.displayName, uid: social.state.account!.id } : null,
   friends: () => ({
     friendIds: social.friends.map(edge => edge.person.id),
@@ -397,6 +462,11 @@ function beginMultiplayer(info: MatchStart) {
   releaseInput();
   sim.start(matchOptions(info.setup, info.me, info.role === 'client'));
   audio.localId = sim.localId;
+  matchSkins.clear();
+  info.setup.players.forEach((player, index) => { if (player.skin && skinById(player.skin)) matchSkins.set(actorIdFor(index), player.skin); });
+  // Everyone's soldier is rebuilt in the outfit they chose.
+  for (const model of models.values()) model.root.dispose(false, true);
+  models.clear();
   net = info.role === 'host'
     ? { role: 'host', host: new HostSession(sim, info.transport, info.setup), transport: info.transport }
     : { role: 'client', client: new ClientSession(sim, info.transport, info.hostId), transport: info.transport };
@@ -764,8 +834,12 @@ function createChute(parent: TransformNode, id: string): TransformNode {
   return node;
 }
 
+/** Outfits the other people in an online match chose, by actor id. */
+const matchSkins = new Map<string, string>();
+
 function createCharacter(actor: Actor): Character {
-  const soldier = new Soldier(scene, actor.id, actor.isPlayer && actor.id === sim.localId, shadows, actor.isPlayer && actor.id !== sim.localId);
+  const skin = actor.id === sim.localId ? ui.currentSkin() : matchSkins.get(actor.id);
+  const soldier = new Soldier(scene, actor.id, actor.isPlayer && actor.id === sim.localId, shadows, actor.isPlayer && actor.id !== sim.localId, skin);
   soldier.setWeapon(actor.weapon);
   return { soldier, root: soldier.root, last: new Vector3(), stride: 0, moving: 0, crouch: 0, prone: 0 };
 }
@@ -836,6 +910,8 @@ function renderActors(dt: number) {
 const CAR_COLORS = ['#b5483a', '#3f6f9a', '#d0a739', '#dcdcd2', '#52624f'];
 
 function createCarModel(v: Vehicle) {
+  if (kindOf(v) === 'bike') return createBikeModel(v);
+  if (kindOf(v) === 'buggy') return createBuggyModel(v);
   const root = new TransformNode(`car-${v.id}`, scene);
   const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
   const dark = material('car-tyre', '#1b1f21');
@@ -861,6 +937,60 @@ function createCarModel(v: Vehicle) {
   return { root, wheels, bodies: parts, wrecked: false };
 }
 
+/** A motorbike: two wheels, a frame, a tank, a seat and handlebars. */
+function createBikeModel(v: Vehicle) {
+  const root = new TransformNode(`car-${v.id}`, scene);
+  const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
+  const dark = material('car-tyre', '#1b1f21'), metal = material('bike-metal', '#8f9aa0', 0.1), lamp = material('car-lamp', '#fff2c4', 0.9);
+  const parts: Mesh[] = [];
+  const add = (mesh: Mesh) => { mesh.metadata = { solid: true, car: true }; parts.push(mesh); return mesh; };
+  add(box('bike-frame', 0.14, 0.32, 1.25, dark, new Vector3(0, 0.62, 0), root));
+  add(box('bike-engine', 0.26, 0.3, 0.45, metal, new Vector3(0, 0.46, 0.05), root));
+  add(box('bike-tank', 0.3, 0.22, 0.5, paint, new Vector3(0, 0.86, 0.22), root));
+  add(box('bike-seat', 0.26, 0.1, 0.6, dark, new Vector3(0, 0.86, -0.38), root));
+  add(box('bike-fender', 0.2, 0.05, 0.4, paint, new Vector3(0, 0.74, -0.78), root));
+  add(box('bike-fork', 0.07, 0.7, 0.07, metal, new Vector3(0, 0.7, 0.82), root));
+  add(box('bike-bars', 0.7, 0.05, 0.05, dark, new Vector3(0, 1.08, 0.7), root));
+  add(box('bike-lamp', 0.16, 0.14, 0.08, lamp, new Vector3(0, 0.98, 0.9), root));
+  const wheels: TransformNode[] = [];
+  for (const z of [0.82, -0.78]) {
+    const pivot = new TransformNode('wheel-pivot', scene);
+    pivot.parent = root; pivot.position.set(0, 0.36, z);
+    const wheel = MeshBuilder.CreateCylinder('wheel', { diameter: 0.72, height: 0.14, tessellation: 14 }, scene);
+    wheel.rotation.z = Math.PI / 2; wheel.material = dark; wheel.parent = pivot; wheel.isPickable = false;
+    wheels.push(pivot);
+  }
+  for (const mesh of parts) { shadows.addShadowCaster(mesh); mesh.receiveShadows = true; }
+  return { root, wheels, bodies: parts, wrecked: false } as { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number };
+}
+
+/** An open buggy: a low chassis, a roll cage, two seats and fat tyres. */
+function createBuggyModel(v: Vehicle) {
+  const root = new TransformNode(`car-${v.id}`, scene);
+  const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
+  const dark = material('car-tyre', '#1b1f21'), cage = material('buggy-cage', '#2f3a3d', 0.1), lamp = material('car-lamp', '#fff2c4', 0.9);
+  const parts: Mesh[] = [];
+  const add = (mesh: Mesh) => { mesh.metadata = { solid: true, car: true }; parts.push(mesh); return mesh; };
+  add(box('buggy-chassis', 1.5, 0.3, 2.5, paint, new Vector3(0, 0.55, 0), root));
+  add(box('buggy-engine', 1.0, 0.45, 0.7, cage, new Vector3(0, 0.9, -1.0), root));
+  add(box('buggy-seat', 0.55, 0.12, 0.5, dark, new Vector3(-0.35, 0.82, -0.1), root));
+  add(box('buggy-seat', 0.55, 0.12, 0.5, dark, new Vector3(0.35, 0.82, -0.1), root));
+  for (const x of [-0.7, 0.7]) for (const z of [0.55, -0.55]) add(box('buggy-post', 0.06, 1.0, 0.06, cage, new Vector3(x, 1.2, z), root));
+  add(box('buggy-roof', 1.5, 0.06, 1.2, cage, new Vector3(0, 1.72, 0), root));
+  add(box('buggy-front', 1.4, 0.3, 0.3, paint, new Vector3(0, 0.62, 1.2), root));
+  for (const x of [-0.5, 0.5]) add(box('car-lamp', 0.26, 0.16, 0.06, lamp, new Vector3(x, 0.75, 1.36), root));
+  const wheels: TransformNode[] = [];
+  for (const [x, z] of [[-1.0, 0.95], [1.0, 0.95], [-1.0, -0.95], [1.0, -0.95]]) {
+    const pivot = new TransformNode('wheel-pivot', scene);
+    pivot.parent = root; pivot.position.set(x, 0.46, z);
+    const wheel = MeshBuilder.CreateCylinder('wheel', { diameter: 0.92, height: 0.4, tessellation: 12 }, scene);
+    wheel.rotation.z = Math.PI / 2; wheel.material = dark; wheel.parent = pivot; wheel.isPickable = false;
+    wheels.push(pivot);
+  }
+  for (const mesh of parts) { shadows.addShadowCaster(mesh); mesh.receiveShadows = true; }
+  return { root, wheels, bodies: parts, wrecked: false } as { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number };
+}
+
 function renderVehicles(dt: number) {
   const focus = focusPosition();
   for (const v of sim.state.vehicles) {
@@ -873,7 +1003,11 @@ function renderVehicles(dt: number) {
     const sx = Math.sin(v.yaw), cz = Math.cos(v.yaw);
     const pitch = Math.atan2(sim.heightAt(v.position.x - sx * 2, v.position.z - cz * 2) - sim.heightAt(v.position.x + sx * 2, v.position.z + cz * 2), 4);
     const roll = Math.atan2(sim.heightAt(v.position.x - cz * 1.2, v.position.z + sx * 1.2) - sim.heightAt(v.position.x + cz * 1.2, v.position.z - sx * 1.2), 2.4);
-    car.root.rotation.set(pitch, v.yaw, roll);
+    // A motorbike leans into its turns.
+    let lean = 0;
+    if (kindOf(v) === 'bike' && car.lastYaw !== undefined && dt > 0) lean = Math.max(-0.5, Math.min(0.5, Math.atan2(Math.sin(v.yaw - car.lastYaw), Math.cos(v.yaw - car.lastYaw)) / dt * v.speed * 0.012));
+    car.lastYaw = v.yaw;
+    car.root.rotation.set(pitch, v.yaw, roll - lean);
     for (const wheel of car.wheels) wheel.rotation.x += v.speed * dt / 0.42;
     if (v.health <= 0 && !car.wrecked) {
       car.wrecked = true;
@@ -883,15 +1017,104 @@ function renderVehicles(dt: number) {
   }
 }
 
+/** Pickup models for close-combat weapons. */
+function buildMeleeModel(kind: MeleeKind, mat: StandardMaterial, root: TransformNode): void {
+  const wood = material('melee-wood', '#7a5a3a', 0.15), dark = material('melee-dark', '#2c3430', 0.15);
+  const flat = (name: string, diameter: number, thickness: number, y = 0, z = 0) => {
+    const mesh = CreateCylinder(name, { diameter, height: thickness, tessellation: 14 }, scene);
+    mesh.parent = root; mesh.position.set(0, y, z); mesh.material = mat; mesh.isPickable = false; return mesh;
+  };
+  if (kind === 'pan') {
+    const pan = flat('pan-dish', 0.34, 0.04); pan.rotation.x = Math.PI / 2; pan.position.z = 0.1;
+    box('pan-handle', 0.05, 0.04, 0.3, dark, new Vector3(0, 0, -0.18), root).isPickable = false;
+  } else if (kind === 'machete') {
+    box('machete-blade', 0.07, 0.015, 0.5, mat, new Vector3(0, 0, 0.1), root).isPickable = false;
+    box('machete-handle', 0.04, 0.04, 0.16, dark, new Vector3(0, 0, -0.22), root).isPickable = false;
+  } else if (kind === 'crowbar') {
+    box('crowbar-shaft', 0.035, 0.035, 0.5, mat, new Vector3(0, 0, 0), root).isPickable = false;
+    const hook = box('crowbar-hook', 0.035, 0.035, 0.12, mat, new Vector3(0, 0.05, 0.24), root); hook.rotation.x = 0.6; hook.isPickable = false;
+  } else {
+    box('sickle-handle', 0.04, 0.04, 0.2, wood, new Vector3(0, 0, -0.15), root).isPickable = false;
+    const arc = MeshBuilder.CreateTorus('sickle-blade', { diameter: 0.3, thickness: 0.025, tessellation: 20 }, scene);
+    arc.parent = root; arc.position.set(0, 0, 0.1); arc.material = mat; arc.isPickable = false;
+  }
+}
+
+const PACK_COLOR: Record<PackKind, string> = { pack1: '#6f7a5a', pack2: '#5a7a8a', pack3: '#8a6a3a' };
+
+/** Pickup models for backpacks and gun parts: a rucksack, a scope tube, a suppressor, a grip, a magazine. */
+function buildGearModel(kind: PackKind | AttachKind, mat: StandardMaterial, root: TransformNode): void {
+  const dark = material('gear-dark', '#2c3430', 0.15), metal = material('gear-metal', '#8f9a94', 0.2);
+  const tube = (name: string, diameter: number, length: number, m: StandardMaterial, y = 0) => {
+    const mesh = CreateCylinder(name, { diameter, height: length, tessellation: 10 }, scene);
+    mesh.rotation.x = Math.PI / 2; mesh.position.y = y; mesh.parent = root; mesh.material = m; mesh.isPickable = false;
+  };
+  if (isPackKind(kind)) {
+    box('pack-body', 0.4, 0.46, 0.2, mat, new Vector3(0, 0.05, 0), root).isPickable = false;
+    box('pack-flap', 0.42, 0.14, 0.23, dark, new Vector3(0, 0.22, 0), root).isPickable = false;
+    box('pack-pocket', 0.26, 0.2, 0.08, dark, new Vector3(0, -0.02, -0.12), root).isPickable = false;
+    return;
+  }
+  if (kind.startsWith('scope')) {
+    tube('scope-tube', 0.09, 0.34, mat);
+    tube('scope-lens', 0.12, 0.05, dark, 0);
+    box('scope-mount', 0.06, 0.05, 0.18, metal, new Vector3(0, -0.07, 0), root).isPickable = false;
+  } else if (kind === 'suppressor') {
+    tube('suppressor', 0.08, 0.36, mat);
+    tube('suppressor-cap', 0.05, 0.04, dark);
+  } else if (kind === 'compensator') {
+    tube('comp-body', 0.07, 0.16, mat);
+    for (const dz of [-0.04, 0.02]) box('comp-fin', 0.12, 0.012, 0.015, metal, new Vector3(0, 0, dz), root).isPickable = false;
+  } else if (kind === 'vgrip' || kind === 'agrip') {
+    const handle = box('grip', 0.05, 0.2, 0.05, mat, new Vector3(0, 0, 0), root); handle.isPickable = false;
+    if (kind === 'agrip') handle.rotation.x = 0.7;
+    box('grip-base', 0.08, 0.04, 0.12, metal, new Vector3(0, 0.12, 0), root).isPickable = false;
+  } else {
+    const mag = box('ext-mag', 0.09, 0.3, 0.16, mat, new Vector3(0, 0, 0), root); mag.isPickable = false; mag.rotation.x = 0.15;
+    box('ext-mag-base', 0.1, 0.03, 0.17, metal, new Vector3(0, -0.15, 0), root).isPickable = false;
+  }
+}
+
+const SUPPLY_COLOR: Record<SupplyKind, string> = { bandage: '#f0eee2', firstaid: '#d9503f', painkiller: '#e8a33a', energy: '#4aa8e0', frag: '#5a6b4a', smoke: '#9aa3a0', flash: '#d8d8c8', molotov: '#8a5a3a' };
+
+/** Small pickup models for the pack items: a roll of bandage, a pill bottle, a drink can, a grenade. */
+function buildSupplyModel(kind: SupplyKind, mat: StandardMaterial, root: TransformNode): void {
+  const part = (mesh: Mesh) => { mesh.parent = root; mesh.isPickable = false; return mesh; };
+  switch (kind) {
+    case 'bandage': {
+      box('bandage', 0.36, 0.14, 0.26, mat, new Vector3(0, 0, 0), root).isPickable = false;
+      box('bandage-stripe', 0.08, 0.145, 0.27, material('bandage-stripe', '#d84a3a', 0.2), new Vector3(0, 0, 0), root).isPickable = false;
+      break;
+    }
+    case 'painkiller': {
+      const bottle = part(CreateCylinder('pill-bottle', { diameter: 0.2, height: 0.32, tessellation: 10 }, scene)); bottle.material = mat;
+      const cap = part(CreateCylinder('pill-cap', { diameter: 0.21, height: 0.07, tessellation: 10 }, scene)); cap.material = material('pill-cap', '#f4f2e8', 0.2); cap.position.y = 0.19;
+      break;
+    }
+    case 'energy': {
+      const can = part(CreateCylinder('energy-can', { diameter: 0.2, height: 0.34, tessellation: 12 }, scene)); can.material = mat;
+      const lid = part(CreateCylinder('energy-lid', { diameter: 0.205, height: 0.03, tessellation: 12 }, scene)); lid.material = material('energy-lid', '#cfd6d8', 0.2); lid.position.y = 0.185;
+      break;
+    }
+    default: {
+      const body = part(CreateSphere('grenade-body', { diameter: 0.3, segments: 8 }, scene)); body.material = mat;
+      box('grenade-cap', 0.1, 0.1, 0.1, material('grenade-cap', '#3a3d38', 0.1), new Vector3(0, 0.17, 0), root).isPickable = false;
+    }
+  }
+}
+
 const AMMO_COLOR: Record<string, string> = { '9mm': '#e0c070', '45acp': '#d8a860', '357': '#d09070', '556': '#9cc27a', '762': '#c8b078', '12g': '#d46a5a', '300': '#8fb4d8', '50cal': '#d8d27a' };
 
 function createLootNode(loot: Loot): TransformNode {
   const root = new TransformNode(`loot-${loot.id}`, scene);
-  const isMed = loot.kind === 'medkit', weapon = isWeaponKind(loot.kind) ? loot.kind : null;
+  const isMed = loot.kind === 'medkit' || loot.kind === 'firstaid', weapon = isWeaponKind(loot.kind) ? loot.kind : null;
+  const supply = isSupplyKind(loot.kind) ? loot.kind as SupplyKind : null;
+  const gear = isPackKind(loot.kind) || isAttachKind(loot.kind) ? loot.kind as AttachKind | PackKind : null;
+  const melee = isMeleeKind(loot.kind) ? loot.kind as MeleeKind : null;
   const ammoType = ammoTypeOf(loot.kind);
   const armor = isArmorKind(loot.kind) ? parseArmor(loot.kind) : null;
   const tierColor = ['#9aa3a0', '#9aa3a0', '#4f8fd6', '#e0b13a'];
-  const mat = material(`loot-${loot.kind}`, armor ? tierColor[armor.level] : isMed ? '#88d4a4' : weapon ? WEAPONS[weapon].color : ammoType ? AMMO_COLOR[ammoType] : '#c1b77e', 0.25);
+  const mat = material(`loot-${loot.kind}`, armor ? tierColor[armor.level] : supply ? SUPPLY_COLOR[supply] : melee ? '#9aa3a0' : gear ? (isPackKind(gear) ? PACK_COLOR[gear] : '#4a5650') : isMed ? '#88d4a4' : weapon ? WEAPONS[weapon].color : ammoType ? AMMO_COLOR[ammoType] : '#c1b77e', 0.25);
   if (armor) {
     if (armor.slot === 'helmet') {
       const dome = MeshBuilder.CreateSphere('helmet-loot', { diameter: 0.46, segments: 8, slice: 0.6 }, scene);
@@ -904,6 +1127,12 @@ function createLootNode(loot: Loot): TransformNode {
     const display = createWeaponModel(weapon, scene, root);
     // Lying flat and turning slowly, centred on its middle so every gun spins about its own centre.
     display.root.scaling.setAll(0.72); display.root.rotation.z = 0.12; display.root.position.set(0, 0, -0.34);
+  } else if (melee) {
+    buildMeleeModel(melee, mat, root);
+  } else if (gear) {
+    buildGearModel(gear, mat, root);
+  } else if (supply && !isMed) {
+    buildSupplyModel(supply, mat, root);
   } else {
     const base = box('loot', 0.35, isMed ? 0.35 : 0.16, 0.3, mat, new Vector3(0, 0, 0), root); base.isPickable = false;
   }
@@ -942,6 +1171,86 @@ function lootInstance(loot: Loot): InstancedMesh {
  * Pickups exist in the scene only while they are active and near the player, so a map with thousands of items
  * costs a handful of nodes. The (cheap) distance scan runs a few times a second; bobbing runs every frame.
  */
+const GRENADE_COLOR: Record<ThrowKind | 'shell' | 'rocket', string> = { frag: '#4a5a3a', smoke: '#8a9390', flash: '#e8e8d8', molotov: '#8a5a34', shell: '#3a3d38', rocket: '#c9b46a' };
+const grenadeMeshes = new Map<number, Mesh>();
+const smokeClouds = new Map<number, { puffs: Mesh[]; material: StandardMaterial }>();
+const fireBeds = new Map<number, { flames: Mesh[]; material: StandardMaterial }>();
+/** A stable pseudo-random number from an id and a slot, so a cloud or a fire always looks the same. */
+const scatter = (id: number, slot: number): number => { const v = Math.sin(id * 12.9898 + slot * 78.233) * 43758.5453; return v - Math.floor(v); };
+
+/** Grenades in the air, smoke clouds and burning ground: built when they appear, removed when they are gone. */
+function renderGrenades(time: number) {
+  const state = sim.state;
+  const liveShells = new Set<number>();
+  for (const p of state.projectiles ?? []) {
+    liveShells.add(p.id);
+    let mesh = grenadeMeshes.get(p.id);
+    if (!mesh) {
+      mesh = p.kind === 'molotov' ? CreateCylinder('grenade', { diameter: 0.13, height: 0.28, tessellation: 8 }, scene)
+        : p.kind === 'rocket' ? CreateCylinder('rocket', { diameter: 0.16, height: 0.8, tessellation: 8 }, scene)
+        : CreateSphere('grenade', { diameter: p.kind === 'shell' ? 0.16 : 0.22, segments: 6 }, scene);
+      mesh.material = material(`grenade-${p.kind}`, GRENADE_COLOR[p.kind], 0.2);
+      mesh.isPickable = false;
+      grenadeMeshes.set(p.id, mesh);
+    }
+    mesh.position.set(p.x, p.y, p.z);
+    if (p.kind === 'rocket' || p.kind === 'shell') { const speed = Math.hypot(p.vx, p.vy, p.vz) || 1; mesh.rotation.set(Math.asin(-p.vy / speed) + Math.PI / 2, Math.atan2(p.vx, p.vz), 0); }
+    else { mesh.rotation.x = time * 9; mesh.rotation.z = time * 6; }
+  }
+  for (const [id, mesh] of grenadeMeshes) if (!liveShells.has(id)) { mesh.dispose(); grenadeMeshes.delete(id); }
+
+  const liveClouds = new Set<number>();
+  for (const smoke of state.smokes ?? []) {
+    liveClouds.add(smoke.id);
+    let cloud = smokeClouds.get(smoke.id);
+    if (!cloud) {
+      const skin = new StandardMaterial(`smoke-${smoke.id}`, scene);
+      skin.diffuseColor = new Color3(0.8, 0.82, 0.82); skin.emissiveColor = new Color3(0.42, 0.44, 0.44); skin.specularColor = Color3.Black();
+      skin.alpha = 0.85; skin.backFaceCulling = false;
+      const puffs = Array.from({ length: 11 }, (_, i) => {
+        const puff = CreateSphere(`smoke-puff-${smoke.id}-${i}`, { diameter: 4.4 + scatter(smoke.id, i) * 2.6, segments: 8 }, scene);
+        puff.material = skin; puff.isPickable = false;
+        return puff;
+      });
+      cloud = { puffs, material: skin };
+      smokeClouds.set(smoke.id, cloud);
+    }
+    const swell = Math.min(1, 0.25 + (state.elapsed - smoke.born) / 1.6);
+    cloud.material.alpha = 0.84 * Math.min(1, Math.max(0, (smoke.until - state.elapsed) / 4));
+    cloud.puffs.forEach((puff, i) => {
+      const angle = scatter(smoke.id, i + 20) * Math.PI * 2, reach = scatter(smoke.id, i + 40) * smoke.radius * 0.55 * swell;
+      puff.scaling.setAll(swell);
+      puff.position.set(smoke.x + Math.cos(angle) * reach + Math.sin(time * 0.4 + i) * 0.25, smoke.y + 1.2 + scatter(smoke.id, i + 60) * 3.2 * swell, smoke.z + Math.sin(angle) * reach + Math.cos(time * 0.35 + i) * 0.25);
+    });
+  }
+  for (const [id, cloud] of smokeClouds) if (!liveClouds.has(id)) { cloud.puffs.forEach(puff => puff.dispose()); cloud.material.dispose(); smokeClouds.delete(id); }
+
+  const liveFires = new Set<number>();
+  for (const fire of state.fires ?? []) {
+    liveFires.add(fire.id);
+    let bed = fireBeds.get(fire.id);
+    if (!bed) {
+      const glow = new StandardMaterial(`fire-${fire.id}`, scene);
+      glow.emissiveColor = new Color3(1, 0.5, 0.12); glow.diffuseColor = Color3.Black(); glow.alpha = 0.8; glow.disableLighting = true;
+      const flames = Array.from({ length: 9 }, (_, i) => {
+        const flame = CreateCylinder(`flame-${fire.id}-${i}`, { diameterTop: 0, diameterBottom: 0.9, height: 1.6, tessellation: 6 }, scene);
+        flame.material = glow; flame.isPickable = false;
+        return flame;
+      });
+      bed = { flames, material: glow };
+      fireBeds.set(fire.id, bed);
+    }
+    bed.material.alpha = 0.8 * Math.min(1, Math.max(0, (fire.until - state.elapsed) / 1.5));
+    bed.flames.forEach((flame, i) => {
+      const angle = scatter(fire.id, i) * Math.PI * 2, reach = Math.sqrt(scatter(fire.id, i + 30)) * fire.radius * 0.85;
+      const height = 0.7 + 0.5 * Math.sin(time * 9 + i * 1.7) + scatter(fire.id, i + 50) * 0.6;
+      flame.scaling.set(1 + 0.2 * Math.sin(time * 7 + i), height, 1 + 0.2 * Math.cos(time * 6 + i));
+      flame.position.set(fire.x + Math.cos(angle) * reach, fire.y + 0.8 * height, fire.z + Math.sin(angle) * reach);
+    });
+  }
+  for (const [id, bed] of fireBeds) if (!liveFires.has(id)) { bed.flames.forEach(flame => flame.dispose()); bed.material.dispose(); fireBeds.delete(id); }
+}
+
 function renderLoot(time: number) {
   const now = performance.now();
   const playing = sim.state.phase !== 'menu';
@@ -1148,11 +1457,11 @@ function updateCamera(dt: number) {
   const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   eyeHeight += (STANCE[actor.stance ?? 'stand'].eye - eyeHeight) * Math.min(1, dt * 10);
   const pivot = ridden ? new Vector3(ridden.position.x, ridden.position.y + 1.9, ridden.position.z) : new Vector3(actor.position.x, actor.position.y + eyeHeight, actor.position.z);
-  const weapon = WEAPONS[actor.weapon];
-  if (aiming && weapon.zoom >= 4 && sim.state.phase === 'playing') {
+  const weapon = WEAPONS[actor.weapon], zoom = rigStats(actor, actor.weapon).zoom;
+  if (aiming && zoom >= 4 && sim.state.phase === 'playing') {
     camera.position.copyFrom(pivot);
     camera.setTarget(pivot.add(forward.scale(200)));
-    camera.fov = 2 * Math.atan(Math.tan(0.92 / 2) / weapon.zoom);
+    camera.fov = 2 * Math.atan(Math.tan(0.92 / 2) / zoom);
     models.get(actor.id)?.root.setEnabled(false);
     snapCamera = true;
     return;
@@ -1166,7 +1475,7 @@ function updateCamera(dt: number) {
   camera.position.copyFrom(snapCamera ? desired : Vector3.Lerp(camera.position, desired, 1 - Math.exp(-dt * 20)));
   snapCamera = false;
   camera.setTarget(camera.position.add(forward.scale(100)));
-  const targetFov = aiming ? 2 * Math.atan(Math.tan(0.92 / 2) / weapon.zoom) : 0.92;
+  const targetFov = aiming ? 2 * Math.atan(Math.tan(0.92 / 2) / zoom) : 0.92;
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12);
 }
 
@@ -1279,7 +1588,7 @@ function shoot() {
       audio.handle({ type: 'shot', actorId: sim.localId, weapon: sim.player.weapon, from: { ...sim.player.position }, to: { x: target.x, y: target.y, z: target.z } }, sim.player.position);
     }
     // A short kick of the view that settles by itself; the setting scales it and a lower stance softens it.
-    recoil = Math.min(0.13, recoil + weapon.recoil * settings.recoilScale * STANCE[sim.player.stance ?? 'stand'].recoil);
+    recoil = Math.min(0.13, recoil + weapon.recoil * rigStats(sim.player, sim.player.weapon).recoil * settings.recoilScale * STANCE[sim.player.stance ?? 'stand'].recoil);
   }
 }
 
@@ -1309,7 +1618,7 @@ function cycleWeapon(direction: number) {
 }
 
 function beginAim() {
-  if (WEAPONS[sim.player.weapon].zoom >= 4) {
+  if (rigStats(sim.player, sim.player.weapon).zoom >= 4) {
     const ray = camera.getForwardRay(WEAPONS[sim.player.weapon].range);
     const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && !!mesh.metadata && mesh.metadata.actorId !== sim.localId && (!!mesh.metadata.solid || !!sim.state.actors.find(actor => actor.id === mesh.metadata.actorId)?.alive));
     const target = pick?.pickedPoint ?? ray.origin.add(ray.direction.scale(WEAPONS[sim.player.weapon].range));
@@ -1431,12 +1740,19 @@ function events(dt: number) {
     }
     if (event.type === 'airdrop' && event.stage === 'incoming') ui.tip('airdrop', 'Hộp tiếp tế có đồ rất tốt nhưng ai cũng muốn lấy. Xem vị trí trên bản đồ (M).');
     if (event.type === 'crash' && sim.player.vehicleId === event.vehicleId) recoil = Math.min(0.13, recoil + event.strength * 0.004);
+    if (event.type === 'flash') {
+      const burst = CreateSphere('flash-burst', { diameter: 3, segments: 10 }, scene);
+      const glare = new StandardMaterial('flash-burst', scene);
+      glare.emissiveColor = new Color3(1, 1, 0.92); glare.diffuseColor = Color3.Black(); glare.alpha = 0.9; glare.disableLighting = true;
+      burst.material = glare; burst.isPickable = false; burst.position.set(event.position.x, event.position.y + 0.6, event.position.z);
+      effects.push({ mesh: burst, remaining: 0.4, total: 0.4, grow: 7 });
+    }
     if (event.type === 'explosion') {
       const flash = CreateSphere('blast', { diameter: 2, segments: 8 }, scene);
       const blastMaterial = new StandardMaterial('blast', scene);
       blastMaterial.emissiveColor = new Color3(1, 0.6, 0.2); blastMaterial.diffuseColor = Color3.Black(); blastMaterial.alpha = 0.85; blastMaterial.disableLighting = true;
       flash.material = blastMaterial; flash.isPickable = false; flash.position.set(event.position.x, event.position.y + 1, event.position.z);
-      effects.push({ mesh: flash, remaining: 0.5, total: 0.5, grow: 4 });
+      effects.push({ mesh: flash, remaining: 0.5, total: 0.5, grow: event.radius ? event.radius * 0.55 : 4 });
       const near = Math.hypot(event.position.x - sim.player.position.x, event.position.z - sim.player.position.z);
       if (near < 40) recoil = Math.min(0.13, recoil + 0.08 * (1 - near / 40));
     }
@@ -1482,6 +1798,10 @@ window.addEventListener('keydown', event => {
   if (event.code === 'Space' && sim.airborne) pendingJump = true;
   if (event.code === 'KeyR' && doReload()) audio.reload();
   if (event.code === 'KeyH' && doHeal()) audio.heal();
+  if (event.code === 'KeyJ' && doBoost()) audio.heal();
+  if (event.code === 'KeyG' && !sim.airborne) doThrow();
+  if (event.code === 'KeyX' && !event.repeat && sim.state.phase === 'playing' && !gameplayInputBlocked()) doMelee();
+  if (event.code === 'KeyV' && !event.repeat) doThrowSelect();
   if ((event.code === 'KeyE' || event.code === 'KeyF') && sim.airborne) pendingJump = true;
   else if (event.code === 'KeyE' && !doInteract()) useVehicle();
   else if (event.code === 'KeyF') useVehicle();
@@ -1517,7 +1837,7 @@ canvas.addEventListener('wheel', event => {
 }, { passive: false });
 window.addEventListener('mousemove', event => {
   if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked() || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
-  const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(WEAPONS[sim.player.weapon].zoom) : 1);
+  const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(rigStats(sim.player, sim.player.weapon).zoom) : 1);
   lookBy(event.movementX * sensitivity, -event.movementY * sensitivity);
 });
 document.addEventListener('pointerlockchange', () => {
@@ -1644,6 +1964,7 @@ try {
     renderActors(sim.state.phase === 'paused' ? 0 : dt);
     renderVehicles(sim.state.phase === 'paused' ? 0 : dt);
     renderLoot(sim.state.elapsed);
+    renderGrenades(performance.now() * 0.001);
     renderPlane(); renderFlag(); renderAirdrops();
     if (islandRenderer && sim.state.phase !== 'menu') {
       const p = focusPosition();
@@ -1692,17 +2013,17 @@ try {
     const nearbyCar = sim.vehicleInReach;
     if (loot) ui.tip('loot', touchDevice ? 'Chạm nút Nhặt để lấy đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.' : 'Nhấn E để nhặt đồ; có nhiều món gần nhau thì ↑/↓ (hoặc Alt + lăn chuột) để chọn món. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.');
     if (nearbyCar) ui.tip('car', touchDevice ? 'Chạm nút Nhặt để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.' : 'Nhấn F để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.');
-    if (sim.player.alive && sim.player.health < 50 && sim.player.medkits > 0) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
-    const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}${nearLoot.length > 1 ? ` (${nearLoot.indexOf(loot) + 1}/${nearLoot.length}) · ${touchDevice ? 'chạm để đổi món' : '↑↓ chọn món'}` : ''}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên xe` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
+    if (sim.player.alive && sim.player.health < 50 && (sim.player.medkits > 0 || sim.player.supplies.bandage > 0 || sim.player.supplies.firstaid > 0)) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
+    const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}${nearLoot.length > 1 ? ` (${nearLoot.indexOf(loot) + 1}/${nearLoot.length}) · ${touchDevice ? 'chạm để đổi món' : '↑↓ chọn món'}` : ''}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên ${VEHICLES[kindOf(nearbyCar)].label.toLowerCase()}` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
     if (!touchDevice || now - lastHudTime >= 90 || hudPhase !== sim.state.phase || hudWeapon !== sim.player.weapon) {
       ui.update(sim.state, sim.world, hint);
       ui.updateInventory(sim.player, ui.inventoryOpen ? sim.nearbyLoot() : [], !!net);
       lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
     }
-    ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon);
+    ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon, rigStats(sim.player, sim.player.weapon).zoom);
     mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
-    ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / 300 } : null);
+    ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / VEHICLES[kindOf(drivenCar)].health } : null);
     // Frame-rate readout, refreshed twice a second from the last 120 frames.
     frameTimes.push(dt * 1000);
     if (frameTimes.length > 120) frameTimes.shift();
@@ -1735,7 +2056,7 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
       }
     } else ui.setAir(null);
     mobile?.update({
-      aiming, canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0, stance: sim.player.stance ?? 'stand',
+      aiming, canThrow: !!sim.selectedThrow(), canPickup: !!loot || !!nearbyCar || !!drivenCar, reloading: sim.player.reloading > 0, healing: sim.player.healing > 0, stance: sim.player.stance ?? 'stand',
       gyroAvailable: gyroSupport() === 'ok', gyroOn: settings.gyro !== 'off' && gyro.status !== 'denied',
       glideReady: !!ui.waypoint && !!sim.player.air && sim.player.air.mode !== 'plane', glideOn: autoGlide,
     });

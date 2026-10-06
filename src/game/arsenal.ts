@@ -20,13 +20,15 @@ export const CLASS_BASE: Record<WeaponClass, ClassBase> = {
   shotgun: { label: 'Shotgun', magazine: 6, damage: 11, pellets: 8, fireInterval: 0.85, reloadTime: 2.65, range: 38, spread: 0.07, aimSpread: 0.06, recoil: 0.026, preferredRange: 10, zoom: 1.2, fireMode: 'semi', loudness: 95, value: 6, sidearm: false },
   dmr: { label: 'Súng thiện xạ', magazine: 12, damage: 43, pellets: 1, fireInterval: 0.4, reloadTime: 2.25, range: 175, spread: 0.022, aimSpread: 0.001, recoil: 0.020, preferredRange: 32, zoom: 4, fireMode: 'semi', loudness: 135, value: 8, sidearm: false },
   sniper: { label: 'Súng ngắm', magazine: 5, damage: 70, pellets: 1, fireInterval: 1.35, reloadTime: 2.9, range: 210, spread: 0.045, aimSpread: 0.0006, recoil: 0.036, preferredRange: 38, zoom: 6, fireMode: 'bolt', loudness: 175, value: 7, sidearm: false },
+  bow: { label: 'Nỏ', magazine: 1, damage: 78, pellets: 1, fireInterval: 1.1, reloadTime: 2.3, range: 120, spread: 0.012, aimSpread: 0.001, recoil: 0.018, preferredRange: 26, zoom: 2, fireMode: 'bolt', loudness: 14, value: 1.2, sidearm: false },
+  launcher: { label: 'Súng phóng nổ', magazine: 1, damage: 100, pellets: 1, fireInterval: 1.4, reloadTime: 2.8, range: 150, spread: 0.01, aimSpread: 0.004, recoil: 0.05, preferredRange: 40, zoom: 1.4, fireMode: 'bolt', loudness: 150, value: 0.9, sidearm: false },
   amr: { label: 'Súng ngắm hạng nặng', magazine: 4, damage: 85, pellets: 1, fireInterval: 1.85, reloadTime: 3.7, range: 250, spread: 0.065, aimSpread: 0.0004, recoil: 0.05, preferredRange: 42, zoom: 8, fireMode: 'bolt', loudness: 230, value: 6, sidearm: false },
 };
 
 /** Rounds in one ammunition pickup, per calibre. */
-export const AMMO_PICKUP: Record<AmmoType, number> = { '9mm': 40, '45acp': 32, '357': 18, '556': 45, '762': 40, '12g': 12, '300': 10, '50cal': 8 };
-export const AMMO_LABEL: Record<AmmoType, string> = { '9mm': '9mm', '45acp': '.45 ACP', '357': '.357 Magnum', '556': '5.56mm', '762': '7.62mm', '12g': '12 Gauge', '300': '.300 Mag', '50cal': '.50 BMG' };
-export const AMMO_ORDER: readonly AmmoType[] = ['9mm', '45acp', '357', '556', '762', '12g', '300', '50cal'];
+export const AMMO_PICKUP: Record<AmmoType, number> = { '9mm': 40, '45acp': 32, '357': 18, '556': 45, '762': 40, '12g': 12, '300': 10, '50cal': 8, bolt: 8, '40mm': 3, rocket: 1 };
+export const AMMO_LABEL: Record<AmmoType, string> = { '9mm': '9mm', '45acp': '.45 ACP', '357': '.357 Magnum', '556': '5.56mm', '762': '7.62mm', '12g': '12 Gauge', '300': '.300 Mag', '50cal': '.50 BMG', bolt: 'Mũi tên nỏ', '40mm': 'Đạn 40mm', rocket: 'Rocket' };
+export const AMMO_ORDER: readonly AmmoType[] = ['9mm', '45acp', '357', '556', '762', '12g', '300', '50cal', 'bolt', '40mm', 'rocket'];
 
 /** Multipliers over the class baseline; `mag`, `zoom`, `pellets` and `mode` are absolute. */
 export interface Mods {
@@ -208,5 +210,15 @@ export const ARSENAL: readonly ArsenalEntry[] = [
     ['sunder', 'Sunder SX', 2, '50cal', { dmg: 1.0, rate: 1.15, mag: 6, loud: 0.5, spread: 0.85 }, 'bullpup box x8 supp bipod blk camoU'],
     ['colossus50', 'Titanfall', 3, '50cal', { dmg: 1.2, rate: 1.1, mag: 6, spread: 0.6, zoom: 10, range: 1.1 }, 'skel ext x10 brake bipod laser ti camoD'],
     ['doomsday', 'Doomsday', 3, '50cal', { dmg: 1.3, rate: 1.0, mag: 4, spread: 0.55, zoom: 10, range: 1.12 }, 'adj box x10 brake bipod gld camoW'],
+  ]),
+
+  // ---------------------------------------------------------------- crossbows and launchers: special arms (rare)
+  ...rows('bow', [
+    ['xbow', 'Nỏ săn', 2, 'bolt', { loud: 0.6 }, 'short inner x4 plain blk dwood', 'Nỏ'],
+    ['xbowPro', 'Nỏ chiến thuật', 3, 'bolt', { dmg: 1.2, zoom: 3, loud: 0.5, spread: 0.7 }, 'short inner x6 plain ti camoW', 'Nỏ'],
+  ]),
+  ...rows('launcher', [
+    ['m79', 'M-79', 3, '40mm', {}, 'wood box plain blk wood', 'Súng phóng lựu'],
+    ['panzer', 'Panzerfaust', 3, 'rocket', { dmg: 1.7, loud: 1.3, reload: 1.6, rec: 1.2 }, 'skel box plain brake gry od', 'Súng phóng rocket'],
   ]),
 ];

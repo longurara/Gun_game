@@ -1,0 +1,29 @@
+/* Boost gauge and pack chips in the health panel. */
+.boost-track { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; }
+.boost-track[hidden] { display: none; }
+.boost-track i { font-style: normal; font-size: 7px; letter-spacing: 1.4px; color: #e8c36a; white-space: nowrap; }
+.boost-track > div { flex: 1; height: 4px; background: #0c1513; overflow: hidden; border-radius: 2px; }
+#boost-bar { width: 100%; height: 100%; transform-origin: left; background: linear-gradient(90deg, #f0b43c, #ffe08a); transition: transform .15s linear; }
+.supply-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.supply-row:empty { display: none; }
+.supply-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 5px; background: #ffffff12; border: 1px solid #ffffff1c; border-radius: 3px; font-size: 11px; color: #dfe6d2; }
+.supply-chip svg { width: 14px; height: 14px; color: #e8c36a; }
+.supply-chip b { font-weight: 650; font-variant-numeric: tabular-nums; }
+html[data-input="mouse"] .boost-track i { font-size: 8px; }
+html[data-input="mouse"] .supply-chip { font-size: 12px; }
+
+/* Grenades: the chosen one is outlined, and a flash blinds with a white wash. */
+.supply-chip.throw { cursor: default; }
+html[data-input="touch"] .supply-chip.throw { cursor: pointer; padding: 6px 10px 6px 7px; }
+.supply-chip.throw.picked { border-color: #f0b43c; background: #f0b43c22; }
+.supply-chip.throw.picked svg { color: #ffe08a; }
+.flash-overlay { position: absolute; inset: 0; background: #fffdf2; opacity: 0; pointer-events: none; z-index: 3; transition: opacity .08s linear; }
+
+/* On a computer the health panel is a slim bar at the bottom: the boost gauge sits on top of it and the pack chips to its right. */
+html[data-input="mouse"] .boost-track { position: absolute; left: 0; right: 0; bottom: 13px; margin: 0; }
+html[data-input="mouse"] .boost-track i { display: none; }
+html[data-input="mouse"] .boost-track > div { height: 3px; border-radius: 0; background: #ffffff22; }
+html[data-input="mouse"] .supply-row { position: absolute; left: calc(100% + 62px); bottom: -2px; margin: 0; flex-wrap: wrap-reverse; gap: 5px; width: max-content; max-width: 205px; }
+html[data-input="mouse"] .supply-chip { padding: 2px 6px 2px 4px; background: #0b121480; backdrop-filter: blur(3px); }
+
+.supply-chip.melee { border-color: #ffffff30; }

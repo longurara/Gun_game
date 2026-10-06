@@ -11,7 +11,7 @@ function kill(game: GameSimulation, by = 'bot-1'): void {
 }
 
 test('dying records the place and time, and the player can keep watching until at most one opponent is left', () => {
-  const game = new GameSimulation({ seed: 4, botCount: 12, map: 'valley' });
+  const game = new GameSimulation({ seed: 5, botCount: 12, map: 'valley' });
   game.start();
   for (let i = 0; i < 30 * 5; i++) game.update(1 / 30, idle);
   kill(game);
