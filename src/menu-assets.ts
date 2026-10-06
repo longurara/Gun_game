@@ -58,6 +58,9 @@ export function installMenuAssets(root: HTMLElement, audio: GameAudio): void {
         <span>Oğuzhan Girgin · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></span><small>Đã đổi màu tối/vàng và đơn giản hóa đường viền để phù hợp các kích thước màn hình.</small></li>
       <li><a href="https://kenney.nl/assets/input-prompts" target="_blank" rel="noopener noreferrer">Input Prompts</a><span>Kenney · CC0 1.0</span></li>
       <li><a href="https://kenney.nl/assets/interface-sounds" target="_blank" rel="noopener noreferrer">Interface Sounds</a><span>Kenney · CC0 1.0</span></li>
+      <li><a href="https://f8studios.itch.io/snakes-authentic-gun-sounds" target="_blank" rel="noopener noreferrer">Snake's Authentic Gun Sounds</a><span>SnakeF8 / F8 Studios · miễn phí, cho phép dùng thương mại</span></li>
+      <li><a href="https://f8studios.itch.io/snakes-second-authentic-gun-sounds-pack" target="_blank" rel="noopener noreferrer">Snake's SECOND Authentic Gun Sounds Pack</a><span>SnakeF8 / F8 Studios · CC0 / public domain</span></li>
+      <li><a href="https://opengameart.org/content/light-machine-gun" target="_blank" rel="noopener noreferrer">Light Machine Gun</a><span>KuraiWolf · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></span><small>Âm bắn đã cắt khoảng lặng, chuyển mono, chuẩn hóa âm lượng, làm mờ đuôi âm và nén OGG.</small></li>
       <li><a href="https://kenney.nl/assets/ui-pack" target="_blank" rel="noopener noreferrer">UI Pack</a><span>Kenney · CC0 1.0 · biểu tượng thành tích và lựa chọn</span></li>
       <li><a href="https://quaternius.com/" target="_blank" rel="noopener noreferrer">Ultimate Guns Pack &amp; Ultimate Modular Men Pack</a><span>Quaternius · CC0 1.0 · súng và nhân vật SWAT</span></li>
     </ul><button id="asset-credits-close" class="button button-secondary" type="button">ĐÓNG</button>`;

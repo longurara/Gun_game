@@ -54,6 +54,7 @@ import type { MeleeKind } from './game/melee';
 import type { AttachKind, AttachSlot, PackKind } from './game/gear';
 import type { SupplyKind, ThrowKind, UseKind } from './game/supplies';
 import { GameAudio } from './audio';
+import { GUN_SOUND_ASSETS } from './gun-audio-assets';
 import { createWeaponModel } from './weapon-models';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
@@ -98,7 +99,7 @@ canvas.tabIndex = -1;
 const touchDevice = isTouchDevice();
 document.documentElement.dataset.input = touchDevice ? 'touch' : 'mouse';
 const sim = new GameSimulation({ botCount: 5, difficulty: 'normal' });
-const audio = new GameAudio();
+const audio = new GameAudio(GUN_SOUND_ASSETS);
 // Browsers only start audio after a gesture: the first click, touch or key press anywhere lets the menu theme begin.
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => { void audio.unlock(); }, { once: true, capture: true });
 let engine: Engine;
@@ -499,7 +500,7 @@ function openLobby() {
 
 /** The lobby is done: build the same match on every machine (the host runs it, clients mirror it). */
 function beginMultiplayer(info: MatchStart) {
-  void audio.unlock();
+  void audio.unlock().then(() => audio.prepareGunSounds());
   audio.pause();
   releaseInput();
   sim.start(matchOptions(info.setup, info.me, info.role === 'client'));
@@ -570,7 +571,7 @@ function updateNameplates() {
 }
 
 function start() {
-  void audio.unlock();
+  void audio.unlock().then(() => audio.prepareGunSounds());
   audio.pause();
   releaseInput();
   sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' && settings.map !== 'range', immortal: settings.immortal, humans: 1, localId: '', names: [], remote: false });

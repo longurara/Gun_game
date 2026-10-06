@@ -1,8 +1,9 @@
 import type { GameEvent, Vec3, WeaponType } from './types';
 import { WEAPONS } from './game/weapons';
 import { MenuMusic } from './menu-music';
+import { gunSoundFor } from './gun-sounds';
+import type { GunSoundBank } from './gun-sounds';
 
-/** Procedural gameplay effects and cached interface samples, unlocked by a user gesture. */
 /**
  * Stereo position, -1 (left) to 1 (right), of a sound at `from` for a listener at `at` facing `yaw` (the game's yaw:
  * 0 faces +z, positive turns toward +x). Sounds very close to the listener stay near the centre.
@@ -40,6 +41,28 @@ export class GameAudio {
   private nextDrip = 0;
   private interfaceBuffers = new Map<string, Promise<AudioBuffer | null>>();
   private lastInterfaceSound = -Infinity;
+  private gunBuffers = new Map<string, AudioBuffer>();
+  private gunLoads = new Map<string, Promise<void>>();
+  private gunAbort = new AbortController();
+
+  constructor(private readonly gunSounds: GunSoundBank = {}) {}
+
+  /** Load once when entering a match, after unlocking. Early/missing shots use synthesis immediately. */
+  async prepareGunSounds(): Promise<void> {
+    const context = this.context;
+    if (!context || this.disposed) return;
+    for (const url of new Set(Object.values(this.gunSounds))) {
+      if (!url || this.gunLoads.has(url)) continue;
+      const loading = fetch(url, { signal: AbortSignal.any([this.gunAbort.signal, AbortSignal.timeout(10000)]) })
+        .then(async response => {
+          if (!response.ok) return;
+          const buffer = await context.decodeAudioData(await response.arrayBuffer());
+          if (!this.disposed && this.context === context) this.gunBuffers.set(url, buffer);
+        }).catch(() => { /* A missing/invalid sample keeps the existing procedural voice. */ });
+      this.gunLoads.set(url, loading);
+    }
+    await Promise.all(this.gunLoads.values());
+  }
 
   /** Fetch/decode once in the existing audio context; a missing sample stays silent. */
   prepareInterfaceSounds(urls: string[]): void {
@@ -407,6 +430,9 @@ export class GameAudio {
     this.reverbSend = null;
     this.noiseBuffer = null;
     this.interfaceBuffers.clear();
+    this.gunAbort.abort();
+    this.gunBuffers.clear();
+    this.gunLoads.clear();
     if (context && context.state !== 'closed') void context.close().catch(() => {});
   }
 
@@ -421,7 +447,7 @@ export class GameAudio {
     // Every gun borrows the report of its class; suppressed ones are muffled.
     const suppressed = silencer || config.loudness < WEAPONS[config.voice].loudness * 0.7;
     if (suppressed) { gain *= 0.5; brightness *= 0.6; }
-    switch (config.voice) {
+    if (!this.sampleGunshot(weapon, suppressed, gain, brightness)) switch (config.voice) {
       case 'rifle':
         this.noise(0.14, 0.43 * gain, 'lowpass', brightness);
         this.tone(180, 0.105, 0.24 * gain, 'triangle', 0, 48);
@@ -480,6 +506,30 @@ export class GameAudio {
       this.noise(0.08, 0.12 * actionGain, 'bandpass', 1550, delay + 0.16);
       this.tone(470, 0.035, 0.08 * actionGain, 'square', delay + 0.20, 190);
     }
+  }
+
+  /** A single recorded shot per event, through the same distance, pan, cave echo and master gain. */
+  private sampleGunshot(weapon: WeaponType, suppressed: boolean, gain: number, brightness: number): boolean {
+    const voice = gunSoundFor(weapon, suppressed);
+    const url = voice && this.gunSounds[voice.key];
+    const buffer = url && this.gunBuffers.get(url);
+    if (!voice || !buffer) return false;
+    const context = this.context!;
+    const source = context.createBufferSource();
+    const filter = context.createBiquadFilter();
+    const level = context.createGain();
+    source.buffer = buffer;
+    source.playbackRate.value = voice.rate * (0.985 + Math.random() * 0.03);
+    filter.type = 'lowpass';
+    filter.frequency.value = suppressed ? Math.min(1800, brightness) : brightness;
+    filter.Q.value = 0.7;
+    level.gain.value = gain * voice.gain;
+    source.connect(filter);
+    filter.connect(level);
+    const placed = this.send(level);
+    this.track(source, [filter, level, ...placed]);
+    source.start();
+    return true;
   }
 
   private hit(): void {
