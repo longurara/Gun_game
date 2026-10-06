@@ -17,6 +17,7 @@ import './stats.css';
 import './free-assets.css';
 import './menu-assets.css';
 import './loading-screen.css';
+import './ui-scrollbars.css';
 import { holdLoadingScreen, paintLoadingScreen } from './loading-screen';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
