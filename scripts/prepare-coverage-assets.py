@@ -51,13 +51,25 @@ for name in ['sedan', 'sedan-sports', 'truck', 'van', 'wheel-default', 'wheel-ra
 for name in ['scope-small', 'scope-large-a', 'silencer-small', 'grenade-a', 'grenade-b', 'crate-wide']:
     select('blaster-kit', name+'.glb', 'k-'+name+'.glb')
 for pack, files in {
- 'building-kit': ['wall', 'floor'],
+ 'building-kit': ['wall', 'floor', 'column', 'gutter-vertical'],
+ 'modular-buildings': ['roof-flat-awning-a', 'detail-ac-a'],
  'furniture-kit': ['bedBunk', 'bedSingle', 'desk', 'chair', 'bookcaseOpen'],
- 'city-kit-industrial': ['shipping-container-a', 'detail-tank-large', 'chimney-large'],
+ 'city-kit-industrial': ['shipping-container-a', 'detail-tank-large', 'chimney-large', 'chimney-small'],
  'factory-kit': ['pipe-large-long', 'box-large'],
  'survival-kit': ['barrel', 'chest'],
 }.items():
     for name in files: select(pack, name+'.glb', 'k-'+name+'.glb', 'buildings')
+# Distinct aliases prevent same-named models from different packs colliding.
+for pack, files in {
+ 'retro-urban-kit': {'wall-a-flat': 'k-urban-wall', 'roof-metal-type-a': 'k-urban-roof', 'scaffolding-structure': 'k-scaffold'},
+ 'fantasy-town-kit': {'wall-detail-cross': 'k-timber-wall', 'roof-gable': 'k-town-roof', 'roof-point': 'k-hip-roof', 'windmill': 'k-mill-blades', 'fountain-round-detail': 'k-town-fountain'},
+ 'graveyard-kit': {'crypt-small': 'k-crypt-small', 'crypt-small-roof': 'k-crypt-roof', 'crypt-door': 'k-crypt-door', 'pillar-obelisk': 'k-obelisk'},
+ 'castle-kit': {'wall-half-modular': 'k-castle-wall'},
+ 'modular-dungeon-kit': {'template-wall': 'k-dungeon-wall'},
+ 'pirate-kit': {'castle-wall': 'k-fort-wall'},
+ 'city-kit-industrial': {'water-tower': 'k-water-tower'},
+}.items():
+    for filename, name in files.items(): select(pack, filename+'.glb', name+'.glb', 'buildings')
 for name in ['tree_pineDefaultA', 'tree_oak', 'rock_largeA']:
     select('nature-kit', name+'.glb', 'k-'+name+'.glb')
 for name, file in {'smoke':'smoke_04', 'flame':'flame_01', 'flash':'star_04', 'fire':'fire_01'}.items():

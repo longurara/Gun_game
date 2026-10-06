@@ -1,8 +1,8 @@
 # Thư viện công trình miễn phí cho LASTLIGHT
 
-Đã tải và kiểm tra ngày 06/10/2026: **10 gói Kenney, 860 model/mảnh ghép GLB**, khoảng **20,6 MiB** gồm texture, ảnh xem trước và giấy phép. Số GLB thực tế trong archive có thể khác số asset quảng bá trên website do model mẫu và biến thể.
+Cập nhật ngày 07/10/2026: **16 gói Kenney, 1.429 model/mảnh ghép GLB**, khoảng **39,7 MiB** gồm texture, ảnh xem trước và giấy phép. Số GLB thực tế trong archive có thể khác số asset quảng bá trên website do model mẫu và biến thể.
 
-Đây là thư viện nguồn để nâng cấp bản đồ. **Đã chọn 14 GLB từ Building/Furniture/Industrial/Factory/Survival Kit đưa vào runtime** cho tường, sàn, nội thất và thiết bị phù hợp footprint. Xem [tích hợp asset](../../docs/FREE_COVERAGE_ASSETS.md); các file còn lại là thư viện nguồn. Súng, SWAT và UI đã được tích hợp riêng trong `src/free-assets.ts` và `src/free-assets.css`.
+Đây là thư viện nguồn để nâng cấp bản đồ. **Đã chọn 35 GLB từ thư viện building đưa vào runtime** cho tường, sàn, nội thất và thiết bị phù hợp footprint. Xem [tích hợp asset](../../docs/FREE_COVERAGE_ASSETS.md); các file còn lại là thư viện nguồn. Súng, SWAT và UI đã được tích hợp riêng trong `src/free-assets.ts` và `src/free-assets.css`.
 
 ## Gói đã tải
 
@@ -18,6 +18,14 @@
 | [Furniture Kit](https://kenney.nl/assets/furniture-kit) | 140 | Giường, giường tầng, bàn, ghế, tủ, nội thất nhà và doanh trại |
 | [Survival Kit](https://kenney.nl/assets/survival-kit) | 80 | Lều, nhà tạm, vách kim loại, hàng rào, thùng và đồ dã ngoại |
 | [Space Station Kit](https://kenney.nl/assets/space-station-kit) | 97 | Hành lang, cửa, cầu thang, vách và thiết bị để tùy biến nội thất bunker |
+| [fantasy-town-kit](https://kenney.nl/assets/fantasy-town-kit) | 167 | Tường khung gỗ, mái, cánh cối xay, đài nước |
+| [castle-kit](https://kenney.nl/assets/castle-kit) | 76 | Module tường đá và lâu đài |
+| [pirate-kit](https://kenney.nl/assets/pirate-kit) | 72 | Công trình ven biển và tường pháo đài |
+| [retro-urban-kit](https://kenney.nl/assets/retro-urban-kit) | 124 | Tường gạch, mái kim loại và khung công trình |
+| [graveyard-kit](https://kenney.nl/assets/graveyard-kit) | 91 | Nhà tưởng niệm, bia và hàng rào |
+| [modular-dungeon-kit](https://kenney.nl/assets/modular-dungeon-kit) | 39 | Tường và nội thất hầm dạng module |
+
+Đợt này tải thêm 569 GLB từ sáu gói cuối bảng. Chọn 16 GLB mới vào runtime, gồm một tháp nước từ gói Industrial đã có.
 
 Tất cả các gói trên là **CC0**, dùng được cho dự án cá nhân và thương mại, không bắt buộc ghi công. Mỗi thư mục giữ nguyên `License.txt` của tác giả. `manifest.json` lưu trang nguồn, URL archive, SHA-256 và danh sách file đã tải; ảnh xem trước nằm trong `Preview.png`.
 

@@ -1,5 +1,12 @@
 // Source metadata mirrored from the verified coverage manifests.
 export const COVERAGE_CREDITS = [
+  {"label":"fantasy-town-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/fantasy-town-kit"},
+  {"label":"castle-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/castle-kit"},
+  {"label":"pirate-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/pirate-kit"},
+  {"label":"retro-urban-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/retro-urban-kit"},
+  {"label":"graveyard-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/graveyard-kit"},
+  {"label":"modular-dungeon-kit","author":"Kenney","license":"CC0-1.0","url":"https://kenney.nl/assets/modular-dungeon-kit"},
+  { label: "modular-buildings", author: "Kenney", license: "CC0-1.0", url: "https://kenney.nl/assets/modular-buildings" },
   {
     "label": "Motorcycle",
     "author": "Poly by Google",

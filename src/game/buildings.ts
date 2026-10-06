@@ -184,6 +184,64 @@ export function buildTower(spec: TowerSpec): Parts {
   return parts;
 }
 
+
+export type HouseLayout = 'cottage' | 'longhouse' | 'wing';
+export interface HouseSpec {
+  id: string; width: number; depth: number; base: number; tier: 1 | 2 | 3; layout: HouseLayout; style?: Obstacle['houseStyle'];
+}
+
+/** A street-facing home in local space: entrance south, connected rooms and clear loot spots. */
+export function buildHouse(spec: HouseSpec): Parts {
+  const { id, width: W, depth: D, base, tier, layout } = spec;
+  const x0 = -W / 2, x1 = W / 2, z0 = -D / 2, z1 = D / 2;
+  const split = -W * 0.1, join = D * 0.05;
+  const parts: Parts = { obstacles: [], floors: [], loot: [] };
+  const wall = (side: string, axis: 'x' | 'z', fixed: number, from: number, to: number, openings: Opening[]) => {
+    parts.obstacles.push(...wallPieces(id + '-' + side, 'wall', base, axis, fixed, from, to, openings).map(o => ({ ...o, houseId: id })));
+  };
+  const roof = (suffix: string, x: number, z: number, width: number, depth: number) => {
+    parts.obstacles.push({ id: id + '-' + suffix, x, z, width: width + 0.6, depth: depth + 0.6,
+      height: HOUSE_HEIGHT + 0.35, bottom: HOUSE_HEIGHT, kind: 'roof', base, houseId: id });
+  };
+  wall('s', 'x', z0, x0, x1, [doorAt(0), ...windowsAlong(x0, x1, 4.5, [[-1.7, 1.7]])]);
+  if (layout === 'wing') {
+    // The missing rear-left corner is a courtyard, with matching walls and roof sections.
+    wall('w', 'z', x0, z0, join, windowsAlong(z0, join, 4.5));
+    wall('e', 'z', x1, z0, z1, windowsAlong(z0, z1, 4.5));
+    wall('n', 'x', z1, split, x1, [doorAt((split + x1) / 2)]);
+    wall('court-n', 'x', join, x0, split, windowsAlong(x0, split, 4.5));
+    wall('court-w', 'z', split, join, z1, windowsAlong(join, z1, 4.5));
+    wall('room', 'x', join, split, x1, [doorAt((split + x1) / 2)]);
+    roof('roof', 0, (z0 + join) / 2, W, join - z0);
+    roof('wing-roof', (split + x1) / 2, (join + z1) / 2, x1 - split, z1 - join);
+    parts.loot.push({ x: 0, z: -D * 0.22, y: base, tier }, { x: (split + x1) / 2, z: D * 0.28, y: base, tier });
+  } else {
+    parts.loot.push({ x: 0, z: -D * 0.22, y: base, tier });
+    wall('w', 'z', x0, z0, z1, windowsAlong(z0, z1, 4.5));
+    wall('e', 'z', x1, z0, z1, windowsAlong(z0, z1, 4.5));
+    wall('n', 'x', z1, x0, x1, [doorAt(0), ...windowsAlong(x0, x1, 4.5, [[-1.7, 1.7]])]);
+    wall('room', 'x', join, x0, x1, [doorAt(0)]);
+    if (layout === 'longhouse') {
+      wall('room-rear', 'z', 0, join, z1, [doorAt((join + z1) / 2, 1.8)]);
+      parts.loot.push({ x: -W * 0.25, z: D * 0.3, y: base, tier }, { x: W * 0.25, z: D * 0.3, y: base, tier });
+    } else parts.loot.push({ x: 0, z: D * 0.3, y: base, tier });
+    roof('roof', 0, 0, W, D);
+  }
+  // Keep the original one/two loot spots per plot while distributing them across rooms.
+  parts.loot = parts.loot.slice(0, W * D > 90 ? 2 : 1);
+  // Cover stays against room edges, leaving a wide front-to-back route through the doors.
+  parts.obstacles.push({ id: id + '-table', x: x0 + 1.7, z: z0 + 1.8, width: 1.6, depth: 0.8,
+    height: 0.85, kind: 'crate', base, houseId: id, furnishing: 'table' });
+  parts.obstacles.push({ id: id + '-bed', x: x1 - 0.9, z: z1 - 1.6, width: 1.3, depth: 2,
+    height: 0.65, kind: 'crate', base, houseId: id, furnishing: 'bed' });
+  parts.obstacles.push({ id: id + '-canopy', x: 0, z: z0 - 0.45, width: 3.8, depth: 1.5,
+    bottom: 2.8, height: 2.98, kind: 'roof', base, houseId: id, roofShape: 'flat' });
+  for (const x of [-1.75, 1.75]) parts.obstacles.push({ id: id + '-porch-' + (x < 0 ? 'w' : 'e'), x, z: z0 - 0.9,
+    width: 0.18, depth: 0.18, height: 2.8, kind: 'wall', base, houseId: id });
+  for (const part of parts.obstacles) part.houseStyle = spec.style;
+  return parts;
+}
+
 export interface HangarSpec { id: string; width: number; depth: number; base: number }
 
 /** A big warehouse: tall walls, two wide doors, high windows, a roof, a mezzanine with a stair ramp and plenty of cover. */

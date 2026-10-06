@@ -1,5 +1,7 @@
+import { LANDMARK_SPECS } from '../building-assets';
+import { addBuildingLandmarks } from './structures';
 import type { Field, Floor, HotArea, Lake, LootSpot, MapId, MapTheme, Obstacle, Portal, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
-import { buildHangar, buildTower, DOOR_HEIGHT, DOOR_WIDTH, HOUSE_HEIGHT, placeParts, WALL_THICKNESS, wallPieces } from './buildings';
+import { buildHangar, buildHouse, buildTower, DOOR_HEIGHT, DOOR_WIDTH, HOUSE_HEIGHT, placeParts, WALL_THICKNESS, wallPieces } from './buildings';
 import type { Parts } from './buildings';
 import { SpatialGrid } from './spatial';
 import { planBase, planFactory, shedObstacles } from './hot';
@@ -242,31 +244,6 @@ function placeTowns(random: () => number, spec: WorldSpec, coast: (x: number, z:
     }
   }
   return towns;
-}
-
-interface HouseSpec { x: number; z: number; width: number; depth: number; doorSide: 'n' | 's' | 'e' | 'w'; base: number }
-
-function buildHouse(id: string, spec: HouseSpec, obstacles: Obstacle[]): void {
-  const { x, z, width, depth, doorSide, base } = spec;
-  const x0 = x - width / 2, x1 = x + width / 2, z0 = z - depth / 2, z1 = z + depth / 2;
-  const door = (length: number) => ({ start: length / 2 - DOOR_WIDTH / 2, end: length / 2 + DOOR_WIDTH / 2, low: 0, high: DOOR_HEIGHT });
-  const window = (center: number) => ({ start: center - 0.8, end: center + 0.8, low: 1.0, high: 2.15 });
-  const sides: Array<['n' | 's' | 'e' | 'w', 'x' | 'z', number, number, number]> = [
-    ['s', 'x', z0, x0, x1], ['n', 'x', z1, x0, x1], ['w', 'z', x0, z0, z1], ['e', 'z', x1, z0, z1],
-  ];
-  for (const [side, axis, fixed, from, to] of sides) {
-    const length = to - from;
-    const openings = [] as Array<{ start: number; end: number; low: number; high: number }>;
-    if (side === doorSide) {
-      const d = door(length);
-      openings.push({ ...d, start: from + d.start, end: from + d.end });
-    } else if (length > 7) {
-      const w = window(from + length * 0.5);
-      openings.push({ ...w, start: w.start, end: w.end });
-    }
-    obstacles.push(...wallPieces(`${id}-${side}`, 'wall', base, axis, fixed, from, to, openings));
-  }
-  obstacles.push({ id: `${id}-roof`, x, z, width: width + 0.6, depth: depth + 0.6, height: HOUSE_HEIGHT + 0.35, bottom: HOUSE_HEIGHT, kind: 'roof', base });
 }
 
 function generate(spec: WorldSpec): IslandData {
@@ -519,12 +496,17 @@ function generate(spec: WorldSpec): IslandData {
           addParts(placeParts(buildTower({ id, width: 26, depth: 14, storeys, base, flavor: 'apartment' }), cx, cz, !alongX, mirror));
           continue;
         }
-        const doorSide = alongX ? (side > 0 ? 's' : 'n') : (side > 0 ? 'w' : 'e');
-        buildHouse(id, { x: cx, z: cz, width: w, depth: d, doorSide, base }, obstacles);
         const tier = Math.max(1, Math.min(3, tierOf[town.tier] - (random() < 0.4 ? 1 : 0))) as 1 | 2 | 3;
-        lootSpots.push({ x: cx, z: cz, y: base, tier });
-        if (w * d > 90) lootSpots.push({ x: cx + w * 0.25, z: cz - d * 0.2, y: base, tier });
-        if (random() < 0.5) obstacles.push({ id: `${id}-crate`, x: cx - w * 0.3, z: cz + d * 0.25, width: 1.2, depth: 1.2, height: 1.1, kind: 'crate', base });
+        // Preserve the map RNG sequence: floor plans vary deterministically with the plot index.
+        const layout = houseIndex % 3 === 0 ? 'wing' : houseIndex % 3 === 1 && width >= 10 ? 'longhouse' : 'cottage';
+        const style = town.tier === 'hamlet' && houseIndex % 7 === 0 ? 'mill' : houseIndex % 3 === 0 ? 'brick' : houseIndex % 3 === 1 ? 'timber' : 'hipped';
+        const home = buildHouse({ id, width, depth, base, tier, layout, style });
+        if (side < 0) {
+          for (const part of home.obstacles) part.z = -part.z;
+          for (const spot of home.loot) spot.z = -spot.z;
+        }
+        addParts(placeParts(home, cx, cz, !alongX, mirror));
+        random(); // Former optional crate roll; keep later town and vehicle placement stable.
       }
     }
     for (let i = 0; i < town.radius / 12; i++) {
@@ -644,6 +626,10 @@ function generate(spec: WorldSpec): IslandData {
     if (!nearTown(x, z, 40) && landOk(x, z, 4) && !riverNear(x, z, 4)) lootSpots.push({ x, z, y: terrain(x, z), tier: random() < 0.3 ? 2 : 1 });
   }
 
+  const structures = addBuildingLandmarks({ half, towns, fields, roads, obstacles, loot: lootSpots, terrain, landOk, riverNear });
+
+  proxies.push(...structures.map(s => ({ id: s.id + '-far', x: s.x, z: s.z, base: s.base, kind: 'building' as const, width: LANDMARK_SPECS[s.kind].width, depth: LANDMARK_SPECS[s.kind].depth, height: LANDMARK_SPECS[s.kind].height })));
+
   // Candidate drop points: a jittered grid, away from towns' centres and the rim.
   const spawns: Vec3[] = [];
   const step = spec.spawnStep;
@@ -683,7 +669,7 @@ function generate(spec: WorldSpec): IslandData {
   return {
     terrain,
     world: {
-      id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots, floors, proxies,
+      id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots, floors, proxies, structures,
       ...(spec.theme ? { theme: spec.theme } : {}),
       ...(portals.length ? { portals, hotAreas: hots } : {}),
       // Without a sea, put the waterline far below any terrain so no shore, beach or open water is ever drawn.

@@ -14,9 +14,20 @@ export const COVERAGE_MODELS = [
   'k-scope-small', 'k-scope-large-a', 'k-silencer-small', 'k-grenade-a', 'k-grenade-b', 'k-crate-wide',
   'k-wall', 'k-floor', 'k-bedBunk', 'k-bedSingle', 'k-desk', 'k-chair', 'k-bookcaseOpen',
   'k-shipping-container-a', 'k-detail-tank-large', 'k-chimney-large', 'k-pipe-large-long', 'k-box-large',
+  'k-column', 'k-gutter-vertical', 'k-roof-flat-awning-a', 'k-detail-ac-a', 'k-chimney-small',
   'k-barrel', 'k-chest', 'k-tree_pineDefaultA', 'k-tree_oak', 'k-rock_largeA',
+  'k-urban-wall', 'k-urban-roof', 'k-scaffold', 'k-timber-wall', 'k-town-roof', 'k-hip-roof', 'k-mill-blades', 'k-town-fountain',
+  'k-dungeon-wall',
+  'k-crypt-small', 'k-crypt-roof', 'k-crypt-door', 'k-obelisk', 'k-castle-wall', 'k-fort-wall', 'k-water-tower',
 ] as const;
 export type CoverageModel = typeof COVERAGE_MODELS[number];
+/** Neutral finishes for architectural details; kit atlas colors otherwise clash with the house palette. */
+const architectureColors: Partial<Record<CoverageModel, string>> = {
+  'k-column': '#716b5b', 'k-gutter-vertical': '#586052', 'k-roof-flat-awning-a': '#4e584b',
+  'k-detail-ac-a': '#a8ada1', 'k-chimney-small': '#787367',
+  'k-town-roof': '#65634d', 'k-hip-roof': '#5d6554', 'k-crypt-small': '#929486', 'k-crypt-roof': '#646b5e',
+  'k-crypt-door': '#69503b', 'k-obelisk': '#9d9d8c', 'k-fort-wall': '#838876', 'k-castle-wall': '#8a8b75', 'k-dungeon-wall': '#777b70',
+};
 interface Templates { models: Map<CoverageModel, Mesh[]>; loads: Map<CoverageModel, Promise<void>>; revision: number }
 const cache = new WeakMap<Scene, Templates>();
 export const coverageUrl = (file: string): string => `${import.meta.env?.BASE_URL ?? '/'}assets/coverage/${file}`;
@@ -39,9 +50,16 @@ async function load(scene: Scene, key: CoverageModel): Promise<void> {
     if (scene.isDisposed) return;
     const container = await LoadAssetContainerAsync(bytes, scene, { pluginExtension: '.glb', name: key });
     if (scene.isDisposed) { container.dispose(); return; }
+    const roofFinish = key === 'k-town-roof' || key === 'k-hip-roof' ? await import('./generated-textures') : null;
     const materials = new Map<object, StandardMaterial>();
-    const meshes = container.meshes.filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
-    for (const mesh of meshes) {
+    const meshes = [...new Set(container.meshes)].filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+    // Capture every primitive before baking: glTF accessors may share raw arrays even across distinct geometries.
+    const snapshots = meshes.map(mesh => ({
+      mesh, transform: mesh.computeWorldMatrix(true).clone(),
+      buffers: mesh.getVerticesDataKinds().map(kind => ({ kind, data: Array.from(mesh.getVerticesData(kind)!) })),
+      indices: mesh.getIndices() ? Array.from(mesh.getIndices()!) : null,
+    }));
+    for (const { mesh, transform, buffers, indices } of snapshots) {
       const source = mesh.material as StandardMaterial & { albedoColor?: Color3; albedoTexture?: StandardMaterial['diffuseTexture']; metallic?: number };
       if (source) {
         let mat = materials.get(source);
@@ -50,6 +68,12 @@ async function load(scene: Scene, key: CoverageModel): Promise<void> {
           mat.diffuseColor = source.albedoColor?.toGammaSpace() ?? source.diffuseColor ?? Color3.White();
           mat.diffuseTexture = source.albedoTexture ?? source.diffuseTexture;
           mat.bumpTexture = source.bumpTexture;
+          if (architectureColors[key]) {
+            mat.diffuseTexture = null;
+            mat.diffuseColor = Color3.FromHexString(architectureColors[key]!);
+          }
+          if (roofFinish) roofFinish.useGeneratedAlbedo(mat, roofFinish.GENERATED_TEXTURES.roof, 1, 1.1);
+          if (key === 'k-timber-wall') mat.diffuseColor = mat.diffuseColor.multiply(new Color3(0.78, 0.72, 0.65));
           mat.alpha = source.alpha; mat.backFaceCulling = source.backFaceCulling;
           mat.specularColor = new Color3(.12, .12, .12); mat.emissiveColor = new Color3(.07, .07, .07);
           if (mat.diffuseTexture?.hasAlpha) mat.useAlphaFromDiffuseTexture = true;
@@ -57,7 +81,9 @@ async function load(scene: Scene, key: CoverageModel): Promise<void> {
         }
         mesh.material = mat;
       }
-      const transform = mesh.computeWorldMatrix(true).clone();
+      mesh.makeGeometryUnique();
+      for (const { kind, data } of buffers) mesh.setVerticesData(kind, data);
+      if (indices) mesh.setIndices(indices);
       mesh.parent = null; mesh.skeleton = null;
       mesh.bakeTransformIntoVertices(transform);
       if (mesh.sideOrientation !== 1) { mesh.flipFaces(); mesh.sideOrientation = 1; }
@@ -79,6 +105,16 @@ async function load(scene: Scene, key: CoverageModel): Promise<void> {
       }
       if (!mesh.isVerticesDataPresent(VertexBuffer.ColorKind)) mesh.setVerticesData(VertexBuffer.ColorKind, new Array(mesh.getTotalVertices() * 4).fill(1));
       if (!mesh.isVerticesDataPresent(VertexBuffer.UVKind)) mesh.setVerticesData(VertexBuffer.UVKind, new Array(mesh.getTotalVertices() * 2).fill(0));
+      if (roofFinish) {
+        const positions = mesh.getVerticesData(VertexBuffer.PositionKind)!, normals = mesh.getVerticesData(VertexBuffer.NormalKind)!, uvs: number[] = [];
+        for (let i = 0; i < positions.length; i += 3) {
+          const [x, y, z] = positions.slice(i, i + 3), [nx, ny, nz] = normals.slice(i, i + 3).map(Math.abs);
+          if (ny >= nx && ny >= nz) uvs.push((x + 0.5) * 4, (z + 0.5) * 4);
+          else if (nx > nz) uvs.push((z + 0.5) * 4, y * 2);
+          else uvs.push((x + 0.5) * 4, y * 2);
+        }
+        mesh.setVerticesData(VertexBuffer.UVKind, uvs);
+      }
       mesh.name = `coverage-template-${key}-${mesh.name}`;
       mesh.metadata = { coverageAsset: key, template: true, sourceExtent: extent.asArray() };
       mesh.isPickable = false; mesh.setEnabled(false); scene.addMesh(mesh);

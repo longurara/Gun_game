@@ -1,3 +1,4 @@
+import { LANDMARK_SPECS } from './building-assets';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
@@ -10,11 +11,11 @@ import { terrainWeights } from './terrain-biomes';
 import type { TerrainWeights } from './terrain-biomes';
 import { TerrainTextureBlend, TERRAIN_WEIGHTS_ATTRIBUTE } from './terrain-textures';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import type { Field, Floor, Obstacle, WorldConfig } from './types';
+import type { Field, Floor, Obstacle, StructurePlacement, WorldConfig } from './types';
 import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase } from './game/world';
 import { groundBumpTexture, groundDetailTexture, IslandDecor } from './island-decor';
 import { ATLAS, CardBatch, createFacadeMaterial, createFoliageMaterial } from './island-foliage';
-import { coverageParts, prepareCoverageAssets } from './coverage-assets';
+import { coverageParts, hasCoverageModel, prepareCoverageAssets } from './coverage-assets';
 import type { CoverageModel } from './coverage-assets';
 
 /** World is split into square chunks; terrain detail and props stream in around the player. */
@@ -207,6 +208,31 @@ class Geometry {
     this.finish = previous;
   }
 
+  /** Close the triangular end walls of a roof-only prefab. */
+  gableEnds(cx: number, y0: number, cz: number, w: number, d: number, rise: number, color: Rgb): void {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, top = y0 + rise, previous = this.finish;
+    this.finish = 'plaster';
+    if (w >= d) {
+      this.tri([x0, y0, z0], [x0, y0, z1], [x0, top, cz], [-1, 0, 0], color);
+      this.tri([x1, y0, z1], [x1, y0, z0], [x1, top, cz], [1, 0, 0], color);
+    } else {
+      this.tri([x1, y0, z0], [x0, y0, z0], [cx, top, z0], [0, 0, -1], color);
+      this.tri([x0, y0, z1], [x1, y0, z1], [cx, top, z1], [0, 0, 1], color);
+    }
+    this.finish = previous;
+  }
+
+  /** Four roof pitches retain the hipped silhouette in distant chunks and during asset failures. */
+  hip(cx: number, y0: number, cz: number, w: number, d: number, rise: number, color: Rgb): void {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, tip = [cx, y0 + rise, cz], previous = this.finish;
+    this.finish = 'roof';
+    this.tri([x0, y0, z0], [x1, y0, z0], tip, [0, 1, -1], shade(color, 0.9));
+    this.tri([x1, y0, z1], [x0, y0, z1], tip, [0, 1, 1], shade(color, 0.8));
+    this.tri([x0, y0, z1], [x0, y0, z0], tip, [-1, 1, 0], shade(color, 0.85));
+    this.tri([x1, y0, z0], [x1, y0, z1], tip, [1, 1, 0], color);
+    this.finish = previous;
+  }
+
   build(name: string, scene: Scene, material: StandardMaterial | MultiMaterial): Mesh | null {
     if (!this.finishIndices.some(indices => indices.length)) return null;
     const mesh = new Mesh(name, scene);
@@ -240,6 +266,7 @@ interface Bank { ax: number; az: number; bx: number; bz: number; half: number }
 export class IslandRenderer {
   private readonly chunks = new Map<number, Chunk>();
   private readonly byChunk = new Map<number, Obstacle[]>();
+  private readonly structuresByChunk = new Map<number, StructurePlacement[]>();
   private readonly proxiesByChunk = new Map<number, Obstacle[]>();
   private readonly stairsByChunk = new Map<number, Floor[]>();
   private readonly fieldsByChunk = new Map<number, Field[]>();
@@ -297,6 +324,7 @@ export class IslandRenderer {
     this.roadMaterial.zOffsetUnits = -4;
     this.foliageMaterial = createFoliageMaterial(scene);
     this.facadeMaterial = createFacadeMaterial(scene);
+    for (const structure of world.structures ?? []) this.bucket(this.structuresByChunk, this.keyAt(structure.x, structure.z), structure);
     for (const obstacle of world.obstacles) this.bucket(this.byChunk, this.keyAt(obstacle.x, obstacle.z), obstacle);
     for (const proxy of world.proxies ?? []) this.bucket(this.proxiesByChunk, this.keyAt(proxy.x, proxy.z), proxy);
     for (const floor of world.floors ?? []) if (floor.y0 !== floor.y1) this.bucket(this.stairsByChunk, this.keyAt(floor.x, floor.z), floor);
@@ -580,6 +608,10 @@ export class IslandRenderer {
       if (alongX) g.box(o.x + offset, y, o.z, w, h, t, color, 1); else g.box(o.x, y, o.z + offset, t, h, w, color, 1);
     };
     const id = o.id;
+    if (o.houseId && o.width > 0.3 && o.depth > 0.3) {
+      frame(0, (o.base ?? 0) + HOUSE_HEIGHT - 0.18, 0.16, length, PALETTE.trim, thick + 0.08);
+      if (!o.bottom) frame(0, bottom, 0.2, length, PALETTE.concrete, thick + 0.06);
+    }
     if (o.bottom !== undefined && Math.abs(o.bottom - DOOR_HEIGHT) < 0.01 && id.includes('-h')) {
       // Door: two posts and a lintel board.
       const base = bottom - DOOR_HEIGHT;
@@ -624,14 +656,35 @@ export class IslandRenderer {
     const key = cz * this.grid + cx;
     const assetParts: Mesh[] = [];
     let importedTrees = 0;
-    const addAsset = (asset: CoverageModel, x: number, y: number, z: number, w: number, h: number, d: number): boolean => {
+    const addAsset = (asset: CoverageModel, x: number, y: number, z: number, w: number, h: number, d: number, yaw = 0): boolean => {
       if (!useKit) return false;
       const parts = coverageParts(this.scene, asset, null, [w, h, d], `chunk-kit-${cx}-${cz}-${assetParts.length}`);
       if (!parts) return false;
-      for (const part of parts) { part.position.set(x, y, z); assetParts.push(part); }
+      for (const part of parts) { part.position.set(x, y, z); part.rotation.y = yaw; assetParts.push(part); }
+      return true;
+    };
+    const readyStructures = new Set((this.world.structures ?? []).filter(s => useKit && LANDMARK_SPECS[s.kind].pieces.every(p => hasCoverageModel(this.scene, p.model))).map(s => s.id));
+    for (const s of this.structuresByChunk.get(key) ?? []) {
+      if (!readyStructures.has(s.id)) continue;
+      for (const piece of LANDMARK_SPECS[s.kind].pieces) addAsset(piece.model, s.x + piece.x, s.base + piece.y, s.z + piece.z, piece.width, piece.height, piece.depth, 'yaw' in piece ? piece.yaw : 0);
+    }
+    const addPanel = (asset: CoverageModel, o: Obstacle, y: number, h: number): boolean => {
+      if (!useKit || !hasCoverageModel(this.scene, asset)) return false;
+      const alongX = o.width >= o.depth, length = alongX ? o.width : o.depth, thick = alongX ? o.depth : o.width;
+      const count = Math.ceil(length / 4), step = length / count;
+      for (let i = 0; i < count; i++) {
+        const offset = -length / 2 + step * (i + 0.5);
+        const px = o.x + (alongX ? offset : 0), pz = o.z + (alongX ? 0 : offset);
+        if (asset === 'k-urban-wall') {
+          // This authored brick panel is a plane; a solid core and two faces give the wall its physical thickness.
+          geometry.box(px, y, pz, alongX ? step : thick, h, alongX ? thick : step, PALETTE.plaster[Math.floor(hashString(o.houseId ?? o.id) * 5)]);
+          for (const side of [-1, 1]) addAsset(asset, px + (alongX ? 0 : side * (thick / 2 + 0.005)), y, pz + (alongX ? side * (thick / 2 + 0.005) : 0), step, h, thick, alongX ? 0 : Math.PI / 2);
+        } else addAsset(asset, px, y, pz, step, h, thick, alongX ? 0 : Math.PI / 2);
+      }
       return true;
     };
     for (const obstacle of this.byChunk.get(key) ?? []) {
+      if (obstacle.structureId && readyStructures.has(obstacle.structureId)) continue;
       geometry.finish = obstacle.kind === 'crate' ? 'wood' : obstacle.kind === 'tree' ? 'bark'
         : obstacle.kind === 'roof' ? 'roof' : obstacle.kind === 'rock' ? 'rock'
         : obstacle.kind === 'wall' || obstacle.kind === 'building' ? 'plaster' : 'plain';
@@ -639,7 +692,7 @@ export class IslandRenderer {
       const base = obstacleBase(obstacle);
       const bottom = base + (obstacle.bottom ?? 0);
       const height = base + obstacle.height - bottom;
-      const seed = hashString(obstacle.id.replace(/-(?:[nsew]-[a-z]\d?|roof|crate)$/, ''));
+      const seed = hashString(obstacle.houseId ?? obstacle.id.replace(/-(?:[nsew]-[a-z]\d?|roof|crate)$/, ''));
       if (far) {
         if (obstacle.kind === 'tree') {
           // Distant trees are just two crossed cards.
@@ -650,32 +703,93 @@ export class IslandRenderer {
               0, height * 0.76, height * 0.6, ATLAS.leaves, [v * 0.98, v, v * 0.95], 0.77);
           } else for (let k = 0; k < 2; k++) cards.card(obstacle.x, bottom + height * 0.5, obstacle.z, k * Math.PI / 2 + seed * 3,
             0, height * 0.9, height, ATLAS.conifer, [v * 0.98, v, v * 0.96], 0.85);
-        } else if (obstacle.kind === 'roof') {
+        } else if (obstacle.kind === 'roof' && obstacle.roofShape !== 'flat') {
           const rise = Math.max(0.9, Math.min(obstacle.width, obstacle.depth) * 0.3);
           const plaster = PALETTE.plaster[Math.floor(seed * 5)];
           geometry.finish = 'plaster';
-          geometry.box(obstacle.x, base, obstacle.z, obstacle.width - 0.6, HOUSE_HEIGHT, obstacle.depth - 0.6, plaster, 0.85);
-          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.roof[Math.floor(seed * 5)], plaster);
+          geometry.box(obstacle.x, base, obstacle.z, obstacle.width - 0.6, bottom - base, obstacle.depth - 0.6, plaster, 0.85);
+          if (obstacle.houseStyle === 'hipped') geometry.hip(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.roof[Math.floor(seed * 5)]);
+          else geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.roof[Math.floor(seed * 5)], plaster);
         } else if (obstacle.kind === 'building') geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, PALETTE.block[Math.floor(seed * 3)]);
         continue;
       }
       switch (obstacle.kind) {
         case 'wall':
+          if (obstacle.houseId && /-porch-[we]$/.test(obstacle.id) && addAsset('k-column', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) break;
+          if (obstacle.id.startsWith('bunker-') && addPanel('k-dungeon-wall', obstacle, bottom, height)) { this.trim(geometry, obstacle, bottom); break; }
+          if (obstacle.houseStyle === 'brick' && addPanel('k-urban-wall', obstacle, bottom, height)) { this.trim(geometry, obstacle, bottom); break; }
+          if (obstacle.houseStyle === 'timber' && addPanel('k-timber-wall', obstacle, bottom, height)) { this.trim(geometry, obstacle, bottom); break; }
+          if (/base.*-fence-/.test(obstacle.id) && addPanel('k-castle-wall', obstacle, bottom, height)) break;
           // A solid wall segment maps to one solid kit panel. Door/window gaps remain gaps in world data.
-          if (addAsset('k-wall', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) { this.trim(geometry, obstacle, bottom); break; }
+          if (!obstacle.houseId && addAsset('k-wall', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) { this.trim(geometry, obstacle, bottom); break; }
           geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.plaster[Math.floor(seed * 5)], 0.96 + cellHash(obstacle.x, obstacle.z) * 0.08), obstacle.bottom ? 0.9 : 0.68);
           this.trim(geometry, obstacle, bottom);
           break;
         case 'roof': {
+          if (obstacle.roofShape === 'flat') {
+            const turn = obstacle.width < obstacle.depth;
+            if (addAsset('k-roof-flat-awning-a', obstacle.x, bottom, obstacle.z, turn ? obstacle.depth : obstacle.width, height, turn ? obstacle.width : obstacle.depth, turn ? Math.PI / 2 : 0)) break;
+            geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, PALETTE.roof[Math.floor(seed * 5)]);
+            break;
+          }
           const color = PALETTE.roof[Math.floor(seed * 5)];
           const rise = Math.max(0.9, Math.min(obstacle.width, obstacle.depth) * 0.3);
-          geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, color, PALETTE.plaster[Math.floor(seed * 5)]);
+          const roofAsset = obstacle.houseStyle === 'brick' ? 'k-urban-roof' : obstacle.houseStyle === 'hipped' ? 'k-hip-roof' : obstacle.houseStyle ? 'k-town-roof' : null;
+          const roofTurn = obstacle.width < obstacle.depth;
+          const importedRoof = roofAsset && addAsset(roofAsset, obstacle.x, bottom, obstacle.z, roofTurn ? obstacle.depth : obstacle.width, rise, roofTurn ? obstacle.width : obstacle.depth, roofTurn ? Math.PI / 2 : 0);
+          if (!importedRoof) {
+            if (obstacle.houseStyle === 'hipped') geometry.hip(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, color);
+            else geometry.gable(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, color, PALETTE.plaster[Math.floor(seed * 5)]);
+          } else if (obstacle.houseStyle === 'brick') geometry.gableEnds(obstacle.x, bottom, obstacle.z, obstacle.width, obstacle.depth, rise, PALETTE.plaster[Math.floor(seed * 5)]);
+          if (obstacle.houseStyle === 'mill' && !obstacle.id.endsWith('-wing-roof')) {
+            const diameter = Math.min(4.4, rise * 1.5 + 1.8), alongX = obstacle.width >= obstacle.depth;
+            addAsset('k-mill-blades', obstacle.x + (alongX ? obstacle.width / 2 + 0.18 : 0),
+              Math.max(base + 2.3, bottom + rise * 0.6 - diameter / 2), obstacle.z + (alongX ? 0 : obstacle.depth / 2 + 0.18),
+              0.3, diameter, diameter, alongX ? 0 : Math.PI / 2);
+          }
+
+          if (obstacle.houseId) {
+            // Kit details sit above player height or against solid corners of the facade.
+            const kitAlongX = obstacle.width >= obstacle.depth;
+            const gutterX = obstacle.x + obstacle.width / 2 - 0.35;
+            const gutterZ = obstacle.z - obstacle.depth / 2 + 0.05;
+            addAsset('k-gutter-vertical', gutterX, base + 0.15, gutterZ, 0.16, bottom - base - 0.15, 0.16);
+            if (!obstacle.id.endsWith('-wing-roof') && seed < 0.45) {
+              const acX = obstacle.x + (kitAlongX ? obstacle.width * 0.27 : obstacle.width / 2 - 0.2);
+              const acZ = obstacle.z + (kitAlongX ? obstacle.depth / 2 - 0.2 : obstacle.depth * 0.27);
+              addAsset('k-detail-ac-a', acX, base + 2.3, acZ, 0.85, 0.42, 0.32, kitAlongX ? 0 : Math.PI / 2);
+            }
+            // Fascia boards and a gutter give the eaves depth; all details merge into the chunk mesh.
+            geometry.finish = 'wood';
+            const fascia = shade(color, 0.55);
+            for (const side of [-1, 1]) {
+              if (obstacle.width >= obstacle.depth) {
+                geometry.box(obstacle.x, bottom - 0.12, obstacle.z + side * obstacle.depth / 2, obstacle.width + 0.08, 0.2, 0.14, fascia);
+              } else {
+                geometry.box(obstacle.x + side * obstacle.width / 2, bottom - 0.12, obstacle.z, 0.14, 0.2, obstacle.depth + 0.08, fascia);
+              }
+            }
+            geometry.finish = 'plain';
+            const alongX = obstacle.width >= obstacle.depth;
+            // Louvered attic vents are backed by the solid gable, outside the playable room.
+            if (obstacle.houseStyle !== 'hipped') for (const side of [-1, 1]) {
+              const vx = obstacle.x + (alongX ? side * (obstacle.width / 2 + 0.015) : 0);
+              const vz = obstacle.z + (alongX ? 0 : side * (obstacle.depth / 2 + 0.015));
+              geometry.box(vx, bottom + rise * 0.3, vz, alongX ? 0.06 : 0.7, 0.5, alongX ? 0.7 : 0.06, PALETTE.door);
+              for (let i = 0; i < 3; i++) geometry.box(vx, bottom + rise * 0.3 + 0.07 + i * 0.14, vz,
+                alongX ? 0.09 : 0.76, 0.045, alongX ? 0.76 : 0.09, PALETTE.trim);
+            }
+          }
           // A slim ridge cap, and on some houses a chimney.
-          if (obstacle.width >= obstacle.depth) geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, obstacle.width, 0.16, 0.34, shade(color, 0.7), 1);
-          else geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, 0.34, 0.16, obstacle.depth, shade(color, 0.7), 1);
+          if (obstacle.houseStyle !== 'hipped') {
+            if (obstacle.width >= obstacle.depth) geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, obstacle.width, 0.16, 0.34, shade(color, 0.7), 1);
+            else geometry.box(obstacle.x, bottom + rise - 0.05, obstacle.z, 0.34, 0.16, obstacle.depth, shade(color, 0.7), 1);
+          }
           if (seed > 0.55) {
             geometry.finish = 'plaster';
-            geometry.box(obstacle.x + (seed - 0.55) * obstacle.width * 0.6, bottom + rise * 0.45, obstacle.z, 0.7, rise * 0.9 + 0.6, 0.7, hex('#76706a'), 0.85);
+            const chimneyX = obstacle.x + (seed - 0.55) * obstacle.width * 0.6;
+            if (!obstacle.houseId || !addAsset('k-chimney-small', chimneyX, bottom + rise * 0.45, obstacle.z, 0.7, rise * 0.9 + 0.6, 0.7))
+              geometry.box(chimneyX, bottom + rise * 0.45, obstacle.z, 0.7, rise * 0.9 + 0.6, 0.7, hex('#76706a'), 0.85);
           }
           break;
         }
@@ -689,7 +803,7 @@ export class IslandRenderer {
           break;
         case 'crate': {
           // Building interiors already reserve these solid footprints as furniture/cover.
-          const choices: CoverageModel[] = /hospital/.test(obstacle.id) ? ['k-bedSingle', 'k-desk']
+          const choices: CoverageModel[] = obstacle.furnishing === 'bed' ? ['k-bedSingle'] : obstacle.furnishing === 'table' ? ['k-desk'] : /hospital/.test(obstacle.id) ? ['k-bedSingle', 'k-desk']
             : /base|barrack/.test(obstacle.id) ? ['k-bedBunk', 'k-chest']
             : /factory|hangar|bunker/.test(obstacle.id) ? ['k-barrel', 'k-box-large', 'k-pipe-large-long']
             : /-\d+-crate/.test(obstacle.id) ? ['k-chair', 'k-desk', 'k-bookcaseOpen'] : ['k-box-large'];
@@ -722,8 +836,9 @@ export class IslandRenderer {
     if (facade) facade.receiveShadows = true;
     // Sorting makes equal-material index ranges consecutive, allowing Babylon to consolidate draw calls.
     assetParts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0));
+    const coverageModels = [...new Set(assetParts.map(part => part.metadata?.coverageAsset))];
     const assets = assetParts.length ? Mesh.MergeMeshes(assetParts, true, true, undefined, false, true) : null;
-    if (assets) { assets.name = `kit-props-${cx}-${cz}`; assets.metadata = { solid: true, coverageEnvironment: true }; assets.receiveShadows = true; assets.freezeWorldMatrix(); }
+    if (assets) { assets.name = `kit-props-${cx}-${cz}`; assets.metadata = { solid: true, coverageEnvironment: true, coverageModels }; assets.receiveShadows = true; assets.freezeWorldMatrix(); }
     return { props: mesh, foliage, facade, assets };
   }
 

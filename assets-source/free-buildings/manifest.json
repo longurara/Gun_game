@@ -4563,5 +4563,3117 @@
         "sha256": "61f99e7fbf5e11420154e4c01cd0791d04a2f4eaf7872f0c1bced65de917d14f"
       }
     ]
+  },
+  {
+    "slug": "fantasy-town-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/fantasy-town-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/fantasy-town-kit/efe948d309-1754222374/kenney_fantasy-town-kit_2.0.zip",
+    "zipBytes": 3854691,
+    "zipSha256": "1a7530c09f4d2fa2cdee259876f089334f8b1f27fa86a0c4f54ef86cdd8676ef",
+    "models": 167,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 705,
+        "sha256": "fb8e4817197ef9f62215e95b4451a0f09c769c8e03e416e3a2ce108dfa6117e4"
+      },
+      {
+        "file": "Models/GLB format/balcony-wall-fence.glb",
+        "bytes": 11236,
+        "sha256": "16c43dfd257121fb93767e973b0fde09672502ca85383028c916e48126c049bc"
+      },
+      {
+        "file": "Models/GLB format/balcony-wall.glb",
+        "bytes": 7424,
+        "sha256": "3d504c3facb858d3110dcb2bba88af2c5be57d82bb07d52334a49195d022b84c"
+      },
+      {
+        "file": "Models/GLB format/banner-green.glb",
+        "bytes": 10200,
+        "sha256": "5c9a1bb7d564270306fe438fd4a141fc6de0d102b355bbd1d2710249c489868a"
+      },
+      {
+        "file": "Models/GLB format/banner-red.glb",
+        "bytes": 9988,
+        "sha256": "4e4a83de16e5979d2b34bb206d3bf3703a9039711bc658b37e3738d43090703d"
+      },
+      {
+        "file": "Models/GLB format/blade.glb",
+        "bytes": 18792,
+        "sha256": "ef54ee87322191f18f7bf93d065add896fc584578c4c913eb99ea0bb18495a14"
+      },
+      {
+        "file": "Models/GLB format/cart-high.glb",
+        "bytes": 88560,
+        "sha256": "4b0bce37e8645f3719a9032bf4d49048b7779ac891758ae6e2693238911c5eec"
+      },
+      {
+        "file": "Models/GLB format/cart.glb",
+        "bytes": 52920,
+        "sha256": "63503cd0a7398310e01aabc8e3663f711a7517394d23d179d0695157fee99d40"
+      },
+      {
+        "file": "Models/GLB format/chimney-base.glb",
+        "bytes": 8408,
+        "sha256": "f7da0ca85be73a00f65aa297023e136e6bed93b7667ef49861a97ce89fd3a6e9"
+      },
+      {
+        "file": "Models/GLB format/chimney-top.glb",
+        "bytes": 7896,
+        "sha256": "639eb7e9add8e491aa64aac94bd4ecbf1e67f8c628f3e0173f029f1c667b7590"
+      },
+      {
+        "file": "Models/GLB format/chimney.glb",
+        "bytes": 4656,
+        "sha256": "a15cdbd13860092f6d793e5b785043eb90a49cdaa725bb71df9fd154ca68dac6"
+      },
+      {
+        "file": "Models/GLB format/fence-broken.glb",
+        "bytes": 11960,
+        "sha256": "caa25191602fd94389e022c8e1f6a4963dd3b1457768e3ccff1dc8dbf4671aa4"
+      },
+      {
+        "file": "Models/GLB format/fence-curved.glb",
+        "bytes": 25408,
+        "sha256": "be132586a950f4e4830815b909d9d53fb7e8653ff14c9f03c38c9fc550f4e797"
+      },
+      {
+        "file": "Models/GLB format/fence-gate.glb",
+        "bytes": 46340,
+        "sha256": "cee58694ea5fdcca18e01318b355bfcd38eac6fad21b83f860039c287b150cc6"
+      },
+      {
+        "file": "Models/GLB format/fence.glb",
+        "bytes": 7672,
+        "sha256": "92261b9419108d84f3db0def5eadeffa783032029897562b1f512e4a7570ef48"
+      },
+      {
+        "file": "Models/GLB format/fountain-center.glb",
+        "bytes": 3280,
+        "sha256": "bd2337361b7ce93c73b69d2a8d6fbf4fe6bcffea6469f16d1643c960781fa2ba"
+      },
+      {
+        "file": "Models/GLB format/fountain-corner-inner-square.glb",
+        "bytes": 6908,
+        "sha256": "76c96385cddbe153a75088d717f63624ac5e1dd948e84f6ae540140d23825ec2"
+      },
+      {
+        "file": "Models/GLB format/fountain-corner-inner.glb",
+        "bytes": 15000,
+        "sha256": "d92a3d5aa8e5fd8dd3c4b1349171b549c57b6fe7e49e3c4776ad5d0106ec37ee"
+      },
+      {
+        "file": "Models/GLB format/fountain-corner.glb",
+        "bytes": 8272,
+        "sha256": "fb63467da36c0e14799ac2071791f9cb537eb2558206c81abf0e280753e19176"
+      },
+      {
+        "file": "Models/GLB format/fountain-curved.glb",
+        "bytes": 25048,
+        "sha256": "aec3a6ebb4eda01f392054d3ee203d8cee74c9c45d584d3d9e5e2052949bca3e"
+      },
+      {
+        "file": "Models/GLB format/fountain-edge.glb",
+        "bytes": 6024,
+        "sha256": "e75beda6d401c6c5f6a55ddc40f560a51f901156cc7ec17ad6a8150dfaec5650"
+      },
+      {
+        "file": "Models/GLB format/fountain-round-detail.glb",
+        "bytes": 136888,
+        "sha256": "05cdd740e3175c2d3208d4cb6630a279a9b4cbc48393b28c92e3e40cca2a5d6b"
+      },
+      {
+        "file": "Models/GLB format/fountain-round.glb",
+        "bytes": 84848,
+        "sha256": "8d19741e2cca6cbdce114b950b4aa12af625979bbc17b2910ef2366834af5565"
+      },
+      {
+        "file": "Models/GLB format/fountain-square-detail.glb",
+        "bytes": 32092,
+        "sha256": "c201d8e39a8699c5551c543f5dae7779b1303cce71d7769661e66282cd628f63"
+      },
+      {
+        "file": "Models/GLB format/fountain-square.glb",
+        "bytes": 27104,
+        "sha256": "bc5613a8f1f514fac805f29f2f8f1ba3dd4cb64b449f51dd02cf565a3e5c9523"
+      },
+      {
+        "file": "Models/GLB format/hedge-curved.glb",
+        "bytes": 26312,
+        "sha256": "60e7a954c1dc308193f8330d624e59d8bd2f688d1d7c5b0c1da608eb5cd431c2"
+      },
+      {
+        "file": "Models/GLB format/hedge-gate.glb",
+        "bytes": 8432,
+        "sha256": "688772aecf1c61410bfe0a257f51082bccaabed65d1794bad04226d444e7629e"
+      },
+      {
+        "file": "Models/GLB format/hedge-large-curved.glb",
+        "bytes": 25024,
+        "sha256": "aee5d522711385fbc66f39c4f91e955a806b31128522ba2285c5d3374fbc9047"
+      },
+      {
+        "file": "Models/GLB format/hedge-large-gate.glb",
+        "bytes": 18072,
+        "sha256": "22525eeeb1075a220d552085100620b8f0de6877bb903e3407c455d365d89a33"
+      },
+      {
+        "file": "Models/GLB format/hedge-large.glb",
+        "bytes": 9568,
+        "sha256": "f3aafd7064fcb53a1783cb04997d2f676038a55e0941bada74f39bcc7c86afd3"
+      },
+      {
+        "file": "Models/GLB format/hedge.glb",
+        "bytes": 6524,
+        "sha256": "12001b57dbd3ccaddd217c49e541620137d3e835d873ce0bcedc0e01180a08a9"
+      },
+      {
+        "file": "Models/GLB format/lantern.glb",
+        "bytes": 14984,
+        "sha256": "f270637e3083d6e84a30626ee05df2b09597a642985a7f5c3e4ab5bb1c7a8d55"
+      },
+      {
+        "file": "Models/GLB format/overhang.glb",
+        "bytes": 7648,
+        "sha256": "515edba27d8c6326cee6f5912b7270224672f9f3dd61e43e85e1d504913ef19c"
+      },
+      {
+        "file": "Models/GLB format/pillar-stone.glb",
+        "bytes": 11324,
+        "sha256": "1eda742ccbc67ead6edead25c687f55d8671b88786b9e23c08ae7982bccb4b7c"
+      },
+      {
+        "file": "Models/GLB format/pillar-wood.glb",
+        "bytes": 5312,
+        "sha256": "569c83dade6063399576640e80db35c34e422817ec132419fc2e2695189be5cf"
+      },
+      {
+        "file": "Models/GLB format/planks-half.glb",
+        "bytes": 10164,
+        "sha256": "fe096b7ed7b29104724feab61d65ebc06966075955bf6e044eea635ef1076043"
+      },
+      {
+        "file": "Models/GLB format/planks-opening.glb",
+        "bytes": 16360,
+        "sha256": "20540c1d80f8b4af816e139a31f6a385f436dbf2d03314176ab99ca35452e11c"
+      },
+      {
+        "file": "Models/GLB format/planks.glb",
+        "bytes": 11148,
+        "sha256": "619705afa7ad290bfa499a701fd7ea07210ad535126cb3abc245b6f16e1420ab"
+      },
+      {
+        "file": "Models/GLB format/poles-horizontal.glb",
+        "bytes": 5660,
+        "sha256": "058d3816d57dca64dbc1e9a30e85c6e5e3aca2561bf57083acdce0ed3f375b29"
+      },
+      {
+        "file": "Models/GLB format/poles.glb",
+        "bytes": 4212,
+        "sha256": "5e6e9cbbcf29b042191781f830f928471c57f1dc7843ee33e2f7c1bff3edf522"
+      },
+      {
+        "file": "Models/GLB format/road-bend.glb",
+        "bytes": 25044,
+        "sha256": "a4d8fbe9080849dccb45de7ac5f5ded2e17a3d893b8c07338e24193b28e1f03f"
+      },
+      {
+        "file": "Models/GLB format/road-corner-inner.glb",
+        "bytes": 13552,
+        "sha256": "0a998ac30f4be6f3a7d9f2e1f4e61edf35c5d9d99201b1389024921d45038661"
+      },
+      {
+        "file": "Models/GLB format/road-corner.glb",
+        "bytes": 13736,
+        "sha256": "96525a726a15410faf52bb4b813a985704fdbca37aec6d93808b8c18b9ec1e7d"
+      },
+      {
+        "file": "Models/GLB format/road-curb-end.glb",
+        "bytes": 4828,
+        "sha256": "d3381ca4cae823dfa3f5f361810b6259197486e73c083793ac62ca312f182f6e"
+      },
+      {
+        "file": "Models/GLB format/road-curb.glb",
+        "bytes": 2804,
+        "sha256": "236faeba46e3a0f5e3ec2b80f8ed57048e5b95a1a407526ebda35a3da143317c"
+      },
+      {
+        "file": "Models/GLB format/road-edge-slope.glb",
+        "bytes": 5724,
+        "sha256": "afbdfd9ef63c5c1dc9a99bb4f3ecbc94308300995b7958483014cd7f234484fc"
+      },
+      {
+        "file": "Models/GLB format/road-edge.glb",
+        "bytes": 4912,
+        "sha256": "fdefb02b17eddb4543379841a727c41a9ca0b800953a681974e63798f80ce410"
+      },
+      {
+        "file": "Models/GLB format/road-slope.glb",
+        "bytes": 2820,
+        "sha256": "97d7e6c5aa5762de408c2053ceed88b4be77ac6d3ca79588d11ab3e1e0fa9094"
+      },
+      {
+        "file": "Models/GLB format/road.glb",
+        "bytes": 2788,
+        "sha256": "85630c89588bdc19285a7b5e894c1ddac69d7ce2b069966453800519e446f900"
+      },
+      {
+        "file": "Models/GLB format/rock-large.glb",
+        "bytes": 18876,
+        "sha256": "425bea0dd3c8d9198a067a2faad1df8860c5b9eb53560ce5c67347a79852b9d1"
+      },
+      {
+        "file": "Models/GLB format/rock-small.glb",
+        "bytes": 12620,
+        "sha256": "2f2ca3e9970124b81bde77cec3b1a337410a5c76336ce5dec5760aff1b415316"
+      },
+      {
+        "file": "Models/GLB format/rock-wide.glb",
+        "bytes": 15172,
+        "sha256": "236082a8c9dec4cef61f00f7f77e4a2050d1083852af65d27dd3c16a53c54b64"
+      },
+      {
+        "file": "Models/GLB format/roof-corner-inner.glb",
+        "bytes": 4464,
+        "sha256": "2b2f61d1695b88acdef05f0263ed20fb3a4f8d5c6aee12d3f9e5cebe29e08d9c"
+      },
+      {
+        "file": "Models/GLB format/roof-corner-round.glb",
+        "bytes": 5836,
+        "sha256": "86285841d25d70921548bce543ecde08b66e1171c49ee1cc6f6ddf23d7aa7577"
+      },
+      {
+        "file": "Models/GLB format/roof-corner.glb",
+        "bytes": 4996,
+        "sha256": "122d00bf873e5928eecf334785f1daf005c6f04033552258e97bf1cb1000b353"
+      },
+      {
+        "file": "Models/GLB format/roof-flat.glb",
+        "bytes": 3448,
+        "sha256": "48bc045365398c92291f65ab80038670b14f85974aadedc3d17847254a0881b5"
+      },
+      {
+        "file": "Models/GLB format/roof-gable-detail.glb",
+        "bytes": 12028,
+        "sha256": "41ffddc760e9599428310188d96a44af80f23a243f9255748f418fd70123fdc2"
+      },
+      {
+        "file": "Models/GLB format/roof-gable-end.glb",
+        "bytes": 6056,
+        "sha256": "2ee635e8550180bb7840f7fdfff0b0835a34a425ffb903f19657cde65c261704"
+      },
+      {
+        "file": "Models/GLB format/roof-gable-top.glb",
+        "bytes": 6572,
+        "sha256": "584761438f511db6c0c36a602b0cb7a84484acaebf94b96c722d6c8f188d57e9"
+      },
+      {
+        "file": "Models/GLB format/roof-gable.glb",
+        "bytes": 7632,
+        "sha256": "4bb6bdbcadbb8ebeb69d720e29f6c2e57c99d98966baa41fd86914d3c13d6039"
+      },
+      {
+        "file": "Models/GLB format/roof-high-corner-round.glb",
+        "bytes": 6056,
+        "sha256": "fa4736aa73d17b55b20b5cfcbfc83160c4a18a4e9563ede334d0c7d2327ed727"
+      },
+      {
+        "file": "Models/GLB format/roof-high-corner.glb",
+        "bytes": 5008,
+        "sha256": "3ecd2f3fadaed67a2c713b272c7b8f73f60709752f8529bb34f9f92925123a4f"
+      },
+      {
+        "file": "Models/GLB format/roof-high-cornerinner.glb",
+        "bytes": 4284,
+        "sha256": "e1ab3e28f921d131c6f6ede216f6df1a0497ce1556fcfa94cacdce44b7ec31b3"
+      },
+      {
+        "file": "Models/GLB format/roof-high-flat.glb",
+        "bytes": 3464,
+        "sha256": "ff3cff6e3fa40a6f82271b82c425d732f32374e14c1c63f7e9c0db1d55d54cb2"
+      },
+      {
+        "file": "Models/GLB format/roof-high-gable-detail.glb",
+        "bytes": 12840,
+        "sha256": "d0b95f79cca6bc347d9479fa7a80dfc2b65b56f0f1ed00799893a21b0d9b5f68"
+      },
+      {
+        "file": "Models/GLB format/roof-high-gable-end.glb",
+        "bytes": 6268,
+        "sha256": "5f31970df848c6ffa95de3300f786bec2a331c63b1cb505ad893027ca67bf187"
+      },
+      {
+        "file": "Models/GLB format/roof-high-gable-top.glb",
+        "bytes": 6568,
+        "sha256": "5e94a86388c83c330f2b7178e6fb96bdb6674528538e1c5b29d4acfca3de995a"
+      },
+      {
+        "file": "Models/GLB format/roof-high-gable.glb",
+        "bytes": 7456,
+        "sha256": "21c54b2645ba33846f43410e6cef4d4f9239bc172bfb12f3227a6ec232977e2d"
+      },
+      {
+        "file": "Models/GLB format/roof-high-left.glb",
+        "bytes": 11376,
+        "sha256": "f4cf3fc08e5155015af7bd28dca8b2effe96fe3743276a5561119a3e7368cba4"
+      },
+      {
+        "file": "Models/GLB format/roof-high-point.glb",
+        "bytes": 6192,
+        "sha256": "dd26c8d572f05a4725317de01415a17819b2d12cf01c8907bb2116b4ad8e85e9"
+      },
+      {
+        "file": "Models/GLB format/roof-high-right.glb",
+        "bytes": 10996,
+        "sha256": "1c04bb5ecf61a660126cf28d64f2d06ddbf645a9e76598bb7af5828325968f79"
+      },
+      {
+        "file": "Models/GLB format/roof-high-window.glb",
+        "bytes": 20732,
+        "sha256": "b5bea885f9dc0a2b1195748a1c4b9994e16256ab740b6cdc6783ebbcf8b96946"
+      },
+      {
+        "file": "Models/GLB format/roof-high.glb",
+        "bytes": 8088,
+        "sha256": "7d39cd8fdcb8bd652d8a40f5f54e5e3d2c41bc1bb84691334f75bc411024cb12"
+      },
+      {
+        "file": "Models/GLB format/roof-left.glb",
+        "bytes": 12904,
+        "sha256": "ff3fdc7d3572ee0f20746ae4d5b02a6ad26c185468b48fd0950852231cf81f15"
+      },
+      {
+        "file": "Models/GLB format/roof-point.glb",
+        "bytes": 6180,
+        "sha256": "a7dfd157128e04105e976d7a47f772e95e4bd9f3d73b87a00b43861f406b94f8"
+      },
+      {
+        "file": "Models/GLB format/roof-right.glb",
+        "bytes": 13004,
+        "sha256": "5f88d69d73a0beb5d74a69928adcb8aa6464c4ec3ad34b7c154c4ddcb17ad5f3"
+      },
+      {
+        "file": "Models/GLB format/roof-window.glb",
+        "bytes": 15524,
+        "sha256": "9c95c71b7ea2a284f9ea37d0f684fe5aa654cdff14815969bc97d234014bbd53"
+      },
+      {
+        "file": "Models/GLB format/roof.glb",
+        "bytes": 9324,
+        "sha256": "8f245dfc04b8e76b2833081462f7530c2aea9114a703161c1d9a4a975927347d"
+      },
+      {
+        "file": "Models/GLB format/stairs-full-corner-inner.glb",
+        "bytes": 8304,
+        "sha256": "4065d32494ad3ffca8d4d351f27f7927ff0c4c8f8deb99a2464210bcef58a208"
+      },
+      {
+        "file": "Models/GLB format/stairs-full-corner-outer.glb",
+        "bytes": 9440,
+        "sha256": "61431fa509a2ea13c43c5cb532dae2c70a08f56267ba83fe2ad76fa2e53ddb68"
+      },
+      {
+        "file": "Models/GLB format/stairs-full.glb",
+        "bytes": 7064,
+        "sha256": "d2ebf8c1ec86f75024d9f7931951d7e8fc4665349365b9e6886fadebbd108e9d"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone-corner.glb",
+        "bytes": 12792,
+        "sha256": "4fd7ab97b286ab1c57ae66ab62eb0325a0f9b25880eeb24767a42036146bb5d7"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone-handrail.glb",
+        "bytes": 23428,
+        "sha256": "715e36185b27fcc37a84c345740584a10897a9148ba66050cda4a49eae4f7262"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone-round.glb",
+        "bytes": 17840,
+        "sha256": "78794e160a030dedc6b5b7a376d50b129f7052683b3cdae9904a4ad5dbe96f38"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone.glb",
+        "bytes": 12172,
+        "sha256": "ce92a069280c069d675f030a7258a50f5271cd8070e84339c120faa6c115e61d"
+      },
+      {
+        "file": "Models/GLB format/stairs-wide-stone-handrail.glb",
+        "bytes": 23440,
+        "sha256": "def3d44694a5393d3ddc1c002d09db90387dcef820286961ac506b0b9fc7009b"
+      },
+      {
+        "file": "Models/GLB format/stairs-wide-stone.glb",
+        "bytes": 12188,
+        "sha256": "b28dae600de5c1759993dd363e18eebb40db6db544d94f7f56fb8829bc7f38be"
+      },
+      {
+        "file": "Models/GLB format/stairs-wide-wood-handrail.glb",
+        "bytes": 43904,
+        "sha256": "474816e2464c0a4a2e0b1d15ac999b9aa4b4f9a47a3521342cd8fdb77599a872"
+      },
+      {
+        "file": "Models/GLB format/stairs-wide-wood.glb",
+        "bytes": 33060,
+        "sha256": "33f06f1d5f926997e2709741884fd1f4bd86ce4cfc753a74257d2a9e3efffdb6"
+      },
+      {
+        "file": "Models/GLB format/stairs-wood-handrail.glb",
+        "bytes": 44228,
+        "sha256": "206895c4887b620590c9e31ce00aa57179c042f6b1756c0d03c21a17a0431bbf"
+      },
+      {
+        "file": "Models/GLB format/stairs-wood.glb",
+        "bytes": 33384,
+        "sha256": "f6be9e5f77572d493dce374b68d231f116800ce388a3dcb0d646032162ccadd9"
+      },
+      {
+        "file": "Models/GLB format/stall-bench.glb",
+        "bytes": 14168,
+        "sha256": "5a4b379488241394916991c4b482ec4863c05bb548ca8751f5c3935f1f6e5b9c"
+      },
+      {
+        "file": "Models/GLB format/stall-green.glb",
+        "bytes": 27120,
+        "sha256": "2da2f7b31cde5d943d7c08c457bbb39797ef0a607921fde0b8455f338ce40205"
+      },
+      {
+        "file": "Models/GLB format/stall-red.glb",
+        "bytes": 24304,
+        "sha256": "aa20a630f417032c46aaefbc779fd2b3355b451bf05d31acc36fd664146866b1"
+      },
+      {
+        "file": "Models/GLB format/stall-stool.glb",
+        "bytes": 14172,
+        "sha256": "50c6b512d810687f40e27c7a43b2864e5f7bc84f16ff7a4112cea4807676c336"
+      },
+      {
+        "file": "Models/GLB format/stall.glb",
+        "bytes": 11500,
+        "sha256": "f0a636fccb7d57c38f5acd58881c468f4872f1bcda1e9fd9b1118e76110565a1"
+      },
+      {
+        "file": "Models/GLB format/Textures/colormap.png",
+        "bytes": 11143,
+        "sha256": "4aac939dc33195e35caf8c382ee3cb170054da763577f22d3c22692ec6afccdf"
+      },
+      {
+        "file": "Models/GLB format/tree-crooked.glb",
+        "bytes": 19252,
+        "sha256": "da4349701dd3fc474f7bb03cfe8b230bec0919025d8d1ecac0d1061a23c5e910"
+      },
+      {
+        "file": "Models/GLB format/tree-high-crooked.glb",
+        "bytes": 21744,
+        "sha256": "a9af8768a5328c62694a42f67858a88eea974ad4540c5c3c54a7a70fdead7505"
+      },
+      {
+        "file": "Models/GLB format/tree-high-round.glb",
+        "bytes": 13176,
+        "sha256": "7f372e338cbf5514a41e8d2afda81acd67277a4c5ad4e6e35a9acfa4a6e3bc4b"
+      },
+      {
+        "file": "Models/GLB format/tree-high.glb",
+        "bytes": 20700,
+        "sha256": "2dbb718a81d9c3697c069495f58840f6c2002c8cdd13388be560c2199f6d03e7"
+      },
+      {
+        "file": "Models/GLB format/tree.glb",
+        "bytes": 18188,
+        "sha256": "e8d81b97297de62699b92559cee7b247da84b1815df2515e42fd5a318a30b8d7"
+      },
+      {
+        "file": "Models/GLB format/wall-arch-top-detail.glb",
+        "bytes": 16076,
+        "sha256": "24457e03e5dff3e074a79f9789953dd7fbb93bbd89254cdb751ddf4363a9a6de"
+      },
+      {
+        "file": "Models/GLB format/wall-arch-top.glb",
+        "bytes": 12876,
+        "sha256": "ae5f068bed777a7a698a770011b340e62b590751ebcc61d662b5b4a48369b698"
+      },
+      {
+        "file": "Models/GLB format/wall-arch.glb",
+        "bytes": 4840,
+        "sha256": "18076d2770925a570c10708c2726e92f99226a940beb8435b21dfb71e20adcf9"
+      },
+      {
+        "file": "Models/GLB format/wall-block-half.glb",
+        "bytes": 8564,
+        "sha256": "c875a1d86faf9eab5af9152c0fd06b91cea4693e92780f949d505a5186925e32"
+      },
+      {
+        "file": "Models/GLB format/wall-block.glb",
+        "bytes": 8532,
+        "sha256": "daa35e5b32d7941f3dc61f64f6f9630b70441478d652989cd6c02a908b84af86"
+      },
+      {
+        "file": "Models/GLB format/wall-broken.glb",
+        "bytes": 16904,
+        "sha256": "043f74b83254c32379d0fe60b066c5ded7f3396ccc91df443aea1763d492fa23"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-detail.glb",
+        "bytes": 15748,
+        "sha256": "2382ce760563264c57e3e5fcccd9b31a80a97dc316b289813558d053ec22495b"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-diagonal-half.glb",
+        "bytes": 4788,
+        "sha256": "3e689a3e266865a44030d22fd645dd7605a1b6e7fb679bbb2355c18da6258344"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-diagonal.glb",
+        "bytes": 6032,
+        "sha256": "6218647612c1138f1897d4cde4774f399570a91411cca28d4095ee4d1e19f1e4"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-edge.glb",
+        "bytes": 5416,
+        "sha256": "dd8d24f82cd3d4d0ac9776a4d54aaefb69312d834bcfb0907bf8e63d1699ffda"
+      },
+      {
+        "file": "Models/GLB format/wall-corner.glb",
+        "bytes": 6788,
+        "sha256": "d67d4c6210d5e877ce24ccfb42cb3eab1576f7addb689924e7776d6b73e4165a"
+      },
+      {
+        "file": "Models/GLB format/wall-curved.glb",
+        "bytes": 11432,
+        "sha256": "d55b3e931383c0f9f6311a586a01cca57d64e06146d260c8d08a9d39987f6d59"
+      },
+      {
+        "file": "Models/GLB format/wall-detail-cross.glb",
+        "bytes": 8464,
+        "sha256": "7af8fba9e7022c500289bee84fcbe02a1fdad0c2afc0276155a82c1021d6456d"
+      },
+      {
+        "file": "Models/GLB format/wall-detail-diagonal.glb",
+        "bytes": 6672,
+        "sha256": "c568992d9f558b0f8778124c965770a7486d5ca7b371dc2fb3154cd6c0dfd528"
+      },
+      {
+        "file": "Models/GLB format/wall-detail-horizontal.glb",
+        "bytes": 6240,
+        "sha256": "ff7607024a93d3e7256dc4975afb038e9299a08bdfb40a544fcabe40c9be29e4"
+      },
+      {
+        "file": "Models/GLB format/wall-diagonal.glb",
+        "bytes": 5212,
+        "sha256": "b1be46b9aae995aa34101e6aa62987624fbf9b3d814a67b4cb48d57958e38290"
+      },
+      {
+        "file": "Models/GLB format/wall-door.glb",
+        "bytes": 29276,
+        "sha256": "79b2d40db110ca96a6e77d4261da665fdf8c68f4c20c2afef5bce1c28ad72857"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway-base.glb",
+        "bytes": 8028,
+        "sha256": "4e2629d59e471e96c6661e29044cd32567191745671d00d75666328b2c7e1a05"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway-round.glb",
+        "bytes": 13332,
+        "sha256": "773ccde0f2b39d7fa61e5093fc4f11b137732a5becbe278c9dae03917895fe98"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway-square-wide-curved.glb",
+        "bytes": 14316,
+        "sha256": "d29b18fafb53b9280c7781b79514c5b3059a12c26586a78e0391eb055135b4a2"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway-square-wide.glb",
+        "bytes": 5864,
+        "sha256": "74bd794d5b0b45902541da75555d60cc690359390d05f5cf364606347a0dd9ba"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway-square.glb",
+        "bytes": 7844,
+        "sha256": "1ad6ca0f201c602d7ead56f395744ffd87ba8e5d6e16148d60d0c13e31cf85f3"
+      },
+      {
+        "file": "Models/GLB format/wall-half.glb",
+        "bytes": 4808,
+        "sha256": "b64b5d8a8d3aa472162e3c00197fc24253a791a6100b8b63590d42eb2fb62eb4"
+      },
+      {
+        "file": "Models/GLB format/wall-rounded.glb",
+        "bytes": 12616,
+        "sha256": "a09474e4d3992b5656e4999ceafa8c92500373b82c17f83216563c80dd6f6b54"
+      },
+      {
+        "file": "Models/GLB format/wall-side.glb",
+        "bytes": 3852,
+        "sha256": "0ac077f8aa296060f548614e82a7fbfe6a09b5f8bad3453c7c6bb27e7df95119"
+      },
+      {
+        "file": "Models/GLB format/wall-slope.glb",
+        "bytes": 4812,
+        "sha256": "a7a1ea684f57370a796009353fb469b3f8eb676be544b7980e1b1059ddb5d2af"
+      },
+      {
+        "file": "Models/GLB format/wall-window-glass.glb",
+        "bytes": 15708,
+        "sha256": "b0d666b1850d0b92734bdea736a062b4424fd909d13495f4a73719eb51bb41f4"
+      },
+      {
+        "file": "Models/GLB format/wall-window-round.glb",
+        "bytes": 22356,
+        "sha256": "ec911d8b3bd041ff46d5f5b21a04c2e1bcd006c51262866da94dc24a2c21e41c"
+      },
+      {
+        "file": "Models/GLB format/wall-window-shutters.glb",
+        "bytes": 23892,
+        "sha256": "58a641a03fc4a5a225663969cc257fcf4f2fc63c199b4aca16b612142ff9eed0"
+      },
+      {
+        "file": "Models/GLB format/wall-window-small.glb",
+        "bytes": 9376,
+        "sha256": "44516aac3d06ee8d2694cfd57d0c6e1e27ca2d0bc45b738ea1f0d1821da10110"
+      },
+      {
+        "file": "Models/GLB format/wall-window-stone.glb",
+        "bytes": 12484,
+        "sha256": "7ed37c9b795febc8b414d75ccdf9e8c04a94a791a9adbf6e548ed6ddbf0aba3c"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-arch-top-detail.glb",
+        "bytes": 16092,
+        "sha256": "6ad402b907878ba59bb148610eb50fa8439ac27b78eb3ede2e621f2d12235621"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-arch-top.glb",
+        "bytes": 12892,
+        "sha256": "595a0235499eb7adc79c4bb8ddd49cda81e170d70632e22bfa83756909eae345"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-arch.glb",
+        "bytes": 4856,
+        "sha256": "bdfa9cfc79b0e7fd272d726acd8f087e97acbd2db7ec36348c2736b7bb7c046a"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-block-half.glb",
+        "bytes": 8580,
+        "sha256": "8a31ac1fba82a195a02ef225f83e0bbe35208b604b4bd733142aa3c26810b490"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-block.glb",
+        "bytes": 8548,
+        "sha256": "c405053f4ac8ae0c85e9973613d205f0bc9dff0a5fe95a4910823384e131e824"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-broken.glb",
+        "bytes": 16344,
+        "sha256": "53b61a341f0d6bd82256955f8dc29c4c714fcee115a9e803b28938fcfe1ae597"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-corner-diagonal-half.glb",
+        "bytes": 4804,
+        "sha256": "712d57235e7d58e5b38b6766681834cb196c4efac5ffae5f0b5e5e270fdd91f6"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-corner-diagonal.glb",
+        "bytes": 6048,
+        "sha256": "43926de9d29254661bb5ee5cd939c3a32d495e763139c321d5c0a41fc362d801"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-corner-edge.glb",
+        "bytes": 5432,
+        "sha256": "f70b92efea5af19f4ac9c0c19af7727e8105f28a4c415313e8878fc4bde9d326"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-corner.glb",
+        "bytes": 6804,
+        "sha256": "f4c38de352c80c110874fabe7323577d985af191c25242887574238146dc7d82"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-curved.glb",
+        "bytes": 11444,
+        "sha256": "2b7a46fea0256cb09262242a32e4842ca78a33d4e9feb89aeed0e7da3b67327f"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-detail-cross.glb",
+        "bytes": 8480,
+        "sha256": "0335f9f55d541a2c044d11242103d5de70359ca5758e6734c8936ec27ab58043"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-detail-diagonal.glb",
+        "bytes": 6684,
+        "sha256": "3b1ef50674432944f3f9561e511c0867571393c58e3c73d475d383c5bfc469fc"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-detail-horizontal.glb",
+        "bytes": 6256,
+        "sha256": "ee27ac4f7b2a9dd944e1d3ee3e52d0018281033c768017afbc248b66e0d99764"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-diagonal.glb",
+        "bytes": 5228,
+        "sha256": "760c3c9b8a3330a47c895e653e811ebf8be530a08a694d93514a601632a6c79e"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-door.glb",
+        "bytes": 30744,
+        "sha256": "2aa4e982fcb6434be4e6051fcee7972799ff5350a3f36ca8bf71530b84608123"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-doorway-base.glb",
+        "bytes": 8044,
+        "sha256": "041c898ba4de75f1b1b163dd379b126d72abcd319ba5fa9b510521742543cb5e"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-doorway-round.glb",
+        "bytes": 15068,
+        "sha256": "5dcc990fa07242d74dc4382ed3f95a22f29777068c1c1795b22ef5d4448ac127"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-doorway-square-wide-curved.glb",
+        "bytes": 14332,
+        "sha256": "a246e8c19492085694a4874634b6027e12dfc8aea189872dee0b9085baf296b6"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-doorway-square-wide.glb",
+        "bytes": 5876,
+        "sha256": "572c223df38d8b1e206446983dd9e3c92c944e7719c655a65880690a78ae0b14"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-doorway-square.glb",
+        "bytes": 8664,
+        "sha256": "58b8f042cb1bafc282887d216340f406220b3407685f94e33c6a2f127dc68380"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-half.glb",
+        "bytes": 4824,
+        "sha256": "4b56875dcb488a0c17c01ebe8ce7337e891b3326860799b49f163f793cb882df"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-rounded.glb",
+        "bytes": 12632,
+        "sha256": "79fcfcfcf37716139ae76cc5fde7aea993a542751aa0df90a39cb569b2f319b8"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-side.glb",
+        "bytes": 3868,
+        "sha256": "2d0ae2509f596a929ae6ca24ff27ab96c0a2dbdd43847b02a2b8732106e9356c"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-slope.glb",
+        "bytes": 8544,
+        "sha256": "56bdc7b8755fab80c753c1f6a7c856be15442fd89d0e53a1588ac2baba2401b8"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-window-glass.glb",
+        "bytes": 11184,
+        "sha256": "e0bb383a908d473181ad89ad7c676a0632f7ecd0f23e5f912216391d3e62bb69"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-window-round.glb",
+        "bytes": 23636,
+        "sha256": "8bc2d9ce7246b1c9896ff2b285668f908755131faf2c2096b23b4a411f7e9aa9"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-window-shutters.glb",
+        "bytes": 10612,
+        "sha256": "c45a63690760cd5de3842ffbe222092e8cd483524679c4ba92fef4d1e52f7248"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-window-small.glb",
+        "bytes": 11808,
+        "sha256": "3c9118d167d8e75ee78f884b9edb90101f9c1928d4fcc2afaedcc349bf8c672b"
+      },
+      {
+        "file": "Models/GLB format/wall-wood-window-stone.glb",
+        "bytes": 16844,
+        "sha256": "d40eb3fe491c09e48fe17168d2445d60ca6d6b4ecc7c2f1caeafa22051000d98"
+      },
+      {
+        "file": "Models/GLB format/wall-wood.glb",
+        "bytes": 4808,
+        "sha256": "8699614fdbc99f565942709c0977c964e2c12f3b3c60098a6e2c397c973f08db"
+      },
+      {
+        "file": "Models/GLB format/wall.glb",
+        "bytes": 4792,
+        "sha256": "cab1dff37610e2a214237cc62ec0b1506e8fd76bb66c29f6c585b4b643b569c4"
+      },
+      {
+        "file": "Models/GLB format/watermill-wide.glb",
+        "bytes": 53872,
+        "sha256": "3644d4092799f5ff672a5b07ff124f68259c8c9bd45d37f9659eea4426534b7d"
+      },
+      {
+        "file": "Models/GLB format/watermill.glb",
+        "bytes": 53856,
+        "sha256": "177e76c12f43845303638d1375c323675c3937b053b8762042fe19d3d7d27c5d"
+      },
+      {
+        "file": "Models/GLB format/wheel.glb",
+        "bytes": 17184,
+        "sha256": "c049e479d0fa31d7cae7a3f4fe239172e7117789fdd10be4be5bddde6239d59f"
+      },
+      {
+        "file": "Models/GLB format/windmill.glb",
+        "bytes": 71160,
+        "sha256": "72562df164f5fd36670521462da8f4161cf2c4c1c889799443f0fb44532ad5db"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 151438,
+        "sha256": "2fc8d1701de3037de47b65bf8fb1e6bd6504331fae66d80359d3aafa6d397d5d"
+      }
+    ]
+  },
+  {
+    "slug": "castle-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/castle-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/castle-kit/a395102d20-1711543616/kenney_castle-kit.zip",
+    "zipBytes": 2232589,
+    "zipSha256": "921f3f73927bb23106cae34bc21d5ab4b033a9fc120475e96f714a406e3169df",
+    "models": 76,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 713,
+        "sha256": "aac944f18106b3a3e29c6fdeec02523d4cab4c735abc01f5a8fa88a79ae173ef"
+      },
+      {
+        "file": "Models/GLB format/bridge-draw.glb",
+        "bytes": 5140,
+        "sha256": "9fbf9a309fed2063be177ef9518dd707787f8fa2b48d2eda8a52e59bb8829265"
+      },
+      {
+        "file": "Models/GLB format/bridge-straight-pillar.glb",
+        "bytes": 14344,
+        "sha256": "c85521e13dcf55ba8d015a04bbdbd0f063c31d01befb69a7c9fb097d128f195b"
+      },
+      {
+        "file": "Models/GLB format/bridge-straight.glb",
+        "bytes": 16832,
+        "sha256": "ef15989c3d5c7392563888bbedda86de3c1ec4b3013c71c61e25b5257a6f9180"
+      },
+      {
+        "file": "Models/GLB format/door.glb",
+        "bytes": 16968,
+        "sha256": "d9bc817e776e34fc24ad5b448b8cfc2c02603e79f6d90597de8936dc65a07359"
+      },
+      {
+        "file": "Models/GLB format/flag-banner-long.glb",
+        "bytes": 6660,
+        "sha256": "e6a4433f5770b9fc31bf67d72424a877d5c010486d5b7373ce7af900566827e4"
+      },
+      {
+        "file": "Models/GLB format/flag-banner-short.glb",
+        "bytes": 6664,
+        "sha256": "9561b6afd1d551199d02f520d31eab46dbff137eef4f9aa13f12e311b588fbd7"
+      },
+      {
+        "file": "Models/GLB format/flag-pennant.glb",
+        "bytes": 13652,
+        "sha256": "741368448bd21991700a488dfc5125330594c4dccd9395feecaa6bbfa682b65d"
+      },
+      {
+        "file": "Models/GLB format/flag-wide.glb",
+        "bytes": 25460,
+        "sha256": "74e94f48dffb40aca288676191265523c3e752aef40b868bfa3a51394083519b"
+      },
+      {
+        "file": "Models/GLB format/flag.glb",
+        "bytes": 15192,
+        "sha256": "263fc3c7bedcfcd2b30f1aca6feb76c8f249f8f79dc9a694f47ec63b77b180d6"
+      },
+      {
+        "file": "Models/GLB format/gate.glb",
+        "bytes": 13880,
+        "sha256": "fdc3d5b07f619dcacbf2af36024dc9a356696e541f6ce409a5305be782665ec9"
+      },
+      {
+        "file": "Models/GLB format/ground-hills.glb",
+        "bytes": 12732,
+        "sha256": "2593ba3265f3ecdf2ee0a73580986ae6d9b76a536497356cdf093bb2735ecd6e"
+      },
+      {
+        "file": "Models/GLB format/ground.glb",
+        "bytes": 1788,
+        "sha256": "470e9637694bba581e7a67a07399920c9785d8fa9a01a688c80dfc6a0c06ff77"
+      },
+      {
+        "file": "Models/GLB format/metal-gate.glb",
+        "bytes": 23240,
+        "sha256": "7d41f469c9ed3000370bd7995b2fca5ac77ebe0ae1d1f321bb7a9d6f4b86f677"
+      },
+      {
+        "file": "Models/GLB format/rocks-large.glb",
+        "bytes": 16204,
+        "sha256": "7ea1ee769eb063b192c3c3744cd32a11616320f7ca491fbe23289552f6655595"
+      },
+      {
+        "file": "Models/GLB format/rocks-small.glb",
+        "bytes": 15192,
+        "sha256": "d860d3a053e1fc7b5825a39f6df68f14c49bab7443c1703e1f5b28444bd60e0d"
+      },
+      {
+        "file": "Models/GLB format/siege-ballista-demolished.glb",
+        "bytes": 54576,
+        "sha256": "a19ed023a15af7e148fcd0186cb73d0d26983e24de54e858655fa2d77799be46"
+      },
+      {
+        "file": "Models/GLB format/siege-ballista.glb",
+        "bytes": 64608,
+        "sha256": "8b2317b6820dd9782c7c2b5da9b7cf77cc3704f3b4d27a4c32e50069852a6b0d"
+      },
+      {
+        "file": "Models/GLB format/siege-catapult-demolished.glb",
+        "bytes": 71252,
+        "sha256": "e0663eb42a97c5d992b1864ba3459e8246de11cf29fd72f10ef5ffd271f3029a"
+      },
+      {
+        "file": "Models/GLB format/siege-catapult.glb",
+        "bytes": 86164,
+        "sha256": "35a7484ff74630228e474fae885bdc9176c30e0af0d94def80307bdbc87b7583"
+      },
+      {
+        "file": "Models/GLB format/siege-ram-demolished.glb",
+        "bytes": 68036,
+        "sha256": "f895ff0152fb004c72310f6e7b51645babc8f8d22864c468b960f86252d2d8fc"
+      },
+      {
+        "file": "Models/GLB format/siege-ram.glb",
+        "bytes": 103620,
+        "sha256": "6473c77747b1d0a2c273d5a013454a0c85e5fc33b831150dced46d89b8ff9a5e"
+      },
+      {
+        "file": "Models/GLB format/siege-tower-demolished.glb",
+        "bytes": 119700,
+        "sha256": "6504a432e6e72a51c75f862ea08e144058727add6eb0f76dc7d9f7352e8a23d0"
+      },
+      {
+        "file": "Models/GLB format/siege-tower.glb",
+        "bytes": 144200,
+        "sha256": "81909d6c33b181a9935fc7f800e8ee309454bbf99ff3b6b0ab2ecf16c3bf5e9b"
+      },
+      {
+        "file": "Models/GLB format/siege-trebuchet-demolished.glb",
+        "bytes": 66012,
+        "sha256": "6706dee3ec118323ea93ac58545cfcfd46e36c1ffffd750abbea54258aeda495"
+      },
+      {
+        "file": "Models/GLB format/siege-trebuchet.glb",
+        "bytes": 139848,
+        "sha256": "123711fd475e35d061738f648d9bf46c7f463d57681325c369977cee8954679a"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone-square.glb",
+        "bytes": 9556,
+        "sha256": "22b52789ae3b0b208bcf5e9d5e8a70c6e307d51672217a122eaa58c42f2d7b36"
+      },
+      {
+        "file": "Models/GLB format/stairs-stone.glb",
+        "bytes": 9836,
+        "sha256": "ec21b1d65c04ba6384734c31ac542bb4015541e652c411796fd7bcf292e6413c"
+      },
+      {
+        "file": "Models/GLB format/Textures/colormap.png",
+        "bytes": 7529,
+        "sha256": "66fd49be148f32e88f6c8cace67120250d1943a7856601158ad0ff24651db0b0"
+      },
+      {
+        "file": "Models/GLB format/tower-base.glb",
+        "bytes": 41724,
+        "sha256": "575e6463b9bc58b8294690b2c1a15409b0624e0253af1a215bf67ea5e9cbaaba"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-base.glb",
+        "bytes": 8336,
+        "sha256": "1185110eb885e70652558465bfabd07b80bb09afaa7b4be0a2e309fd685982b9"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-mid.glb",
+        "bytes": 33568,
+        "sha256": "131045c750296bc84e8f6192918270a4424217484b03627a73e9f584ac4f4888"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-roof-secondary.glb",
+        "bytes": 12540,
+        "sha256": "c2c0c2fe60bac1b0b27c65cfc118e98b2bcbaeeb9f32cdbe5b34b96a2c168132"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-roof.glb",
+        "bytes": 8400,
+        "sha256": "6bd3fb7fd8069419787e806990c9cf3869396e766a1b8cd16c2b3a1414961a0a"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-top-wood.glb",
+        "bytes": 13852,
+        "sha256": "66c7697375b61acdc42cf90c16aaf1340a285a93402426098bc2ab9175bb7bbd"
+      },
+      {
+        "file": "Models/GLB format/tower-hexagon-top.glb",
+        "bytes": 13848,
+        "sha256": "22a043cde795ebc6e5720daee4944f468de5f0ef62296495d0374d4b169ec892"
+      },
+      {
+        "file": "Models/GLB format/tower-slant-roof.glb",
+        "bytes": 47488,
+        "sha256": "f2dd82eca828d2b43c523927e6825539f5a648a18e7fcb68b7a4698f7d6d3d10"
+      },
+      {
+        "file": "Models/GLB format/tower-square-arch.glb",
+        "bytes": 29724,
+        "sha256": "90ccb41a792ea3c5b8c98a3f18b710b52ebfdcd1e389024168c5ac6e591dd564"
+      },
+      {
+        "file": "Models/GLB format/tower-square-base-border.glb",
+        "bytes": 3684,
+        "sha256": "7c48a3a8f8af838c0d7e114115c5abb7a557023b89e08aa421f14bd6add924e3"
+      },
+      {
+        "file": "Models/GLB format/tower-square-base-color.glb",
+        "bytes": 6908,
+        "sha256": "0d9b180fba2229bf62deaaac381e16e912a0f5f2c48a8152e38fec2792e990b5"
+      },
+      {
+        "file": "Models/GLB format/tower-square-base.glb",
+        "bytes": 4456,
+        "sha256": "996887e98957eeea2ba7b5d14f0d17877c91e4e99e1c5b8ee57d87b7f7c9d5e8"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid-color.glb",
+        "bytes": 5380,
+        "sha256": "a12235eb6e86d1e1b46a13e9ea3757ecb0e2fa8e5d82a9a0ae2017e78cf3baf6"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid-door.glb",
+        "bytes": 28996,
+        "sha256": "1a7d065cb548b73adcdd497cac10397247bd70377cb2f6b9d36b78b61087b35d"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid-open-simple.glb",
+        "bytes": 19752,
+        "sha256": "aa95f69fd90b20c299628830a9abd635a48f440f25dbbe131fe3fdd003742c20"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid-open.glb",
+        "bytes": 23568,
+        "sha256": "dd5d242d41654cf4f60b1bbb05ab7263bc8dd9adc671feee08911bba7a46d569"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid-windows.glb",
+        "bytes": 30852,
+        "sha256": "68c186f978135ba77969cdbee502a1c0d9d8f40bd01e8aa33b7cc6859a2ba766"
+      },
+      {
+        "file": "Models/GLB format/tower-square-mid.glb",
+        "bytes": 7744,
+        "sha256": "34a43b162b0984df0c691cb12fcd169ff374412deca0de5fdfdd702a9fa0c98f"
+      },
+      {
+        "file": "Models/GLB format/tower-square-roof.glb",
+        "bytes": 14036,
+        "sha256": "94215209b27f5274188d70906d2a4df357529abd878b6b916bfb61ac5e64d1c8"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top-color.glb",
+        "bytes": 14088,
+        "sha256": "56b5677ad749ab114818638bf8a3fd8fcfb64ef25f627fd6d5aefe5203366698"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top-roof-high-windows.glb",
+        "bytes": 22788,
+        "sha256": "8e673350705e369a25afd6e8706946f0e41abeaf01b94abfe06c358e2e31876b"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top-roof-high.glb",
+        "bytes": 11288,
+        "sha256": "b9345255366bc88744eea5469dddb4dedf2c70f33075b0fde53144ca251e25ea"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top-roof-rounded.glb",
+        "bytes": 11296,
+        "sha256": "2127ee2431efa89c4f40932093b43b9b724073a32fc7010547bd46bb58e4b04d"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top-roof.glb",
+        "bytes": 11256,
+        "sha256": "5516fb45c3158e03773e15e83f5fc8b9bafbbcb3f35fc8e1e06e823cdb01e3bb"
+      },
+      {
+        "file": "Models/GLB format/tower-square-top.glb",
+        "bytes": 13276,
+        "sha256": "5e98cdf2bf4d885edc3fa514719f80d63872e11c54ee629c11859223dad8489c"
+      },
+      {
+        "file": "Models/GLB format/tower-square.glb",
+        "bytes": 16564,
+        "sha256": "ae2e4f11247fef4e8e550011c20bc1862839cd4cfd21590aec9781ae0fbbbc7f"
+      },
+      {
+        "file": "Models/GLB format/tower-top.glb",
+        "bytes": 27408,
+        "sha256": "222537f0daa9167788a468b4ee71918d1066b7c142e7e251c449c50be3438068"
+      },
+      {
+        "file": "Models/GLB format/tree-large.glb",
+        "bytes": 21248,
+        "sha256": "a72a7c237857a9fb04d51b05e3513e97a4d5d5572a709b3251f96b5bffd0a5ab"
+      },
+      {
+        "file": "Models/GLB format/tree-log.glb",
+        "bytes": 7952,
+        "sha256": "50b4d452ee818afa9b37f325a594bdd4ffc1cef0f3c87ff3908251350c9960bf"
+      },
+      {
+        "file": "Models/GLB format/tree-small.glb",
+        "bytes": 15816,
+        "sha256": "ad5b2d7225241eb0599dbc7f1a9f9c39915be56ccccf88ad091bc9c1b4334034"
+      },
+      {
+        "file": "Models/GLB format/tree-trunk.glb",
+        "bytes": 5684,
+        "sha256": "f07a2ed87d6a636aba46a0ec1e9ffae27b17b4c6ae019e77924bdb9b8f6fe28f"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-half-tower.glb",
+        "bytes": 80020,
+        "sha256": "95a7e63c7716d31a47ffe1fe423c4ed65a610bd802b1d4286d743c1248255ffe"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-half.glb",
+        "bytes": 12976,
+        "sha256": "2a64baa9c8adf4581c3ef28b7c4fc424890c9ed2da2d958bcbf38e239bb49f83"
+      },
+      {
+        "file": "Models/GLB format/wall-corner-slant.glb",
+        "bytes": 16028,
+        "sha256": "fd687db9c9fe6e3e446bd23ba2db23e993cf1119dd3fbcfbf543d23345c98d40"
+      },
+      {
+        "file": "Models/GLB format/wall-corner.glb",
+        "bytes": 15264,
+        "sha256": "82d27b869162b6a9ee19b0d7480913f56928b6620708f3b3899131495803cc9a"
+      },
+      {
+        "file": "Models/GLB format/wall-doorway.glb",
+        "bytes": 37560,
+        "sha256": "8daf5cccceace888d51d74b0e0254e192004faf926e07f1b28e94191879af3a6"
+      },
+      {
+        "file": "Models/GLB format/wall-half-modular.glb",
+        "bytes": 8016,
+        "sha256": "2241397b813c069858987750eaf7dce4a549fca239ae2e40b30fc7e58ff82b0e"
+      },
+      {
+        "file": "Models/GLB format/wall-half.glb",
+        "bytes": 12132,
+        "sha256": "4f0baca90eb52d96717aaabf36db98f1f2b554876f44da533b57dd92b6f67965"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-corner.glb",
+        "bytes": 9384,
+        "sha256": "3e0a2fb0c7d6b4d8bb52ee30c1a3f5bac01ad558dc382b15a5c5a2d52131aa8a"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-gate.glb",
+        "bytes": 17092,
+        "sha256": "f01e3005f2cfe7451a0376a4fdba2408594cb60664e24e53e736e52d5b3ec934"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-stairs-rail.glb",
+        "bytes": 40896,
+        "sha256": "d1791d278f01ad436c7062f9807e6280f11070c47cbb40567ea280c859fe3a72"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-stairs.glb",
+        "bytes": 26972,
+        "sha256": "51672d47bb3cec6f190334fcb29c3c2f464f605b85f5e13b918e868d72c632e7"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-wood-fence.glb",
+        "bytes": 32988,
+        "sha256": "253d7f8fd3e9113ef5ae064eed49351b387532d83ccce284851d0a2190872fc6"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow-wood.glb",
+        "bytes": 26812,
+        "sha256": "b536f63dd753575d551ace334549949bd3594559d62356f93b6a577f0efbeb4e"
+      },
+      {
+        "file": "Models/GLB format/wall-narrow.glb",
+        "bytes": 12160,
+        "sha256": "347fcdb0842ed47f20931b962dc0a2ad212690812386a3cb634016b4229145a7"
+      },
+      {
+        "file": "Models/GLB format/wall-pillar.glb",
+        "bytes": 18156,
+        "sha256": "22d359abfaa3cf3dc5a2fece09a108024a07a4e263b21a4a0689da0e630699ed"
+      },
+      {
+        "file": "Models/GLB format/wall-stud.glb",
+        "bytes": 3212,
+        "sha256": "203abbac850f78bb2250005350427d60355532623173730a53e12674798e9637"
+      },
+      {
+        "file": "Models/GLB format/wall-to-narrow.glb",
+        "bytes": 19776,
+        "sha256": "bb99eb1d5d93affcb2466f74d69a370c32ce5b62307a081fc5a12850e741c707"
+      },
+      {
+        "file": "Models/GLB format/wall.glb",
+        "bytes": 16552,
+        "sha256": "b2ea00acbf4ba91ff0d4b8b942edf9fa12d821abd0b2c945c57a2b9b3153cfe3"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 129001,
+        "sha256": "d7918a4e97829f2e522033a3941af940b0448d2b1041ca166b78f78a477fb454"
+      }
+    ]
+  },
+  {
+    "slug": "pirate-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/pirate-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/pirate-kit/e6d4bb1525-1771333093/kenney_pirate-kit.zip",
+    "zipBytes": 3154665,
+    "zipSha256": "667ed2caf92954ddb98f7b7cede831fe99ab75063c26b25e23d32715bee9c943",
+    "models": 72,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 699,
+        "sha256": "5e99246a5a65fa3420a1a1c7a8616f096202c78866f73d7aacfe73c0aab0ca36"
+      },
+      {
+        "file": "Models/GLB format/barrel.glb",
+        "bytes": 14092,
+        "sha256": "7616dedf7c1023afa6ecd3c52a4609460aae0e582dee14e60ec5e47c1174793b"
+      },
+      {
+        "file": "Models/GLB format/boat-row-large.glb",
+        "bytes": 15972,
+        "sha256": "b496c0d5f9053ebc7e9b9a39a4770d5ccaff5510c51b7c72c1b8391442e61d0f"
+      },
+      {
+        "file": "Models/GLB format/boat-row-small.glb",
+        "bytes": 17616,
+        "sha256": "846d9b17a73f80e03f7201d3bf0ad1b1bbb49e114b99697740d3426e4f42482d"
+      },
+      {
+        "file": "Models/GLB format/bottle-large.glb",
+        "bytes": 12232,
+        "sha256": "03ae246d2fe0a76c448626b5e6e12ff10313175d713489abac7cbf42f14c0b1f"
+      },
+      {
+        "file": "Models/GLB format/bottle.glb",
+        "bytes": 13796,
+        "sha256": "b59ff617014ace27dacf2909bba94f3ad3a9a9d1660c6ae4d468b5e8561637ae"
+      },
+      {
+        "file": "Models/GLB format/cannon-ball.glb",
+        "bytes": 7192,
+        "sha256": "8d60d9f56df1bf118d3c589bc14a1b37d21b7834ecb9541b7840a4e8200797e6"
+      },
+      {
+        "file": "Models/GLB format/cannon-mobile.glb",
+        "bytes": 43824,
+        "sha256": "0e8ae9889b35bb43c0da779a7eed3c2a7a204b80350516f7c4ad523a550d8867"
+      },
+      {
+        "file": "Models/GLB format/cannon.glb",
+        "bytes": 24024,
+        "sha256": "b2ea71475fa52de312a0fe3fb9085e1a3f83f9e6bb167668fb62f71383cbc41a"
+      },
+      {
+        "file": "Models/GLB format/castle-door.glb",
+        "bytes": 37648,
+        "sha256": "e91a7c08e36a1ca5d85189f8b375c6dc9ac27a4b6567d64d0bc3b517ab68cbbd"
+      },
+      {
+        "file": "Models/GLB format/castle-gate.glb",
+        "bytes": 67440,
+        "sha256": "2d798e124b46a48d94eb40009fadb3cf77a9bf403f63b8a83d434aa8df84db2b"
+      },
+      {
+        "file": "Models/GLB format/castle-wall.glb",
+        "bytes": 30504,
+        "sha256": "92cd2e842f4bda218289a7c7b5ca7714780dfc943735e7ff60097b08114dd40f"
+      },
+      {
+        "file": "Models/GLB format/castle-window.glb",
+        "bytes": 28668,
+        "sha256": "242345b513261c46ddf832e387d580f530c8be29b3cb0b8afa33aabe467d25a1"
+      },
+      {
+        "file": "Models/GLB format/chest.glb",
+        "bytes": 25240,
+        "sha256": "26d26c4c032a12320fe05b5005a72eba96db7167db0d35873639a4b7dcc06bcb"
+      },
+      {
+        "file": "Models/GLB format/crate-bottles.glb",
+        "bytes": 58588,
+        "sha256": "8412a3d3dc00a81ac61f0975682ef9f08288bee5c5eb783b09dbc1144e655302"
+      },
+      {
+        "file": "Models/GLB format/crate.glb",
+        "bytes": 9232,
+        "sha256": "b525674e07c8b83667512a8dd93be0d7684358347d0e64d2bb16b156ac382ed1"
+      },
+      {
+        "file": "Models/GLB format/flag-high-pennant.glb",
+        "bytes": 13656,
+        "sha256": "e322c06023b5cbc6a187cef12c296ae1c65ea3582c5b101b83756213d8a700e1"
+      },
+      {
+        "file": "Models/GLB format/flag-high.glb",
+        "bytes": 15196,
+        "sha256": "a82a944b7bf57a1329e4595fde4d076f3ac8bb650b6d212d47791ec90cb4f47a"
+      },
+      {
+        "file": "Models/GLB format/flag-pennant.glb",
+        "bytes": 13640,
+        "sha256": "05956b9389135492e0644bd7d49711d1e4f865cd67808f7da5709a23e02d7d6f"
+      },
+      {
+        "file": "Models/GLB format/flag-pirate-high-pennant.glb",
+        "bytes": 13676,
+        "sha256": "baa86b7557b1875afa56054bd41963acbb39e6a7cd5667162066f505a6a3664e"
+      },
+      {
+        "file": "Models/GLB format/flag-pirate-high.glb",
+        "bytes": 15220,
+        "sha256": "5fe71dae983b573920515e980784ce70b67549cc987b4fdb2fd35a3ed767abf9"
+      },
+      {
+        "file": "Models/GLB format/flag-pirate-pennant.glb",
+        "bytes": 13660,
+        "sha256": "b08d6605b85e69e5541e9947bb59e7618b89f1e156f3a3f6d9aaccf69f04e224"
+      },
+      {
+        "file": "Models/GLB format/flag-pirate.glb",
+        "bytes": 15204,
+        "sha256": "4672c3a8c2844e9fb09838b65c97fdf5c49447c2566310918f8e7563f7200baf"
+      },
+      {
+        "file": "Models/GLB format/flag.glb",
+        "bytes": 15184,
+        "sha256": "374500dc875e3e713fbd3e2d4bf18087b4a450bfc5a7b04b4329aaf0c0e3a877"
+      },
+      {
+        "file": "Models/GLB format/grass-patch.glb",
+        "bytes": 38640,
+        "sha256": "6458a2b3224bb709f3da175ef33833494357f425583b28c12eec2ca5df421c60"
+      },
+      {
+        "file": "Models/GLB format/grass-plant.glb",
+        "bytes": 14400,
+        "sha256": "f422f991fdf75df2b7bd7cd642d67f9ec884279590130e7a213e2ddaea5d0a54"
+      },
+      {
+        "file": "Models/GLB format/grass.glb",
+        "bytes": 8964,
+        "sha256": "0edde2aeb269b7d6498b27647b7e379ae177a12a0732b82bc966d5610f44008e"
+      },
+      {
+        "file": "Models/GLB format/hole.glb",
+        "bytes": 28168,
+        "sha256": "700b45b6f97046298cd3936637f5ad3e484a742adf21bc7b7ca0c280b15c311d"
+      },
+      {
+        "file": "Models/GLB format/mast-ropes.glb",
+        "bytes": 36156,
+        "sha256": "ad2bd14acacd3f4901177d8b13bcc6158f558e8c1959b6e19576e17ea8b10570"
+      },
+      {
+        "file": "Models/GLB format/mast.glb",
+        "bytes": 30816,
+        "sha256": "22b04158e300d9a1c99c27d884214be5241d599dc93cba7394e9164043f99db8"
+      },
+      {
+        "file": "Models/GLB format/palm-bend.glb",
+        "bytes": 36528,
+        "sha256": "8c5c6f119ca62b63d4a6e5e3e3b74b3a7415815a9e448fd1408a2858ae95d40f"
+      },
+      {
+        "file": "Models/GLB format/palm-detailed-bend.glb",
+        "bytes": 52012,
+        "sha256": "9bc339e2942d6fba9007caa9fa4301a6a08f4b134511bea65ce236ba2910e7f8"
+      },
+      {
+        "file": "Models/GLB format/palm-detailed-straight.glb",
+        "bytes": 51916,
+        "sha256": "cdc42b4bd02d01a5e15a5d69f1db83e1c77ca7d0a97ad2d9ae8f6a409fed8a36"
+      },
+      {
+        "file": "Models/GLB format/palm-straight.glb",
+        "bytes": 36524,
+        "sha256": "a4101242b8c825280dfb6152900285aacc091203ce7bf9c743579599f1496520"
+      },
+      {
+        "file": "Models/GLB format/patch-grass-foliage.glb",
+        "bytes": 30716,
+        "sha256": "b6915f81ab6ddb19b1e552b27f5a16a02e9650d7250e70b9e6e3147b47c680f4"
+      },
+      {
+        "file": "Models/GLB format/patch-grass.glb",
+        "bytes": 8416,
+        "sha256": "0c928d062fc8094bf2be7fe319b7831fbb3d798567b93d5b24d04739ab3c370d"
+      },
+      {
+        "file": "Models/GLB format/patch-sand-foliage.glb",
+        "bytes": 63008,
+        "sha256": "35eea1e7ad6ef7c2349aa69f67824e4698ec1320f19b42bf1870013106e51680"
+      },
+      {
+        "file": "Models/GLB format/patch-sand.glb",
+        "bytes": 10212,
+        "sha256": "9c7331c40897f293d2fec4035d534581ccb9b4e105e4cbce5cfd3abd0bb15f90"
+      },
+      {
+        "file": "Models/GLB format/platform-planks.glb",
+        "bytes": 6524,
+        "sha256": "4313f45d4feb8cd01adbb4b4785f368c7df091f33e473dea536172868805b167"
+      },
+      {
+        "file": "Models/GLB format/platform.glb",
+        "bytes": 7668,
+        "sha256": "c6b688473f8ffbd41810d0e9aed7a572c148400f2f8bb0aab3560dbc4d6e407b"
+      },
+      {
+        "file": "Models/GLB format/rocks-a.glb",
+        "bytes": 27644,
+        "sha256": "df8f27bd88a9b624337b08adde53c73dd25ddabd52dbee1de9da412d68bb4f08"
+      },
+      {
+        "file": "Models/GLB format/rocks-b.glb",
+        "bytes": 31316,
+        "sha256": "218cf9bfbe51228c78c9fa48a8543bef1037a695024f8fd5f3c47eec4c3a26d4"
+      },
+      {
+        "file": "Models/GLB format/rocks-c.glb",
+        "bytes": 24572,
+        "sha256": "67c086e5d522fda43f3c84b34092ae88c4b142ad23c11be9cf9743659a138032"
+      },
+      {
+        "file": "Models/GLB format/rocks-sand-a.glb",
+        "bytes": 57052,
+        "sha256": "bde0570946080d6f2dafd63a34be640d5c3713abd4559d6a9d689ce63f74113f"
+      },
+      {
+        "file": "Models/GLB format/rocks-sand-b.glb",
+        "bytes": 53404,
+        "sha256": "55ef34f2e96fcd8687a422b6287295cb94e04540ec964a0f42900ce55c89b719"
+      },
+      {
+        "file": "Models/GLB format/rocks-sand-c.glb",
+        "bytes": 46624,
+        "sha256": "ffd3a911a3b916b047245427526405d390eb12f97f90f657e8ca230048e78865"
+      },
+      {
+        "file": "Models/GLB format/ship-ghost.glb",
+        "bytes": 155692,
+        "sha256": "16a99fc478826c151a2f2612f385ec3eae440ec86700491eb0049e05e70793ce"
+      },
+      {
+        "file": "Models/GLB format/ship-large.glb",
+        "bytes": 155792,
+        "sha256": "270fff44a9c97f0f5038b0776f9a9b661961ff2098109a9ce614b645cc5e0d20"
+      },
+      {
+        "file": "Models/GLB format/ship-medium.glb",
+        "bytes": 144944,
+        "sha256": "279ea019268f855240c3cebf7616644c8141c20bee617da72eae4733b8e310af"
+      },
+      {
+        "file": "Models/GLB format/ship-pirate-large.glb",
+        "bytes": 177216,
+        "sha256": "7c3959e0f039a13e5294904282ddc678dfc442fb8b055555cc45eae7a0d2adf8"
+      },
+      {
+        "file": "Models/GLB format/ship-pirate-medium.glb",
+        "bytes": 166388,
+        "sha256": "193590503ed533ace1260e4a4c6b30e13b13bf7c2ce6f5fad667cde5979859cc"
+      },
+      {
+        "file": "Models/GLB format/ship-pirate-small.glb",
+        "bytes": 131464,
+        "sha256": "4b075cd7f90cc152acd477c2636b38dad08890391c5947b060a7ac0c6da8fcdb"
+      },
+      {
+        "file": "Models/GLB format/ship-small.glb",
+        "bytes": 116440,
+        "sha256": "6fdabdfd358f345ad3dd0510af4165843ab3fffe46357395c94ca00db4f317b3"
+      },
+      {
+        "file": "Models/GLB format/ship-wreck.glb",
+        "bytes": 223676,
+        "sha256": "0b2cac74f23ffdc3bf5020880126338287a0a0317d6a98ce4250123d8821ad2b"
+      },
+      {
+        "file": "Models/GLB format/structure-fence-sides.glb",
+        "bytes": 44480,
+        "sha256": "8c11f8e0bc274cd287f7d6f9b8abe054aa5ee3b2bb9b60d53bee4c1266004031"
+      },
+      {
+        "file": "Models/GLB format/structure-fence.glb",
+        "bytes": 35752,
+        "sha256": "d4b9eca0f219efc7ec37d45170c5888a4ba6e0e8f39905f9d92d491ae5de7281"
+      },
+      {
+        "file": "Models/GLB format/structure-platform-dock-small.glb",
+        "bytes": 32156,
+        "sha256": "63fb708c20db73860da2380ba6c13e4725930c07535bb2ed5958a2f30eeea36c"
+      },
+      {
+        "file": "Models/GLB format/structure-platform-dock.glb",
+        "bytes": 33336,
+        "sha256": "bf64343d37b5570cb78cf0918e3eeb98f96f9b2c69b3f16d103c61ebc8f063f7"
+      },
+      {
+        "file": "Models/GLB format/structure-platform-small.glb",
+        "bytes": 23068,
+        "sha256": "6f056b0563f4a980908129fe3c53df1d83f3f41c2fb31bbea87e074515107880"
+      },
+      {
+        "file": "Models/GLB format/structure-platform.glb",
+        "bytes": 24248,
+        "sha256": "250e85e6021c47a1244603bba3924f04dbc4b0ab171fb589fb9eacc952609904"
+      },
+      {
+        "file": "Models/GLB format/structure-roof.glb",
+        "bytes": 34480,
+        "sha256": "d7518ffa7cf209b91dc07920e762f28706a367742edc45c27ae45c434b089329"
+      },
+      {
+        "file": "Models/GLB format/structure.glb",
+        "bytes": 27988,
+        "sha256": "b82b2f949063fc418576dc14fcaedf407db6badf87dc529a33114e2f62606f9a"
+      },
+      {
+        "file": "Models/GLB format/Textures/colormap.png",
+        "bytes": 10061,
+        "sha256": "451e1d7a53b8e76f4b2ee58742e241509fee5f82cf2cee6e3f7aca86ba718abe"
+      },
+      {
+        "file": "Models/GLB format/tool-paddle.glb",
+        "bytes": 6864,
+        "sha256": "2a387ead62c44ec4218d664582a956f92a66b3c7db168d68394ccfabefae58b8"
+      },
+      {
+        "file": "Models/GLB format/tool-shovel.glb",
+        "bytes": 16144,
+        "sha256": "b468372526e419c712f50b824eff50d6e7838de646eaa5a6aacfc4dcdfcfa265"
+      },
+      {
+        "file": "Models/GLB format/tower-base-door.glb",
+        "bytes": 12592,
+        "sha256": "b53f9cb400834ad802e9cf48ca55b7a6111c54cad660afc8a5bbc4b3c41b6eb6"
+      },
+      {
+        "file": "Models/GLB format/tower-base.glb",
+        "bytes": 5772,
+        "sha256": "18277cd7710d86d4161c524c41f55f1d0faf5e48baab7e73f4748a7054a46c96"
+      },
+      {
+        "file": "Models/GLB format/tower-complete-large.glb",
+        "bytes": 54660,
+        "sha256": "3e65bcb990840a59c0b7c0c1237ba41da5a2b5434cab65d6f904a732d4899eb0"
+      },
+      {
+        "file": "Models/GLB format/tower-complete-small.glb",
+        "bytes": 58412,
+        "sha256": "0932848a81ecf78c6dcfd1f54440ff802e024cd744ef255aaf0c05d05a7d8699"
+      },
+      {
+        "file": "Models/GLB format/tower-middle-windows.glb",
+        "bytes": 23188,
+        "sha256": "69d866461a2b2a48639596145b5befacd398a566fb0bf4c9059b2e1f8f456e58"
+      },
+      {
+        "file": "Models/GLB format/tower-middle.glb",
+        "bytes": 21112,
+        "sha256": "0dfb39c4e8450843d57b8ac27086989070b1cbb50907eace8640a971d9eb07c4"
+      },
+      {
+        "file": "Models/GLB format/tower-roof.glb",
+        "bytes": 11772,
+        "sha256": "41a84e37594bd3eff2552c7aceb208c9790cff5d22db32350853e6a91929709b"
+      },
+      {
+        "file": "Models/GLB format/tower-top.glb",
+        "bytes": 29484,
+        "sha256": "256c7f2e1d0929a8736a9ea168fa261edcc4aa68ff693c63ee201eeec16a0761"
+      },
+      {
+        "file": "Models/GLB format/tower-watch.glb",
+        "bytes": 21672,
+        "sha256": "0cdba767016b9ee8831084f94357f6b6dd00e2f10c6db41d81f15352dff5c4b4"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 149938,
+        "sha256": "23274fdcd4179a6ec59583e7f3bc89856efbc18b8824e8c0135c0e17b23621e9"
+      }
+    ]
+  },
+  {
+    "slug": "retro-urban-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/retro-urban-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/retro-urban-kit/8314d4db22-1738147509/kenney_retro-urban-kit.zip",
+    "zipBytes": 2161463,
+    "zipSha256": "19201cbcb0d90080dfc33b54f5b4be2089de927c2a23274180798e7166d6b6ca",
+    "models": 124,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 718,
+        "sha256": "83d0de4f34000323da12cf54bc542dbc24ba48cfad101510dccddaa69483ebeb"
+      },
+      {
+        "file": "Models/GLB format/balcony-ladder-bottom.glb",
+        "bytes": 4196,
+        "sha256": "266b04ffb06c53a17988f858646d1fd1072258050ac3d9ba653004a769cc37d1"
+      },
+      {
+        "file": "Models/GLB format/balcony-ladder-top.glb",
+        "bytes": 3672,
+        "sha256": "e4bdb19c168791c697c6824866e3a491c5843b6dc48dfa53f2e3e3683674ff48"
+      },
+      {
+        "file": "Models/GLB format/balcony-type-a.glb",
+        "bytes": 3352,
+        "sha256": "3ec0748d51787d9754444dbdcc17b5aa4cd6c5c01f47614b06a0b06e2ced9acf"
+      },
+      {
+        "file": "Models/GLB format/cliff-corner.glb",
+        "bytes": 3384,
+        "sha256": "3e10b190d07f97820ab19cafd7a0b4a98124ae049a90fe205a0d0a038f42f0c1"
+      },
+      {
+        "file": "Models/GLB format/cliff-side.glb",
+        "bytes": 3944,
+        "sha256": "4f4894470af39bc22ada30e73babb06451c57a0cdfe0b184b15b1cdf878a0f01"
+      },
+      {
+        "file": "Models/GLB format/detail-awning-small.glb",
+        "bytes": 4056,
+        "sha256": "b012c04b39d39a66c7cb45392621d7374f1ff34c6054b4a05bee019abc55b155"
+      },
+      {
+        "file": "Models/GLB format/detail-awning-wide.glb",
+        "bytes": 4020,
+        "sha256": "77ea699e4d3c668d909e549e236766feaa8c4d3438ef66234a5d81b46fef5821"
+      },
+      {
+        "file": "Models/GLB format/detail-barrier-strong-damaged.glb",
+        "bytes": 5136,
+        "sha256": "bc14280b2ac6c4df26e0bdc8ab2f25b789170bf2b030d34fc9953c1e41413487"
+      },
+      {
+        "file": "Models/GLB format/detail-barrier-strong-type-a.glb",
+        "bytes": 4212,
+        "sha256": "3d7e238e7184673a56354bd87ee80089bcd2eeea3ce1d0312bfb1746520344ae"
+      },
+      {
+        "file": "Models/GLB format/detail-barrier-strong-type-b.glb",
+        "bytes": 4756,
+        "sha256": "0f325134ee3f31e554dbcc4fd58f6e8a56ceb022b7e709a3a262526af79cf1d5"
+      },
+      {
+        "file": "Models/GLB format/detail-barrier-type-a.glb",
+        "bytes": 5936,
+        "sha256": "8ad30f159654cccd2cb176b84852275c375a2d4cb868b6969b184474d3d765ef"
+      },
+      {
+        "file": "Models/GLB format/detail-barrier-type-b.glb",
+        "bytes": 5936,
+        "sha256": "1c222b41a2fa6ff3136cd260cc863b253b02ee1280204530815d212ac12bc970"
+      },
+      {
+        "file": "Models/GLB format/detail-beam.glb",
+        "bytes": 5784,
+        "sha256": "b3ff8f0ffb2b6136219f52a0c62cc73f8edf8a1ebb73e63fb0ed4c513d23ca5f"
+      },
+      {
+        "file": "Models/GLB format/detail-bench.glb",
+        "bytes": 10260,
+        "sha256": "ccf6f0a95b04db1720c9a7040404ca0d676a0f850815aee90de5edc33b96c47c"
+      },
+      {
+        "file": "Models/GLB format/detail-block.glb",
+        "bytes": 2856,
+        "sha256": "1af061728faba733b7d296af2a63d9ac1c509fa91b9f556b13a1d8c1b7b0b297"
+      },
+      {
+        "file": "Models/GLB format/detail-bricks-type-a.glb",
+        "bytes": 9200,
+        "sha256": "17ac348d9ef0049dc2fe3508fe7e6156ce7fb47f42e662d825731639fb221b56"
+      },
+      {
+        "file": "Models/GLB format/detail-bricks-type-b.glb",
+        "bytes": 10008,
+        "sha256": "0cfc2aa773dce53eecc7517324b44fed2d5ae2a6931c8ca606e5ce68221651af"
+      },
+      {
+        "file": "Models/GLB format/detail-cables-type-a.glb",
+        "bytes": 2152,
+        "sha256": "4cbac18e8b595cdcae10fe20f6c06c260eb0b8e5433b2028c56e46f9157b6d88"
+      },
+      {
+        "file": "Models/GLB format/detail-cables-type-b.glb",
+        "bytes": 2152,
+        "sha256": "c895c99e352dd5ca00743663b9408a09bde9bd1f8dd2c7b2cc94d7d361f66559"
+      },
+      {
+        "file": "Models/GLB format/detail-dumpster-closed.glb",
+        "bytes": 5056,
+        "sha256": "c2b54e446c95fa413929793f3d89cb0176077fa29e4a449dc03cada558bd07d9"
+      },
+      {
+        "file": "Models/GLB format/detail-dumpster-open.glb",
+        "bytes": 5704,
+        "sha256": "d444697cf5a056842313be4d36d1232e052b1ceffdd99f0bbab37bb591ccede2"
+      },
+      {
+        "file": "Models/GLB format/detail-light-double.glb",
+        "bytes": 9332,
+        "sha256": "7ffb129be2565400449b32e349b3aeb33a4a2617d230320c4a03088f61507f63"
+      },
+      {
+        "file": "Models/GLB format/detail-light-single.glb",
+        "bytes": 7040,
+        "sha256": "aac24987fa7651f8e892f4e661b3bb67c6866edb726e0ab092e9c747f0a69151"
+      },
+      {
+        "file": "Models/GLB format/detail-light-traffic.glb",
+        "bytes": 11332,
+        "sha256": "c4a5653388ce3ae34057b39b95f28c46ce8ae8cdc55dc5e60143d6a295d901c7"
+      },
+      {
+        "file": "Models/GLB format/door-type-a.glb",
+        "bytes": 4476,
+        "sha256": "84583c26676636e3e0274a9842d841b04684d18a8b6e7f58ebefb7d91e5a0142"
+      },
+      {
+        "file": "Models/GLB format/door-type-b.glb",
+        "bytes": 4476,
+        "sha256": "9e70e4d2e5d01ec9c45464ef0247c63f3e8171d3293e5855acbea3c0d3219fd4"
+      },
+      {
+        "file": "Models/GLB format/grass-corner-inner.glb",
+        "bytes": 1972,
+        "sha256": "90e291dbe57cefa83f63db6e95fe59d6303a43dca1f727f6708f8b2b8eee3c59"
+      },
+      {
+        "file": "Models/GLB format/grass-corner.glb",
+        "bytes": 1956,
+        "sha256": "70e341fa34e90ba05126e18e8d32da9d0b8d9a26b62a51db3c1ff0e5d516751e"
+      },
+      {
+        "file": "Models/GLB format/grass-hill.glb",
+        "bytes": 1912,
+        "sha256": "d7374785fb8b2f4112a7e633e2e509e707a5ee8d1f90edb1ba948d808d574f3c"
+      },
+      {
+        "file": "Models/GLB format/grass.glb",
+        "bytes": 1832,
+        "sha256": "9f7d3bc84706e31102ea82950522e2db6539640d5aee45072595b4a29f3fd580"
+      },
+      {
+        "file": "Models/GLB format/pallet-small.glb",
+        "bytes": 7716,
+        "sha256": "a725edb767447fe29bd0b3eaee8dc14a62c5dfffa5dd97217178b02f1ed21318"
+      },
+      {
+        "file": "Models/GLB format/pallet.glb",
+        "bytes": 10044,
+        "sha256": "1844660dfffda177d42efc35db47c22e7476f991737f4c35f6b5fbaf0d2ccf8b"
+      },
+      {
+        "file": "Models/GLB format/planks.glb",
+        "bytes": 5468,
+        "sha256": "fc9b61202853b6b2a4cc1dc2899136f1418e18153027e08cda5dbb8fa6a3d231"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-center.glb",
+        "bytes": 1880,
+        "sha256": "69bb379a202c014d2a2f216a075c7d78c723dd786572b07584646c34ba9badf6"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-corner-inner.glb",
+        "bytes": 4260,
+        "sha256": "69e2f072956b947f413c4404ee8623ba9ed58b00b5bf33dc573bfd4c51ca8636"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-corner-outer.glb",
+        "bytes": 4172,
+        "sha256": "47ec8c6d18425bf703f8fbda757b0b012bbe21e58f5ef03840e0d92fb2868cef"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-corner.glb",
+        "bytes": 5864,
+        "sha256": "90c75780d746c60ff91f4af7a3b7ce86a66ef1de982232b47dfc483de07e933d"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-damaged.glb",
+        "bytes": 4212,
+        "sha256": "e23a7e7728430bd245c6da47078b04e49bd955d0fde2c5199f25f6d3291c6f09"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-pavement.glb",
+        "bytes": 1872,
+        "sha256": "3a9996816455060f40bdbb33f59cf70e23b8996ceb318e06bd005f03edcc7997"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-side.glb",
+        "bytes": 3412,
+        "sha256": "09aed7752daa81adc76e074ff9c45a53db373801f18ada581bf1d4705ba00bb4"
+      },
+      {
+        "file": "Models/GLB format/road-asphalt-straight.glb",
+        "bytes": 4436,
+        "sha256": "33d5a25df63fdbfd696564972326de0dc7bdcf100649b8beb7bcd4dffec19c4e"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-center.glb",
+        "bytes": 1860,
+        "sha256": "d4c6e2770e5097056a5981c5e23b0e53c005785e5bedfa9c3ca611be356616b1"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-corner-inner.glb",
+        "bytes": 4244,
+        "sha256": "156739a7e44d05abb0c71456c3f3874b60b0cfdde22fceeae785fe8b3a1b0592"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-corner-outer.glb",
+        "bytes": 4156,
+        "sha256": "4c6bb5c90d36db0c4d4aa33069d756bce693f5959b6dc4c23fb671e785f66949"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-corner.glb",
+        "bytes": 6352,
+        "sha256": "e97a66814d046f1807e091dad21b5a5c6400ad43151c3a756031b4476572f679"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-damaged.glb",
+        "bytes": 4192,
+        "sha256": "38d1cc186679dcc8fc269dd0333c87a0a6e3417689a3cf73b062385a7500ed55"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-pavement.glb",
+        "bytes": 1864,
+        "sha256": "9923fee37f272b7937dd20c6f1dea8cf89ea7c00c7b274c0f297a0fecabc24c4"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-side.glb",
+        "bytes": 3396,
+        "sha256": "95dce7f766edff09c127bf8a048b3446efea9fb0f198ed96b049c6e7df45acf3"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-straight.glb",
+        "bytes": 4420,
+        "sha256": "4211107c208a9ec075da0b3e51aea141b8ad8200e92a2a1c70fa64a8e3ea961e"
+      },
+      {
+        "file": "Models/GLB format/road-dirt-tile.glb",
+        "bytes": 2892,
+        "sha256": "72b721f12e235fbff007689e41b2b73651df857e614cd7801c9ef4dc4aa9a5de"
+      },
+      {
+        "file": "Models/GLB format/roof-metal-poles.glb",
+        "bytes": 6980,
+        "sha256": "0935e22cc002df2c9c468ff6b7d70a766c9ddac109ae3f139c6e47ae5d3a3a3e"
+      },
+      {
+        "file": "Models/GLB format/roof-metal-type-a.glb",
+        "bytes": 5620,
+        "sha256": "91c5f28be3d30dfd209a6be24786a20d5c279256baaa8274d933e34a058de40a"
+      },
+      {
+        "file": "Models/GLB format/roof-metal-type-b.glb",
+        "bytes": 6116,
+        "sha256": "b9c08bcc050c69e8804fc6aff6d1eb4605566659cbbdd4cfe64d51f8ed03df3b"
+      },
+      {
+        "file": "Models/GLB format/scaffolding-floor.glb",
+        "bytes": 5244,
+        "sha256": "64e205f2863a5de7b23089932a06bea1549dd44fb617bb3e310a48cfde36f9a0"
+      },
+      {
+        "file": "Models/GLB format/scaffolding-poles.glb",
+        "bytes": 6588,
+        "sha256": "e21203c32f6a0cefbd13d3369190ae06ec62a452fa51f03b1d4f2b80d2605ecf"
+      },
+      {
+        "file": "Models/GLB format/scaffolding-structure.glb",
+        "bytes": 11168,
+        "sha256": "07ab47ab16499808ccf73d91e19783d55d0269e361fc1e8252d721b2c89ea5ab"
+      },
+      {
+        "file": "Models/GLB format/Textures/asphalt.png",
+        "bytes": 4104,
+        "sha256": "911dec63cacab6252ab5ae2a02ee9b9fa62f980faaa815e0b6abb8ec61d16925"
+      },
+      {
+        "file": "Models/GLB format/Textures/bars.png",
+        "bytes": 2309,
+        "sha256": "960c907c1f0bffa1de5fd4c3e690eac41e3e5907815be09aab17feae4bfebfea"
+      },
+      {
+        "file": "Models/GLB format/Textures/concrete.png",
+        "bytes": 5018,
+        "sha256": "3431cb462e8f8c120d29c23fa06e730ae488fceeb3e8d86945724675ff2be294"
+      },
+      {
+        "file": "Models/GLB format/Textures/dirt.png",
+        "bytes": 5018,
+        "sha256": "ffba913266008f95b2ab329683a30726d1d4aadaf7aec80aa98e7375aea3f255"
+      },
+      {
+        "file": "Models/GLB format/Textures/doors.png",
+        "bytes": 4381,
+        "sha256": "8c5b729739cde0c9eae9f62ffe4acd194bbdba99cdd83e628bc638f0a45acf8d"
+      },
+      {
+        "file": "Models/GLB format/Textures/grass.png",
+        "bytes": 4932,
+        "sha256": "7030542f6c0b1a599f9074b941c5fccdde7abb40149fb311d188b4aba97576e4"
+      },
+      {
+        "file": "Models/GLB format/Textures/metal.png",
+        "bytes": 4930,
+        "sha256": "3893724d52a5788341345e16319fb8f5f7182d588b5d5b2babf577176ca3d701"
+      },
+      {
+        "file": "Models/GLB format/Textures/metal_wall.png",
+        "bytes": 4773,
+        "sha256": "2700c58f6063520dd447ea6addc9477898bf4e0924b2ab6eb63b4340f36526c5"
+      },
+      {
+        "file": "Models/GLB format/Textures/planks.png",
+        "bytes": 5050,
+        "sha256": "1da26c7f5094b1164b22b7b8c63baf1a824ef9845ab0f6bef0ee6d59f31a6a0f"
+      },
+      {
+        "file": "Models/GLB format/Textures/rock.png",
+        "bytes": 5016,
+        "sha256": "784c232b801df12e868cc4a9239784051841e3ade3f076b7e96096d480d8ae9e"
+      },
+      {
+        "file": "Models/GLB format/Textures/roof.png",
+        "bytes": 4836,
+        "sha256": "50a09bac9a57a1732af6b6e4de0192efaba3627a997e0b1dc5fc1c1c6369acd6"
+      },
+      {
+        "file": "Models/GLB format/Textures/roof_plates.png",
+        "bytes": 4887,
+        "sha256": "a4cd8f77250ba871728567a1f9af2f234d9bfa07456bc48a2c991847555f6faf"
+      },
+      {
+        "file": "Models/GLB format/Textures/signs.png",
+        "bytes": 1715,
+        "sha256": "050cfc96da08cd2af9575c66c3c75f0cbb1f888bb72533d70aaaaf14f99bb08c"
+      },
+      {
+        "file": "Models/GLB format/Textures/tiles.png",
+        "bytes": 4948,
+        "sha256": "6bb08a68e1bc92d9bb4ad6427e71dcd4abb71bdf10f1add5f8c47e25c7f8b313"
+      },
+      {
+        "file": "Models/GLB format/Textures/treeA.png",
+        "bytes": 3291,
+        "sha256": "8445833d6aef70e984bc8beae80389f407fe7caf556d4909da965e8919e36b0a"
+      },
+      {
+        "file": "Models/GLB format/Textures/treeB.png",
+        "bytes": 2439,
+        "sha256": "51f87841b583de065c6a20252289f77827b1c6d1102a5a87b9511c49c17dd7b4"
+      },
+      {
+        "file": "Models/GLB format/Textures/truck.png",
+        "bytes": 12536,
+        "sha256": "8723c1749ed288288e3f2e6657a73fae7bc181406ee3734904d3e1ff5483f18e"
+      },
+      {
+        "file": "Models/GLB format/Textures/truck_alien.png",
+        "bytes": 11927,
+        "sha256": "950f4dcefecb6cd848d3f01ddd08bdef2b4948966c80980a70db71d05e01790c"
+      },
+      {
+        "file": "Models/GLB format/Textures/wall.png",
+        "bytes": 4518,
+        "sha256": "18dc996f37c4ac4510d09e6cb505c1decbd249d15108d0bfe6efdbd489425690"
+      },
+      {
+        "file": "Models/GLB format/Textures/wall_garage.png",
+        "bytes": 4556,
+        "sha256": "ffb88c17f3497e8d3991cef4ac081743fafe91236cfd96d84ca0ccc2980dce56"
+      },
+      {
+        "file": "Models/GLB format/Textures/wall_lines.png",
+        "bytes": 4725,
+        "sha256": "322d198d1ff4ce006c7029eee416ba96a981ba080756f829110ac8c34faa00f2"
+      },
+      {
+        "file": "Models/GLB format/Textures/windows.png",
+        "bytes": 4464,
+        "sha256": "9a99b16d1caa9b08dfd72eb74ac624b546df89ed6fcfefabe2e4a0933f632a42"
+      },
+      {
+        "file": "Models/GLB format/tree-large.glb",
+        "bytes": 2992,
+        "sha256": "2b17134078e452cfd4a074fd628e86de0789f71e5215d6111fcfc98b15f3fd0c"
+      },
+      {
+        "file": "Models/GLB format/tree-park-large.glb",
+        "bytes": 7960,
+        "sha256": "ef15a84309719f770da2efc0de42052882274e132ccc2ed72c254d7fe51678cd"
+      },
+      {
+        "file": "Models/GLB format/tree-park-pine-large.glb",
+        "bytes": 7976,
+        "sha256": "7f8854543965e906e655c20140fbb2e79be9093157896af63821bbbc69092c9d"
+      },
+      {
+        "file": "Models/GLB format/tree-pine-large.glb",
+        "bytes": 3008,
+        "sha256": "acc41b114a60e25c14f72c91c75a3ef21129badf420ac60a47b08e8bebf41c46"
+      },
+      {
+        "file": "Models/GLB format/tree-pine-small.glb",
+        "bytes": 3024,
+        "sha256": "a4cc51046248885ff375f31553a3ce219bb754e3e177c966fe55359f9db634b7"
+      },
+      {
+        "file": "Models/GLB format/tree-shrub.glb",
+        "bytes": 4224,
+        "sha256": "b75bd1b2cddbae7d6b517a6ecd34c2beaddf9a19d4a0b4fc48a9bc61cf58b4fa"
+      },
+      {
+        "file": "Models/GLB format/tree-small.glb",
+        "bytes": 3008,
+        "sha256": "702217578e8ec1d5e08cab668dcc00c3174630e579f79760e805db12dae42c98"
+      },
+      {
+        "file": "Models/GLB format/truck-flat.glb",
+        "bytes": 7480,
+        "sha256": "0238d4c1c54524fc2a42889f16b270cf29ae71627368ebf6bfd6015e7d76005c"
+      },
+      {
+        "file": "Models/GLB format/truck-green-cargo.glb",
+        "bytes": 3020,
+        "sha256": "0352d5a34094b766a6d5d0d5805aa0c967a4da71f976f2a12c900e748890c289"
+      },
+      {
+        "file": "Models/GLB format/truck-green.glb",
+        "bytes": 5500,
+        "sha256": "a322288e2dbdc56b126751951451cf5d3014f5b04232fa66e84b74d1a941f9f4"
+      },
+      {
+        "file": "Models/GLB format/truck-grey-cargo.glb",
+        "bytes": 2992,
+        "sha256": "4afb8f74d113c9805af020c1f28fa1d91ca824ecb1e03466e727a99f36cd6ec4"
+      },
+      {
+        "file": "Models/GLB format/truck-grey.glb",
+        "bytes": 5472,
+        "sha256": "873e33b96f5c6509c08df3348164c38a5ed2633c34fd3c461df081d446e48737"
+      },
+      {
+        "file": "Models/GLB format/wall-a-column-painted.glb",
+        "bytes": 4804,
+        "sha256": "c52c80849456610b81e29834c1512c461df726a4161a4efa91fba728f6eb4c04"
+      },
+      {
+        "file": "Models/GLB format/wall-a-column.glb",
+        "bytes": 4820,
+        "sha256": "73768464dc68eb03b6a570663dc5771a7099890c3c5c2a0e4f1683e1d4bedcd3"
+      },
+      {
+        "file": "Models/GLB format/wall-a-corner-painted.glb",
+        "bytes": 3976,
+        "sha256": "d0b13918618608c1cc0ba440d9a46fd4f8336c7f153f0312f7862142bc858778"
+      },
+      {
+        "file": "Models/GLB format/wall-a-corner.glb",
+        "bytes": 3976,
+        "sha256": "d65f9899e415af46f1340220e3d83e8af217eecbb2dfef3012f69ba1f97a0e3a"
+      },
+      {
+        "file": "Models/GLB format/wall-a-detail-painted.glb",
+        "bytes": 3892,
+        "sha256": "5a6935c461f3ff2fde147016ed45c8f39fa883af43e762fbd52f1f37303dab4c"
+      },
+      {
+        "file": "Models/GLB format/wall-a-detail.glb",
+        "bytes": 3876,
+        "sha256": "b626b6900e1440019d65bc05584caacd3c95c2ee575f3e08311d2966804224ac"
+      },
+      {
+        "file": "Models/GLB format/wall-a-diagonal.glb",
+        "bytes": 3124,
+        "sha256": "3adc6a5311827acf0b84101d8eccec4b70f6d729297e9824446fb77d94077074"
+      },
+      {
+        "file": "Models/GLB format/wall-a-door.glb",
+        "bytes": 6100,
+        "sha256": "554f1c0cedac9b31b73ee8c623395059a4bca05290ecf8f6a8920363d6f487bf"
+      },
+      {
+        "file": "Models/GLB format/wall-a-flat-garage.glb",
+        "bytes": 3920,
+        "sha256": "0cbb275ad1b00e9689bdca03a5448ae36ecb93a6d570fb1240af8a5f3a72a7ba"
+      },
+      {
+        "file": "Models/GLB format/wall-a-flat-painted.glb",
+        "bytes": 1888,
+        "sha256": "b88b2cfe1d896b07db7f46071b3109e214d7acd6d02b1b1512f5c330c5667cf1"
+      },
+      {
+        "file": "Models/GLB format/wall-a-flat-window.glb",
+        "bytes": 4544,
+        "sha256": "bb171dffa5015747641e3131bf171dbf429042ee3b47408c409a7e4acc17cf66"
+      },
+      {
+        "file": "Models/GLB format/wall-a-flat.glb",
+        "bytes": 1868,
+        "sha256": "c8e2d94e330ee62a476cd4350fb62fe1577ee87843d8d344e12c675c386a9408"
+      },
+      {
+        "file": "Models/GLB format/wall-a-garage.glb",
+        "bytes": 5076,
+        "sha256": "1388f38936e576e73c2df01f12d5afdaf78f22bf9af01132d77d38f8c0949d1c"
+      },
+      {
+        "file": "Models/GLB format/wall-a-low-painted.glb",
+        "bytes": 4160,
+        "sha256": "2690865ffecf18fa3037db5408c73e31dd02cb940850f34346030bfb4e81d92f"
+      },
+      {
+        "file": "Models/GLB format/wall-a-low.glb",
+        "bytes": 3340,
+        "sha256": "e8496bd86af33040ded10e128b9892ca9af28ca01248540b6289ff5d1f5ae850"
+      },
+      {
+        "file": "Models/GLB format/wall-a-open.glb",
+        "bytes": 6976,
+        "sha256": "82b153c90f63dbec15fcde89dce20ce752b129c668225edfd0982e6e34a0797f"
+      },
+      {
+        "file": "Models/GLB format/wall-a-painted-diagonal.glb",
+        "bytes": 3124,
+        "sha256": "30dac23e0b786f696598ba794cf47a2a54a0ebcb7acc24c7502830c1d38e4d65"
+      },
+      {
+        "file": "Models/GLB format/wall-a-painted.glb",
+        "bytes": 3352,
+        "sha256": "3a1861895971cd5df54c729e174e467c6bc2742a942cdfc0304abacfc7ad3b9b"
+      },
+      {
+        "file": "Models/GLB format/wall-a-roof-detailed.glb",
+        "bytes": 6012,
+        "sha256": "dbce71e1a0ff4d98ad5369cbce6f873f4e54a188c0e220af6d493f98a20121da"
+      },
+      {
+        "file": "Models/GLB format/wall-a-roof-slant-detailed.glb",
+        "bytes": 4404,
+        "sha256": "598919b6f29a599ceb976510fdc5bfe80f5cf54dd722d9341c40fa19ff7a7f1e"
+      },
+      {
+        "file": "Models/GLB format/wall-a-roof-slant.glb",
+        "bytes": 3640,
+        "sha256": "16f631c9df61161bf790c7bb8032b0fa46dffaefdbfac874a16cc28a284c5d10"
+      },
+      {
+        "file": "Models/GLB format/wall-a-roof.glb",
+        "bytes": 4640,
+        "sha256": "74b8263e1a28ecfca6b59e84709dd9dae1df9c9aa9b81ec0d3f83906c934545c"
+      },
+      {
+        "file": "Models/GLB format/wall-a-window.glb",
+        "bytes": 6016,
+        "sha256": "4a5ecc11c1c8820f555375ccabb426c6420ebd2bc9c7bcb5f2c472f655c3b03b"
+      },
+      {
+        "file": "Models/GLB format/wall-a.glb",
+        "bytes": 3352,
+        "sha256": "6fceda24c30d2c22694f232f03fe2115fb1a462046fbbf719a90eea10dc9af00"
+      },
+      {
+        "file": "Models/GLB format/wall-b-column.glb",
+        "bytes": 4804,
+        "sha256": "8ef517ba4a77fd4d7e0a3b4d2ef6f27c85a955c62eb782075c29843be5da91ef"
+      },
+      {
+        "file": "Models/GLB format/wall-b-corner.glb",
+        "bytes": 3976,
+        "sha256": "1005b023c22e377a5331aaebd2e56000c8f79244bc1781e63c14cbd0d96a494e"
+      },
+      {
+        "file": "Models/GLB format/wall-b-detail-painted.glb",
+        "bytes": 4412,
+        "sha256": "1578f91b2b9ae33d0b4426f4c75e9211e361e5cede7af822f2b91eb61dec17d0"
+      },
+      {
+        "file": "Models/GLB format/wall-b-diagonal.glb",
+        "bytes": 3124,
+        "sha256": "984d1796e72e30324c709f99e4d4242672623f3ff96c31b35fc803b6683873fb"
+      },
+      {
+        "file": "Models/GLB format/wall-b-door.glb",
+        "bytes": 6192,
+        "sha256": "1a47116484e5ad3539cf01e39f8dfd5e0c8ae5be6ea1f85d686707b009f4c0e2"
+      },
+      {
+        "file": "Models/GLB format/wall-b-flat-garage.glb",
+        "bytes": 3436,
+        "sha256": "94def59d3f6661b0606b90424e8894a6dab2e3b095256c5e979c16ae9131b152"
+      },
+      {
+        "file": "Models/GLB format/wall-b-flat-window.glb",
+        "bytes": 4548,
+        "sha256": "256a94aa9bb5169a6dd4e355065cee227712b78971678f8c29fc210d2db877f5"
+      },
+      {
+        "file": "Models/GLB format/wall-b-flat.glb",
+        "bytes": 1892,
+        "sha256": "cc8be2348142f7e0d05a746f3c20d258f91b79ee86a03dfe5faab0e6a05542ef"
+      },
+      {
+        "file": "Models/GLB format/wall-b-garage.glb",
+        "bytes": 5100,
+        "sha256": "f7db9f06021b80d82a1d7e71bce94f2eb4c0f8302480bf76b12cb22c4a8e04e2"
+      },
+      {
+        "file": "Models/GLB format/wall-b-low.glb",
+        "bytes": 3364,
+        "sha256": "d6ac0eda9035fd1d8342f71c2eb49bdadfb03593f824dc80d34321a79ac7aba1"
+      },
+      {
+        "file": "Models/GLB format/wall-b-open.glb",
+        "bytes": 6976,
+        "sha256": "8e0d33339f95b01401cf4a883d6644feef6592d6cd243f3059b292f7b55e9fdc"
+      },
+      {
+        "file": "Models/GLB format/wall-b-roof-detailed.glb",
+        "bytes": 6040,
+        "sha256": "bee6ad77829a1e2881f124688d165688d978c87f52a8b8067d2feb6ccbd4e60e"
+      },
+      {
+        "file": "Models/GLB format/wall-b-roof-slant-detailed.glb",
+        "bytes": 4400,
+        "sha256": "e4361a305c9ac2fa6e984c3614c91b24b29a9f527b391d1df91759bf9346a837"
+      },
+      {
+        "file": "Models/GLB format/wall-b-roof-slant.glb",
+        "bytes": 3636,
+        "sha256": "21f6374079c298671db8aa5b348f74c2420b89bac05a5eb2cc4450927b659f00"
+      },
+      {
+        "file": "Models/GLB format/wall-b-roof.glb",
+        "bytes": 4668,
+        "sha256": "667e8db01953bac7534f26cea3e9a0e04d611d0dd581adbed7d9ecc1af60a185"
+      },
+      {
+        "file": "Models/GLB format/wall-b-window.glb",
+        "bytes": 6004,
+        "sha256": "b579cff0a0c17ff69a37abd87bb9ef9b9cd06ce4538a00368b75d3ed1a47e96f"
+      },
+      {
+        "file": "Models/GLB format/wall-b.glb",
+        "bytes": 3352,
+        "sha256": "8fca42a344b37c34add41c6dda88ee35899b26444237f88b7f0fe9da14f09e28"
+      },
+      {
+        "file": "Models/GLB format/wall-broken-type-a.glb",
+        "bytes": 5492,
+        "sha256": "0bd361f3821635c11d1cfaa05cb259a478efd51fe94e9b36bf0f0bbf9359684f"
+      },
+      {
+        "file": "Models/GLB format/wall-broken-type-b.glb",
+        "bytes": 6364,
+        "sha256": "edd4afbaca5865f95fb6cce30bf8a1a2873a4b5dd60fd6d7b1872200f5c244e9"
+      },
+      {
+        "file": "Models/GLB format/wall-c-flat-low.glb",
+        "bytes": 2060,
+        "sha256": "785115d7785e73bb3c12c6bcaf7c5d2b3a74ad2a6f28fd9701544c2c3c279629"
+      },
+      {
+        "file": "Models/GLB format/wall-c-flat.glb",
+        "bytes": 2048,
+        "sha256": "9c6d1ceb6969e7d38960186b4a12ace7217e13bbcc5be7b90536c0cf391f3450"
+      },
+      {
+        "file": "Models/GLB format/wall-fence.glb",
+        "bytes": 5724,
+        "sha256": "739feaa09ec6a86893fb45f458e00586c1e36ffcab900a726214262f06659367"
+      },
+      {
+        "file": "Models/GLB format/wall-steps-type-a.glb",
+        "bytes": 5856,
+        "sha256": "dda6f420c2d38d6f1d6377e4e17b156fe94e52673ffd9d94727a4356b8d20085"
+      },
+      {
+        "file": "Models/GLB format/wall-steps-type-b.glb",
+        "bytes": 6428,
+        "sha256": "4f2edffbc44b7ef62ef1c2154af90d0c8a59d082f2af2f81e3e7029ece9402c5"
+      },
+      {
+        "file": "Models/GLB format/wall-type-a.glb",
+        "bytes": 3436,
+        "sha256": "deb733ff4581dfbe7f3cf25626fa0a6fe927bd00be70333cc7e1779056c530a2"
+      },
+      {
+        "file": "Models/GLB format/wall-type-b.glb",
+        "bytes": 4620,
+        "sha256": "b37ec43f05d28bb715bddcda8e772b5aac6af888ade6b8f258abe418abf44b9d"
+      },
+      {
+        "file": "Models/GLB format/window-small-type-a.glb",
+        "bytes": 4504,
+        "sha256": "ded392c6c33bd22ca67e6922f6e0f0bc18ae21428d9949d42e01fa293a441025"
+      },
+      {
+        "file": "Models/GLB format/window-small-type-b.glb",
+        "bytes": 4504,
+        "sha256": "32d21568a65331acd6b8ba7712b7d1a413d7214614227da7e74a7d378ff8a72a"
+      },
+      {
+        "file": "Models/GLB format/window-wide-type-a.glb",
+        "bytes": 4924,
+        "sha256": "30d570addbdda3ee49d5e7f3d45016b8ef552aea72351c89582b39684dddbc64"
+      },
+      {
+        "file": "Models/GLB format/window-wide-type-b.glb",
+        "bytes": 4924,
+        "sha256": "4997ccdd54140b8bad3f88f630b463163395ebde7620476f8cd8705e92a54786"
+      },
+      {
+        "file": "Models/GLB format/window-wide-type-c.glb",
+        "bytes": 4504,
+        "sha256": "ef0d0d12951b852659b84fa54d745d5a3ed8208fe5bc94ee9ad6efc9488bc58a"
+      },
+      {
+        "file": "Models/GLB format/window-wide-type-d.glb",
+        "bytes": 4504,
+        "sha256": "8ede6aa4ffbb9f3eaa733a7089f4d401ea67d67514385811575190b69dae930f"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 197909,
+        "sha256": "4e721fe2c123dd14bef0153517da5e1be05bc96505f803be2d19d7482d7927e9"
+      }
+    ]
+  },
+  {
+    "slug": "graveyard-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/graveyard-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/graveyard-kit/ba8d4b4517-1760691807/kenney_graveyard-kit_5.0.zip",
+    "zipBytes": 3623408,
+    "zipSha256": "1a93613f2e5675f3310acf49ec9ef13ae7adeb756ac3b205bfb6cc9311a81062",
+    "models": 91,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 702,
+        "sha256": "a48e274258386c6bcb5302f17eaab40304cd805cc68be2754e2452179418c70e"
+      },
+      {
+        "file": "Models/GLB format/altar-stone.glb",
+        "bytes": 17164,
+        "sha256": "6cdcdc19c2d979fc0fafa073bc31db9a45ddc76390bfef366f23e92768d7dde9"
+      },
+      {
+        "file": "Models/GLB format/altar-wood.glb",
+        "bytes": 28368,
+        "sha256": "f1702fc2cbbbb417670ef96bd543209ac5764afdb4e43dbdf267328b62f75968"
+      },
+      {
+        "file": "Models/GLB format/bench-damaged.glb",
+        "bytes": 23548,
+        "sha256": "48007ab37acaf512dc131f57984424d1897fe2f94446c096e9f3574e06c5b8af"
+      },
+      {
+        "file": "Models/GLB format/bench.glb",
+        "bytes": 15952,
+        "sha256": "2fd1ed7a06e8b2a9a6e81896eb96f08103ba6d9d705f6643504ea82d8280d213"
+      },
+      {
+        "file": "Models/GLB format/border-pillar.glb",
+        "bytes": 11292,
+        "sha256": "93bc8c320a07b47fe2ce83840d470aa9360c5cca7e435c9b0d45931da8341cb7"
+      },
+      {
+        "file": "Models/GLB format/brick-wall-curve-small.glb",
+        "bytes": 50812,
+        "sha256": "854cca79e8eb5e20fe7b34624d3a389dadd1d0cbcd0f309388f7a77e3df8ec55"
+      },
+      {
+        "file": "Models/GLB format/brick-wall-curve.glb",
+        "bytes": 34684,
+        "sha256": "1d0791d07193ae1f5f85b4ed3a8591936fc29ce40b9bfe5b8df843956c436ad1"
+      },
+      {
+        "file": "Models/GLB format/brick-wall-end.glb",
+        "bytes": 31056,
+        "sha256": "c91d8ca548811d9ed1a8d4f68bd0da3c9717a1a0b614f780ae1022fe81ec8f60"
+      },
+      {
+        "file": "Models/GLB format/brick-wall.glb",
+        "bytes": 19440,
+        "sha256": "ad3da37d118a1d245b90faf67c449e4da3711eb53d6aefc7b45686166694e605"
+      },
+      {
+        "file": "Models/GLB format/candle-multiple.glb",
+        "bytes": 17304,
+        "sha256": "e747e04390e8f431e0d80b17696ef01cfa935dd8efff44f7008de6408236b547"
+      },
+      {
+        "file": "Models/GLB format/candle.glb",
+        "bytes": 6800,
+        "sha256": "4eea8c08c86daebbdddc454e89e3f75bb486ee7f82822bb1edb418db6d539f91"
+      },
+      {
+        "file": "Models/GLB format/character-ghost.glb",
+        "bytes": 114016,
+        "sha256": "d4334bc0c7c0ca27924e238b47fe5b0984f4f6bbaeaa55f7e75d0287e8935895"
+      },
+      {
+        "file": "Models/GLB format/character-keeper.glb",
+        "bytes": 250200,
+        "sha256": "d11d277c7e78002393a5534370638c4100a325f20a5daa96b61928a1a0f1856b"
+      },
+      {
+        "file": "Models/GLB format/character-skeleton.glb",
+        "bytes": 202796,
+        "sha256": "72f20c53c63114888d91fdd8a01c4165a116d416dcee8fab03ef9b2450eac68b"
+      },
+      {
+        "file": "Models/GLB format/character-vampire.glb",
+        "bytes": 248132,
+        "sha256": "89e646e46d9a067009a548d9b120ec358fbe9fa3b0d671136b8bf930be2f2cd4"
+      },
+      {
+        "file": "Models/GLB format/character-zombie.glb",
+        "bytes": 245500,
+        "sha256": "1a49bedce8647de542bfaaa796a3b533ab2a0d2567122bd08b16b2741fa62693"
+      },
+      {
+        "file": "Models/GLB format/coffin-old.glb",
+        "bytes": 19952,
+        "sha256": "46974a0a6bc94e1e8873c6629b17733746d0643764ae0d849cac9ed1daaae796"
+      },
+      {
+        "file": "Models/GLB format/coffin.glb",
+        "bytes": 24696,
+        "sha256": "e372964ef6d9d623f6ea5dacd9b4d68eda417706b4246a9b62a38106adf2defd"
+      },
+      {
+        "file": "Models/GLB format/column-large.glb",
+        "bytes": 37540,
+        "sha256": "1665820bc039aced692d15cb763dc73ca6c67515044b9d2106134e2951a33fd2"
+      },
+      {
+        "file": "Models/GLB format/cross-column.glb",
+        "bytes": 20820,
+        "sha256": "6c3467a3562e29d24a4f2dc8ab73725cbff3ec37064439ba6d158383a3f5b1c5"
+      },
+      {
+        "file": "Models/GLB format/cross-wood.glb",
+        "bytes": 13080,
+        "sha256": "8c84436cf5d058276e5b83af9638220c94d265f1f042a6f021307303e1b929a0"
+      },
+      {
+        "file": "Models/GLB format/cross.glb",
+        "bytes": 15556,
+        "sha256": "9ef9a14c461b1892f2a0a288de909b71c8f6ca44f446cfa77248103b61142123"
+      },
+      {
+        "file": "Models/GLB format/crypt-a.glb",
+        "bytes": 10904,
+        "sha256": "185bf7cfdf3c314c8416b9767629827d3e5809df8a5b2e27315520397bd3cf04"
+      },
+      {
+        "file": "Models/GLB format/crypt-b.glb",
+        "bytes": 12088,
+        "sha256": "2aa022f33487ce14a6fd0dba7e651c8f21ea66016e5a6b425c28376c1750a0d1"
+      },
+      {
+        "file": "Models/GLB format/crypt-door.glb",
+        "bytes": 16168,
+        "sha256": "41a62fcf6fdf3e1b45ffb03df6bfe6613ca9299c29295c6fdde907e9394c23bf"
+      },
+      {
+        "file": "Models/GLB format/crypt-large-door.glb",
+        "bytes": 21712,
+        "sha256": "04ccdafcca9207f6dc1b1897f96066286f7336ca81fdef55eedf5fd998bd0f1c"
+      },
+      {
+        "file": "Models/GLB format/crypt-large-roof.glb",
+        "bytes": 35600,
+        "sha256": "46c4e80205bd74b2d1162cf261ad46bd8846c63e106f56e44869bf9184670d7e"
+      },
+      {
+        "file": "Models/GLB format/crypt-large.glb",
+        "bytes": 54852,
+        "sha256": "2995f0d1356d9b92344c607ecc9ff727347dd7347527edfe1cf20ad582aef199"
+      },
+      {
+        "file": "Models/GLB format/crypt-small-roof.glb",
+        "bytes": 27284,
+        "sha256": "d2b3fed2db2656823d5d8f963341bd55f58f18e6916c0808262b26c76c9ebc93"
+      },
+      {
+        "file": "Models/GLB format/crypt-small.glb",
+        "bytes": 36872,
+        "sha256": "b3393b6cf9e2bd6f6ff2a11797684634c50f6d0902d154dcb77cc807d9047a65"
+      },
+      {
+        "file": "Models/GLB format/crypt.glb",
+        "bytes": 25048,
+        "sha256": "61ff55e95648a28872cedba61c9c48fac723852adad49a3a2d92e26e0c0d2909"
+      },
+      {
+        "file": "Models/GLB format/debris-wood.glb",
+        "bytes": 10820,
+        "sha256": "f0cf5285322f7d75125487f1574a61cca2fd96edb0e702a2773ae5cbb0244133"
+      },
+      {
+        "file": "Models/GLB format/debris.glb",
+        "bytes": 25132,
+        "sha256": "bf584bb5a4c1a7d4b7aed9ced00473a8678e9d402db1cfafc17e84e46aa2d42a"
+      },
+      {
+        "file": "Models/GLB format/detail-bowl.glb",
+        "bytes": 17472,
+        "sha256": "84ef12ff1eac613fd96fb0be19f905caa66f019a642fa527b92429f0459fc710"
+      },
+      {
+        "file": "Models/GLB format/detail-chalice.glb",
+        "bytes": 13816,
+        "sha256": "e7eeba55e5f1881095a3da159fc0a275ea4b59cc1cdce574d54662160ccdcc41"
+      },
+      {
+        "file": "Models/GLB format/detail-plate.glb",
+        "bytes": 11424,
+        "sha256": "466938a567c52a237386b4586a15da479c869fff28c2e39669b327f5a9fccf8a"
+      },
+      {
+        "file": "Models/GLB format/fence-damaged.glb",
+        "bytes": 30152,
+        "sha256": "29d600de13fd132a615b7f0f6342d4a974610303ca12595049e5b43a0d2ad8b5"
+      },
+      {
+        "file": "Models/GLB format/fence-gate.glb",
+        "bytes": 28848,
+        "sha256": "40b7e62b67578169681f40222b27f09ccc48b5b7afa602ab57b2c4b116695be5"
+      },
+      {
+        "file": "Models/GLB format/fence.glb",
+        "bytes": 40020,
+        "sha256": "f822b39a56f1a4b55957845976b1803230fca0df1c99fa41b3986fdc8c9a8332"
+      },
+      {
+        "file": "Models/GLB format/fire-basket.glb",
+        "bytes": 18740,
+        "sha256": "f72e5a3f69711b30055219961d16824fe6d1ac5a8240d456d7f1a1a2cb7d5433"
+      },
+      {
+        "file": "Models/GLB format/grave-border.glb",
+        "bytes": 57352,
+        "sha256": "ab330ef153b3616967346cc4db3df942bd54661e538dcb938fb0e80b3077250a"
+      },
+      {
+        "file": "Models/GLB format/grave.glb",
+        "bytes": 25080,
+        "sha256": "72218a70525389bb6dcb3b46e097a8637bde2a233b776344988aab6bb99a0e97"
+      },
+      {
+        "file": "Models/GLB format/gravestone-bevel.glb",
+        "bytes": 15852,
+        "sha256": "83c78e259fe18fd9d93548ee4a28b327f368cc06a711f15839ed1ceb09032ff0"
+      },
+      {
+        "file": "Models/GLB format/gravestone-broken.glb",
+        "bytes": 12920,
+        "sha256": "67693974f6b30d49da8c56a436b78de4f49007be68d985bfb42d433119cc527a"
+      },
+      {
+        "file": "Models/GLB format/gravestone-cross-large.glb",
+        "bytes": 18212,
+        "sha256": "40aeef854bff86847cd320dc344724517d4e2a66898d5208668f6da92d1f540c"
+      },
+      {
+        "file": "Models/GLB format/gravestone-cross.glb",
+        "bytes": 20584,
+        "sha256": "ef49164a4ca545cb2bb491f592d63b1611f6f8f640db77db62f9651ec33fb849"
+      },
+      {
+        "file": "Models/GLB format/gravestone-debris.glb",
+        "bytes": 11908,
+        "sha256": "b1ec5203d1372801ff0cc2b85c37f1c38a29b17b9c14360d66ee7a4febbbdd4f"
+      },
+      {
+        "file": "Models/GLB format/gravestone-decorative.glb",
+        "bytes": 10004,
+        "sha256": "3011f6c20c7a3a26b2a9968ceabdede5a36374683817c84dff4ec334b4fe9708"
+      },
+      {
+        "file": "Models/GLB format/gravestone-roof.glb",
+        "bytes": 16316,
+        "sha256": "991feaac46ce1f72cb455c540d034d75a8683fc6bf110fdf3a985506d8174d24"
+      },
+      {
+        "file": "Models/GLB format/gravestone-round.glb",
+        "bytes": 16832,
+        "sha256": "20574c84e41990d7143cdb1201d8318e875a326fe605512a7c82bac3086c8db0"
+      },
+      {
+        "file": "Models/GLB format/gravestone-wide.glb",
+        "bytes": 23020,
+        "sha256": "ddbdd815905b3365a991b9b264997c81f2d38235e11ab88a0b594700c34455c3"
+      },
+      {
+        "file": "Models/GLB format/hay-bale-bundled.glb",
+        "bytes": 35088,
+        "sha256": "94e00bc82083ebd34580a686ad2b10920a53d9c54edb5fed61e4837e987739ee"
+      },
+      {
+        "file": "Models/GLB format/hay-bale.glb",
+        "bytes": 17828,
+        "sha256": "675d70aab70a1ad6792d347183cdf0cf1de5c342863c0e03128cd31ed2a5963a"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-bar.glb",
+        "bytes": 10128,
+        "sha256": "a2a89817ab92288281eb2b16f00a4d12b3d9d8ee6cce9df7b134a0321b477daf"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-border-column.glb",
+        "bytes": 40752,
+        "sha256": "0216ee96788a593317e233b5fdca3386d5153943c46088e0c712d6cb09907b1d"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-border-curve.glb",
+        "bytes": 55232,
+        "sha256": "6cf47dfd47da92bd4a0eb08ab4ac3f077145bc6eb7b0a5e44600d55070add24e"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-border-gate.glb",
+        "bytes": 26340,
+        "sha256": "efc72718ec621098884d1f7580e63b06e297ad71c4f7a1a07fcdc9a8b3612724"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-border.glb",
+        "bytes": 39188,
+        "sha256": "22a09aff8abfcf295d99e9f480fed6b012ac4d9e58cd4e28b1e3d410e40e4bf4"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-curve.glb",
+        "bytes": 46152,
+        "sha256": "fc6281a993e1b5c773d4ebf4373d2af1e7aaf571a695275355a57d0c7164aac6"
+      },
+      {
+        "file": "Models/GLB format/iron-fence-damaged.glb",
+        "bytes": 34956,
+        "sha256": "7229744e6c557fdc4afe3dc6459b24a04b79056b7951b02e0afcd24608a55ac2"
+      },
+      {
+        "file": "Models/GLB format/iron-fence.glb",
+        "bytes": 38576,
+        "sha256": "6ea3e334d97348d8ad9de5a8c77cdd07fb798a23f56971186c8f9edb85689cd9"
+      },
+      {
+        "file": "Models/GLB format/lantern-candle.glb",
+        "bytes": 22124,
+        "sha256": "c78da0717e38ea019617a39a2ad263c54ecc3b0efbdcd3da124db6550657e90e"
+      },
+      {
+        "file": "Models/GLB format/lantern-glass.glb",
+        "bytes": 18596,
+        "sha256": "7abd3637f191da06255cc9215c7801e7f4a4ed7a88dcce0f63dbc2bff1e6f5e5"
+      },
+      {
+        "file": "Models/GLB format/lightpost-all.glb",
+        "bytes": 93724,
+        "sha256": "4f717cdd4c64d807b8b133cf23a1e6d225b9f20400fefae5b85d4ce7774f45e5"
+      },
+      {
+        "file": "Models/GLB format/lightpost-double.glb",
+        "bytes": 54228,
+        "sha256": "54288335ecba277a05df2e62526574cdfe5e3cd5d8f19065142e2d669b5ede0b"
+      },
+      {
+        "file": "Models/GLB format/lightpost-single.glb",
+        "bytes": 34440,
+        "sha256": "76a179f45f24e7cd044c2e1f3bfaf3297d10feb044613d14a03691a62c1f55fe"
+      },
+      {
+        "file": "Models/GLB format/pillar-large.glb",
+        "bytes": 17076,
+        "sha256": "971b13ead8b9c45b3ee4e664ae0fbca3e78a95bdbd373596a13b8a9970de36a4"
+      },
+      {
+        "file": "Models/GLB format/pillar-obelisk.glb",
+        "bytes": 8552,
+        "sha256": "f7a9d985522d8bb1eef765ce2b841588b43c8607b32c87056945696a172b3bf1"
+      },
+      {
+        "file": "Models/GLB format/pillar-small.glb",
+        "bytes": 10748,
+        "sha256": "f662421741bf09c8fc41b46f9146901208f28280cc83bc6c0e7563e774cad841"
+      },
+      {
+        "file": "Models/GLB format/pillar-square.glb",
+        "bytes": 18352,
+        "sha256": "130befbc898123302bf3b114f60629d3f950bcfab9759b484bdd49541b8c2846"
+      },
+      {
+        "file": "Models/GLB format/pine-crooked.glb",
+        "bytes": 35944,
+        "sha256": "3080ca745df311d59cbe445a31da6cadfd7aa5f14e4846015f310746a6c23fe1"
+      },
+      {
+        "file": "Models/GLB format/pine-fall-crooked.glb",
+        "bytes": 35960,
+        "sha256": "299d2ceb57f8ca20048b955e4e2aa509ea16b1403dd2f178db9396dec5221760"
+      },
+      {
+        "file": "Models/GLB format/pine-fall.glb",
+        "bytes": 35936,
+        "sha256": "1370654dc1da3615f51e31880e71d78990d5dbe7a4a0480abdbfc840fb89a6ad"
+      },
+      {
+        "file": "Models/GLB format/pine.glb",
+        "bytes": 35920,
+        "sha256": "0bd5e72e2aa430e74625b3a11bd809c669c7cc58a300b028ff06814d45c2d213"
+      },
+      {
+        "file": "Models/GLB format/pumpkin-carved.glb",
+        "bytes": 46164,
+        "sha256": "391f55e283d8b1e8e02425a865238c285636909ef6e8bb32794136d13f881e18"
+      },
+      {
+        "file": "Models/GLB format/pumpkin-tall-carved.glb",
+        "bytes": 44248,
+        "sha256": "f27964c3989388d70ec252dae3de958f34831290e26a2ab1476824f66b218372"
+      },
+      {
+        "file": "Models/GLB format/pumpkin-tall.glb",
+        "bytes": 35456,
+        "sha256": "2a4fa002453d7ea458ea1509879c0b006b70317060d40e520d132b16ca4eed0e"
+      },
+      {
+        "file": "Models/GLB format/pumpkin.glb",
+        "bytes": 35344,
+        "sha256": "547006d57b262c30dd471cf70a813965a48c12959b38fe75a9914dbd07124fd6"
+      },
+      {
+        "file": "Models/GLB format/road.glb",
+        "bytes": 29048,
+        "sha256": "2c090747a40ff5fb70d61d04ae546b30329589609dd410509895713228f41984"
+      },
+      {
+        "file": "Models/GLB format/rocks-tall.glb",
+        "bytes": 36924,
+        "sha256": "c6769af9562a9f47d8ae96cad506e4ff900c66299f5ec4494903a40642c12a6d"
+      },
+      {
+        "file": "Models/GLB format/rocks.glb",
+        "bytes": 36844,
+        "sha256": "e574e8dd7e71a8673765b4385c1fbef3af05940bdf6b6df7690225509a6d394b"
+      },
+      {
+        "file": "Models/GLB format/shovel-dirt.glb",
+        "bytes": 26068,
+        "sha256": "860958adac031d959a3d42a451b915cf01e91efd63abf3df62640c64bb083b9f"
+      },
+      {
+        "file": "Models/GLB format/shovel.glb",
+        "bytes": 13812,
+        "sha256": "7462ad2ff92494abd2115ac5af295110687244fd7a34b265538510496495965a"
+      },
+      {
+        "file": "Models/GLB format/stone-wall-column.glb",
+        "bytes": 13744,
+        "sha256": "7c979fd9868e28c0d762d11a8deccc33075afe8a47cbf5adf833396383172a5b"
+      },
+      {
+        "file": "Models/GLB format/stone-wall-curve.glb",
+        "bytes": 27584,
+        "sha256": "372966e9a18f37bd4cef6428a6f2ce92d5e4d49aaacbc3747c4b629dde216324"
+      },
+      {
+        "file": "Models/GLB format/stone-wall-damaged.glb",
+        "bytes": 14168,
+        "sha256": "2e0357e73f5fc0bc95f12469474c39191c93a67d586b5d3ad749edf2ec021c88"
+      },
+      {
+        "file": "Models/GLB format/stone-wall.glb",
+        "bytes": 6944,
+        "sha256": "f6276d585e0ae3603d005e5a80d8d2ac6af3da5f357df520d21de0df62837f59"
+      },
+      {
+        "file": "Models/GLB format/Textures/colormap.png",
+        "bytes": 10965,
+        "sha256": "a94b4dc4f77a4b8aec96bde94f63912a1ce12aa98eec2c1e9a37c89e20a5f091"
+      },
+      {
+        "file": "Models/GLB format/trunk-long.glb",
+        "bytes": 30832,
+        "sha256": "d5d3547b19650a07cad0eb6d597c5cc233675159dd2594a84a19199109f9dc27"
+      },
+      {
+        "file": "Models/GLB format/trunk.glb",
+        "bytes": 27100,
+        "sha256": "e8f241c336d6693ccee658bc9830a461f0d18d5b90aba9a52e6276e89e4f8171"
+      },
+      {
+        "file": "Models/GLB format/urn-round.glb",
+        "bytes": 23712,
+        "sha256": "9a80d295c1c2124435eea72166fc16d7a4fe54e538950aa320dfb63a704b5e37"
+      },
+      {
+        "file": "Models/GLB format/urn-square.glb",
+        "bytes": 22460,
+        "sha256": "1cebfae88912999cd1c23d18a6c3567be1bcc95ebd6f28636569491dd42d1a15"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 142396,
+        "sha256": "8f348e0ce61651c00672901f2dcd8deec3f6d46b50236dd05dd0c0cbcb874ab9"
+      }
+    ]
+  },
+  {
+    "slug": "modular-dungeon-kit",
+    "creator": "Kenney",
+    "license": "CC0-1.0",
+    "page": "https://kenney.nl/assets/modular-dungeon-kit",
+    "sourceUrl": "https://kenney.nl/media/pages/assets/modular-dungeon-kit/7bed87605b-1771926065/kenney_modular-dungeon-kit_1.0.zip",
+    "zipBytes": 6886434,
+    "zipSha256": "dd0aa6776db8912283cdca60161dee6a8839bbda3558eba2ea501419eb5b4623",
+    "models": 39,
+    "files": [
+      {
+        "file": "License.txt",
+        "bytes": 708,
+        "sha256": "41a49bdd304040502cabcedf73f27a1beeecc548c86f71822f288600d39d2601"
+      },
+      {
+        "file": "Models/GLB format/corridor-corner.glb",
+        "bytes": 80616,
+        "sha256": "9c8efc6da00f45f1bb9986e596bea9bec5433d776bfd440e315f1f14570edfe8"
+      },
+      {
+        "file": "Models/GLB format/corridor-end.glb",
+        "bytes": 126740,
+        "sha256": "aa0cc13ebf45c7d3af0c072f53bf74c9fc1d8b4eec949484bc7ce551615bff66"
+      },
+      {
+        "file": "Models/GLB format/corridor-intersection.glb",
+        "bytes": 35028,
+        "sha256": "8391b37a520da2e81ba00f9992f74eb338d4b93263ef180b895508b7096edce8"
+      },
+      {
+        "file": "Models/GLB format/corridor-junction.glb",
+        "bytes": 60144,
+        "sha256": "024813c67150354bae6fa9dceb618eae00c918461d38a3e8f2e5d5241df600e7"
+      },
+      {
+        "file": "Models/GLB format/corridor-transition.glb",
+        "bytes": 236320,
+        "sha256": "b8628cee5af8ea7ea89024ee5e0eb30c91b217680daed8188e0cb7babb27ab8f"
+      },
+      {
+        "file": "Models/GLB format/corridor-wide-corner.glb",
+        "bytes": 164848,
+        "sha256": "c1613a016eb107379c51c75ae7ced7e5244b27d7904910981584ce73f78a6db1"
+      },
+      {
+        "file": "Models/GLB format/corridor-wide-end.glb",
+        "bytes": 327232,
+        "sha256": "ecaef7f049d790a14da8ec6169afd9f81e12e5c9f3629429e07790a998cc197c"
+      },
+      {
+        "file": "Models/GLB format/corridor-wide-intersection.glb",
+        "bytes": 36236,
+        "sha256": "258d31b3658fb3015b50be9169259e3c1f4ee4fa0d8b68ed937e8bc7664a461a"
+      },
+      {
+        "file": "Models/GLB format/corridor-wide-junction.glb",
+        "bytes": 127796,
+        "sha256": "a1653befb7ae2fe7c99fdb9ec600930be04c0c5e1fd8c0d112ddaf3c9c4aa6f9"
+      },
+      {
+        "file": "Models/GLB format/corridor-wide.glb",
+        "bytes": 219188,
+        "sha256": "0a24c93238ebd1178c522e5effc7f0bfc1963133f2d50635a84c2465d5dd0f43"
+      },
+      {
+        "file": "Models/GLB format/corridor.glb",
+        "bytes": 85104,
+        "sha256": "e70f61e46cdfcea4b52e722abdbbdc5cf727461660ccd8556ad4b7a39a5997d5"
+      },
+      {
+        "file": "Models/GLB format/gate-door-window.glb",
+        "bytes": 95080,
+        "sha256": "9fca8b1307efae4c4305c646ab61c1532c06ad389e011de604d58a49912642db"
+      },
+      {
+        "file": "Models/GLB format/gate-door.glb",
+        "bytes": 90640,
+        "sha256": "902ac6617d56143799aa2ca73d1113838cb09a9ebc7cbd7c7eeb785504099fd8"
+      },
+      {
+        "file": "Models/GLB format/gate-metal-bars.glb",
+        "bytes": 68172,
+        "sha256": "e3a2228906e1601c6d4fbb53d615f03541094177a624168e77b1ab0220e081f4"
+      },
+      {
+        "file": "Models/GLB format/gate.glb",
+        "bytes": 53804,
+        "sha256": "491c9e9980751cf4fee75e3cfc4390075402c0070962ff1d33fe98138ea289c9"
+      },
+      {
+        "file": "Models/GLB format/room-corner.glb",
+        "bytes": 437160,
+        "sha256": "2141c0636c857a62b040063adbeef9aba86d1271245a2a83f89ed4ca8f942b98"
+      },
+      {
+        "file": "Models/GLB format/room-large-variation.glb",
+        "bytes": 875848,
+        "sha256": "824d58bbc23ab56f4588dbc8d3f89ec91a4d53dfbb75104fe70b37aa3e7540a8"
+      },
+      {
+        "file": "Models/GLB format/room-large.glb",
+        "bytes": 921468,
+        "sha256": "07873ae13a1ddbc0e067fb91a792c1fd4f26f876e73d415502e558baec40023d"
+      },
+      {
+        "file": "Models/GLB format/room-small-variation.glb",
+        "bytes": 421372,
+        "sha256": "19069719157fef9d3a24c8176767cd8de9fe5efc3534d6aa7e6967955b142c86"
+      },
+      {
+        "file": "Models/GLB format/room-small.glb",
+        "bytes": 412996,
+        "sha256": "a7e74a5f2c91ce0503190bcda140259545478d7c80f60243d2c13a897e01af20"
+      },
+      {
+        "file": "Models/GLB format/room-wide-variation.glb",
+        "bytes": 827716,
+        "sha256": "c64720b297c4847746f720dd928cc5b70b11ff45c817e39e9d067f18198d9510"
+      },
+      {
+        "file": "Models/GLB format/room-wide.glb",
+        "bytes": 684096,
+        "sha256": "8b953028a4254ea4e342768cb561e01a02ca7ec5d0b752d3cabf83347de413b0"
+      },
+      {
+        "file": "Models/GLB format/stairs-wide.glb",
+        "bytes": 280952,
+        "sha256": "f620cd90dbd6bbb6c6667d6529d5ded2c26205470b1580163b0c52e2410c2640"
+      },
+      {
+        "file": "Models/GLB format/stairs.glb",
+        "bytes": 271196,
+        "sha256": "1110a2578cc74e4954901cf688b184a191d34bd8eebcb15215a0efc5e9ca50c1"
+      },
+      {
+        "file": "Models/GLB format/template-corner.glb",
+        "bytes": 72396,
+        "sha256": "9b91d52743f284704b15aaa68b2bb2a7041bcd968d2dfd3617ed107f1db235d2"
+      },
+      {
+        "file": "Models/GLB format/template-detail.glb",
+        "bytes": 18216,
+        "sha256": "1e996e74b9e841418009c9292a8247dc6413588bbdcdf298b7f2666be73b6a68"
+      },
+      {
+        "file": "Models/GLB format/template-floor-big.glb",
+        "bytes": 50396,
+        "sha256": "01fa0798d42dbbd7536750de3e33b4ee9acb74eca6523d54d456e884ed1c81da"
+      },
+      {
+        "file": "Models/GLB format/template-floor-detail-a.glb",
+        "bytes": 22668,
+        "sha256": "403a357e1d59760f171d9def9db4ff01859372bde885dad2322e1519dafa4351"
+      },
+      {
+        "file": "Models/GLB format/template-floor-detail.glb",
+        "bytes": 22664,
+        "sha256": "0acd25cbb92a565ad9559c47a3c60dcf6a22ee05ad6dcad2e5b2bf32de63d84d"
+      },
+      {
+        "file": "Models/GLB format/template-floor-layer-hole.glb",
+        "bytes": 41092,
+        "sha256": "e1f1f7338d3b7aae87cfd97301d04bb3d22b5300680141b072d12a11e64062dc"
+      },
+      {
+        "file": "Models/GLB format/template-floor-layer-raised.glb",
+        "bytes": 33704,
+        "sha256": "7fc682e72dce4eb16e524d0af577f1ccdc0c4681f309fc5f450dd80e4676a9bc"
+      },
+      {
+        "file": "Models/GLB format/template-floor-layer.glb",
+        "bytes": 18992,
+        "sha256": "384d960dc5c79fd6b966cce37a246177dfd7b40c6131a98a19ee1553497da643"
+      },
+      {
+        "file": "Models/GLB format/template-floor.glb",
+        "bytes": 2052,
+        "sha256": "2499e536e31a15ed29da17f1c8ae500c274fb169c993edb39f4072e486dadc41"
+      },
+      {
+        "file": "Models/GLB format/template-wall-corner.glb",
+        "bytes": 9688,
+        "sha256": "fbccb15028552ba779cd765b5d41ea328f3b4a5e2c61be11fda5de87b1b81f9d"
+      },
+      {
+        "file": "Models/GLB format/template-wall-detail-a.glb",
+        "bytes": 58744,
+        "sha256": "441384f33790b7a6fe3caddc8c4637c3a58a0f7ed6015be1011704353b2e4886"
+      },
+      {
+        "file": "Models/GLB format/template-wall-half.glb",
+        "bytes": 27220,
+        "sha256": "69b0cabe772ca9fb88545ef21e303e434a57cde2fb3bd2373627136534168c56"
+      },
+      {
+        "file": "Models/GLB format/template-wall-stairs.glb",
+        "bytes": 15376,
+        "sha256": "c62afcc130d896836e454cc42320372b8d047cc568c32f5401bcc585b5ff1032"
+      },
+      {
+        "file": "Models/GLB format/template-wall-top.glb",
+        "bytes": 27600,
+        "sha256": "253fbea03d92a52c895ab731194ac011c65a2a2d1d53b62b8586723024acd8f7"
+      },
+      {
+        "file": "Models/GLB format/template-wall.glb",
+        "bytes": 43216,
+        "sha256": "58a34df2429968d82b45f0666ed1371cdcaa1e42468c1d4697c04bff47e9fbe5"
+      },
+      {
+        "file": "Models/GLB format/Textures/colormap.png",
+        "bytes": 28309,
+        "sha256": "fc9e729b10296cccc9466ecbb4dac7ea0575e2a0798a72ed94d41b0b8a73d824"
+      },
+      {
+        "file": "Preview.png",
+        "bytes": 207961,
+        "sha256": "fad54a748f57ba9d54387fd773f713867373233c90026266424079a058d56fd2"
+      }
+    ]
   }
 ]

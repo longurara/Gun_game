@@ -30,6 +30,8 @@ Original GLBs are preserved. Runtime adaptations: axis alignment, resizing, bake
 
 ## Kenney CC0 packs
 
+- [modular-buildings](https://kenney.nl/assets/modular-buildings) — Kenney, CC0 1.0. Awning and AC detail; license in `License-modular-buildings.txt`.
+
 - [car-kit](https://kenney.nl/assets/car-kit) — Kenney, CC0 1.0. Original license text in `License-car-kit.txt`.
 - [blaster-kit](https://kenney.nl/assets/blaster-kit) — Kenney, CC0 1.0. Original license text in `License-blaster-kit.txt`.
 - [building-kit](https://kenney.nl/assets/building-kit) — Kenney, CC0 1.0. Original license text in `License-building-kit.txt`.
@@ -60,3 +62,12 @@ Selected files only are shipped. GLB images were embedded without changing their
 Converted to mono 44.1 kHz Vorbis, normalized to −20 LUFS and trimmed to at most eight seconds. Breath uses the first second at −24 LUFS. No attribution-required audio is included. Engine uses the author’s current public-domain replacement described on its source page.
 
 All three manifests include source URLs, output byte lengths and SHA-256. Audio additionally records original-source hashes.
+
+## Additional building packs
+
+- [fantasy-town-kit](https://kenney.nl/assets/fantasy-town-kit) — Kenney, CC0-1.0; original license: License-fantasy-town-kit.txt
+- [castle-kit](https://kenney.nl/assets/castle-kit) — Kenney, CC0-1.0; original license: License-castle-kit.txt
+- [pirate-kit](https://kenney.nl/assets/pirate-kit) — Kenney, CC0-1.0; original license: License-pirate-kit.txt
+- [retro-urban-kit](https://kenney.nl/assets/retro-urban-kit) — Kenney, CC0-1.0; original license: License-retro-urban-kit.txt
+- [graveyard-kit](https://kenney.nl/assets/graveyard-kit) — Kenney, CC0-1.0; original license: License-graveyard-kit.txt
+- [modular-dungeon-kit](https://kenney.nl/assets/modular-dungeon-kit) — Kenney, CC0-1.0; original license: License-modular-dungeon-kit.txt

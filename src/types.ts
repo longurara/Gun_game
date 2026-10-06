@@ -1,3 +1,4 @@
+import type { LandmarkKind } from './building-assets';
 import type { SupplyKind, ThrowKind, UseKind } from './game/supplies';
 import type { AttachKind, Attachments, PackKind } from './game/gear';
 import type { MeleeKind } from './game/melee';
@@ -48,6 +49,12 @@ export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tr
 export interface Obstacle {
   id: string; x: number; z: number; width: number; depth: number; height: number;
   kind: ObstacleKind; base?: number; bottom?: number;
+  /** Shared facade palette for the parts of a home, including its separate roof wings. */
+  houseId?: string;
+  houseStyle?: 'brick' | 'timber' | 'hipped' | 'mill';
+  structureId?: string;
+  roofShape?: 'flat';
+  furnishing?: 'bed' | 'table';
 }
 /** A stairwell: step up to it and press E to come out at `to`. Bunkers are reached and left this way. */
 export interface Portal { id: string; x: number; y: number; z: number; to: Vec3; label: string; /** True: it leads down into a bunker. */ down: boolean }
@@ -88,7 +95,9 @@ export interface River { points: Array<{ x: number; z: number; level: number }>;
 export interface WaterFeatures { seaLevel: number; lakes: Lake[]; rivers: River[] }
 /** Farmland: an axis-aligned patch drawn on the ground (rendering only). */
 export interface Field { x: number; z: number; w: number; d: number; crop: 0 | 1 | 2 }
+export interface StructurePlacement { id: string; kind: LandmarkKind; x: number; z: number; base: number }
 export interface WorldConfig {
+  structures?: StructurePlacement[];
   id: MapId; halfSize: number; obstacles: Obstacle[]; spawns: Vec3[];
   /** Ground height; absent on the flat arena. Must be pure and deterministic. */
   terrain?: (x: number, z: number) => number;

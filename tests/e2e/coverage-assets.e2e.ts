@@ -7,6 +7,7 @@ import { createServer } from 'vite';
 import type { ViteDevServer } from 'vite';
 import { chromium } from 'playwright-core';
 import type { Browser } from 'playwright-core';
+import { COVERAGE_MODELS } from '../../src/coverage-assets.ts';
 let server: ViteDevServer, browser: Browser, url: string;
 before(async () => {
   server = await createServer({ cacheDir: mkdtempSync(join(tmpdir(),'lastlight-coverage-')), logLevel:'error', server:{host:'127.0.0.1',port:0} });
@@ -29,7 +30,22 @@ test('all coverage models load; weapon baking preserves cached geometry; alpha s
     const g=(window as any).__COVERAGE_GALLERY__;await g.loading;
     return g.keys.filter((key: string)=>g.scene.meshes.some((m: any)=>m.metadata?.template&&m.metadata.coverageAsset===key));
   });
-  assert.equal(loaded.length,49);
+  assert.equal(loaded.length,COVERAGE_MODELS.length);
+  const normalized = await page.evaluate(() => {
+    const g = (window as any).__COVERAGE_GALLERY__;
+    return g.keys.map((key: string) => {
+      const bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+      for (const mesh of g.scene.meshes.filter((m: any) => m.metadata?.template && m.metadata.coverageAsset === key)) {
+        const positions = mesh.getVerticesData('position');
+        for (let i = 0; i < positions.length; i++) { const axis = i % 3; bounds.min[axis] = Math.min(bounds.min[axis], positions[i]); bounds.max[axis] = Math.max(bounds.max[axis], positions[i]); }
+      }
+      return { key, ...bounds, extent: g.scene.meshes.find((m: any) => m.metadata?.template && m.metadata.coverageAsset === key).metadata.sourceExtent as number[] };
+    });
+  });
+  for (const model of normalized) {
+    assert.ok(model.min.every((v: number, i: number) => Math.abs(v - (i === 1 ? 0 : -0.5 * model.extent[i] / Math.max(0.001, model.extent[i]))) < 0.002), model.key + ': shared geometry changed the normalized minimum');
+    assert.ok(model.max.every((v: number, i: number) => Math.abs(v - (i === 1 ? 1 : 0.5) * model.extent[i] / Math.max(0.001, model.extent[i])) < 0.002), model.key + ': shared geometry changed the normalized maximum');
+  }
   assert.equal(await page.evaluate(()=>{const g=(window as any).__COVERAGE_GALLERY__;g.actor.setWeapon('xbow');const key=g.actor.current.root.metadata.coverageAsset;g.actor.dispose();return key;}),'crossbow');
   await page.waitForTimeout(600); await page.screenshot({path:'output/playwright/coverage-special.png'});
   const geometry = await page.evaluate(()=>{
@@ -60,7 +76,7 @@ test('range integrates nine vehicle models and three wheel kits; download failur
     const page=await browser.newPage({viewport:{width:1280,height:720}}),errors:string[]=[];
     page.on('pageerror',e=>errors.push(e.message));
     if(missing)await page.route('**/assets/coverage/*.glb',r=>r.fulfill({status:404,body:''}));
-    await page.goto(url);await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
+    await page.goto(url, { waitUntil: 'commit', timeout: 60000 });await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
     await page.evaluate(async()=>{const m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets((window as any).__LASTLIGHT__.scene);});
     await page.click('#map-choice button[data-value="range"]');await page.click('#start-button');
     await page.waitForFunction(()=>(window as any).__LASTLIGHT__.simulation.state.phase==='playing');await page.waitForTimeout(700);
@@ -77,7 +93,7 @@ test('range integrates nine vehicle models and three wheel kits; download failur
 test('island streams kit buildings near player and retains textured sky',async()=>{
   const page=await browser.newPage({viewport:{width:1440,height:900}}),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url);await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
+  await page.goto(url, { waitUntil: 'commit', timeout: 60000 });await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
   await page.evaluate(async()=>{const m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets((window as any).__LASTLIGHT__.scene);});
   await page.click('#start-button');await page.waitForFunction(()=>(window as any).__LASTLIGHT__.simulation.state.phase==='playing');
   await page.evaluate(()=>{const {simulation:s}=(window as any).__LASTLIGHT__;const wall=s.world.obstacles.find((o:any)=>o.kind==='wall'&&!o.id.includes('bunker'));s.player.air=undefined;s.player.position={x:wall.x+8,y:s.heightAt(wall.x+8,wall.z),z:wall.z};});
@@ -95,7 +111,7 @@ test('island streams kit buildings near player and retains textured sky',async()
 test('vehicle wheels stay circular, centred and upright after travel and reversing', async () => {
   const page = await browser.newPage({viewport:{width:1280,height:720}}),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url);await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
+  await page.goto(url, { waitUntil: 'commit', timeout: 60000 });await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
   await page.evaluate(async()=>{
     const g=(window as any).__LASTLIGHT__,m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets(g.scene);
     (window as any).__WHEEL_SOURCES__=g.scene.meshes.filter((p:any)=>p.metadata?.template&&['k-sedan','k-wheel-default','k-wheel-racing'].includes(p.metadata.coverageAsset)).map((mesh:any)=>({mesh,positions:Array.from(mesh.getVerticesData('position'))}));
@@ -141,4 +157,95 @@ test('vehicle wheels stay circular, centred and upright after travel and reversi
   await page.waitForTimeout(800);await page.evaluate(()=>(window as any).__LASTLIGHT__.scene.render());
   await page.screenshot({path:'output/playwright/vehicle-wheels-fixed.png'});
   assert.deepEqual(errors,[]);await page.close();
+});
+
+test('homes use selected building details and remain visible when those assets fail to download', async () => {
+  const details = ['k-column', 'k-gutter-vertical', 'k-roof-flat-awning-a', 'k-detail-ac-a', 'k-chimney-small', 'k-urban-wall', 'k-timber-wall', 'k-urban-roof', 'k-town-roof', 'k-hip-roof'];
+  for (const missing of [false, true]) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    if (missing) await page.route('**/assets/coverage/*.glb', route =>
+      details.some(key => route.request().url().endsWith('/' + key + '.glb'))
+        ? route.fulfill({ status: 404, body: '' }) : route.continue());
+    await page.goto(url, { waitUntil: 'commit', timeout: 60000 });
+    await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
+    await page.evaluate(async () => {
+      const g = (window as any).__LASTLIGHT__, m = await import('../../src/coverage-assets.ts');
+      await m.prepareCoverageAssets(g.scene);
+    });
+    await page.click('#start-button');
+    await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
+    const home = await page.evaluate(() => {
+      const g = (window as any).__LASTLIGHT__, s = g.simulation;
+      const roof = s.world.obstacles.find((o: any) => o.houseId && o.id.endsWith('-wing-roof'));
+      s.botsFrozen = true; s.player.air = undefined;
+      s.player.position = { x: roof.x, y: roof.base, z: roof.z };
+      return { x: roof.x, z: roof.z, y: roof.base, id: roof.houseId };
+    });
+    if (!missing) await page.waitForFunction(details => {
+      const meshes = (window as any).__LASTLIGHT__.scene.meshes;
+      return details.every(key => meshes.some((m: any) => m.isEnabled() && m.metadata?.coverageModels?.includes(key)));
+    }, details, { timeout: 30000 });
+    else await page.waitForFunction(() =>
+      (window as any).__LASTLIGHT__.scene.meshes.some((m: any) => m.isEnabled() && m.name.startsWith('props-') && m.getTotalVertices() > 0));
+    const info = await page.evaluate(({ home, details }) => {
+      const g = (window as any).__LASTLIGHT__;
+      g.engine.stopRenderLoop();
+      const c = g.scene.activeCamera;
+      c.position.set(home.x + 16, home.y + 11, home.z - 18);
+      c.setTarget(new c.position.constructor(home.x, home.y + 2, home.z));
+      g.scene.render();
+      return { activeDetails: details.filter(key => g.scene.meshes.some((m: any) => m.isEnabled() && m.metadata?.coverageModels?.includes(key))),
+        solidProps: g.scene.meshes.some((m: any) => m.isEnabled() && m.name.startsWith('props-') && m.getTotalVertices() > 0) };
+    }, { home, details });
+    assert.equal(info.solidProps, true);
+    assert.equal(info.activeDetails.length, missing ? 0 : details.length);
+    await page.screenshot({ path: 'output/playwright/house-assets-' + (missing ? 'fallback' : 'loaded') + '.png' });
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+});
+
+test('new landmarks stream their selected models and keep solid fallback cover on download failure', async () => {
+  for (const missing of [false, true]) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } }), errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    if (missing) await page.route('**/assets/coverage/*.glb', r => r.fulfill({ status: 404, body: '' }));
+    await page.goto(url, { waitUntil: 'commit', timeout: 60000 });
+    await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
+    await page.evaluate(async () => {
+      const g = (window as any).__LASTLIGHT__, m = await import('../../src/coverage-assets.ts');
+      await m.prepareCoverageAssets(g.scene);
+    });
+    await page.click('#start-button');
+    await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
+    const kinds = ['fountain', 'scaffold', 'obelisk', 'waterTower', 'stoneCourt', 'crypt'];
+    for (const kind of kinds) {
+      const target = await page.evaluate(async kind => {
+        const g = (window as any).__LASTLIGHT__, s = g.simulation, specs = await import('../../src/building-assets.ts');
+        s.botsFrozen = true; s.player.air = undefined; s.player.health = 1e9;
+        const placement = s.world.structures.find((p: any) => p.kind === kind);
+        const spec = specs.LANDMARK_SPECS[kind as keyof typeof specs.LANDMARK_SPECS];
+        s.player.position = { x: placement.x + spec.width / 2 + 3, y: placement.base, z: placement.z };
+        return { ...placement, models: spec.pieces.map(p => p.model), cx: Math.floor((placement.x + s.world.halfSize) / 125), cz: Math.floor((placement.z + s.world.halfSize) / 125) };
+      }, kind);
+      await page.waitForFunction(({ target, missing }) => {
+        const scene = (window as any).__LASTLIGHT__.scene;
+        if (missing) return scene.getMeshByName('props-' + target.cx + '-' + target.cz)?.getTotalVertices() > 0;
+        const mesh = scene.getMeshByName('kit-props-' + target.cx + '-' + target.cz);
+        return mesh?.isEnabled() && target.models.every((key: string) => mesh.metadata?.coverageModels?.includes(key));
+      }, { target, missing }, { timeout: 30000 });
+      if (kind === 'crypt') {
+        await page.evaluate(target => {
+          const g = (window as any).__LASTLIGHT__, c = g.scene.activeCamera; g.engine.stopRenderLoop();
+          c.position.set(target.x + 13, target.base + 8, target.z + 15);
+          c.setTarget(new c.position.constructor(target.x, target.base + 2, target.z)); g.scene.render();
+        }, target);
+        await page.screenshot({ path: 'output/playwright/building-landmarks-' + (missing ? 'fallback' : 'loaded') + '.png' });
+      }
+    }
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
 });
