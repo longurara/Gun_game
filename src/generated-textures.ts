@@ -10,7 +10,17 @@ import rockUrl from './assets/textures/rock-v1.webp?url';
 import asphaltUrl from './assets/textures/asphalt-v1.webp?url';
 import facadeUrl from './assets/textures/facade-v1.webp?url';
 
-export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl, foliage: foliageUrl, bark: barkUrl, plaster: plasterUrl, roof: roofUrl, rock: rockUrl, asphalt: asphaltUrl, facade: facadeUrl } as const;
+import metalUrl from './assets/textures/gunmetal-v1.webp?url';
+import polymerUrl from './assets/textures/tactical-polymer-v1.webp?url';
+import weaveUrl from './assets/textures/tactical-weave-v1.webp?url';
+import camoUrl from './assets/textures/woodland-camo-v1.webp?url';
+
+import terrainGrassUrl from './assets/textures/terrain-grass-v1.webp?url';
+import terrainDirtUrl from './assets/textures/terrain-dirt-v1.webp?url';
+import terrainSandUrl from './assets/textures/terrain-sand-v1.webp?url';
+import terrainRockUrl from './assets/textures/terrain-rock-v1.webp?url';
+
+export const GENERATED_TEXTURES = { ground: groundUrl, wood: woodUrl, foliage: foliageUrl, bark: barkUrl, plaster: plasterUrl, roof: roofUrl, rock: rockUrl, asphalt: asphaltUrl, facade: facadeUrl, metal: metalUrl, poly: polymerUrl, weave: weaveUrl, camoMono: camoUrl, terrainGrass: terrainGrassUrl, terrainDirt: terrainDirtUrl, terrainSand: terrainSandUrl, terrainRock: terrainRockUrl } as const;
 
 /** Keep the existing finish visible while an ImageGen albedo loads; cancel work when its owner is disposed. */
 export function useGeneratedAlbedo(material: StandardMaterial, url: string, repeat = 1, level = 1): Texture {

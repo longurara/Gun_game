@@ -6,6 +6,9 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js'
 import { MultiMaterial } from '@babylonjs/core/Materials/multiMaterial.js';
 import { SubMesh } from '@babylonjs/core/Meshes/subMesh.js';
 import { GENERATED_TEXTURES, useGeneratedAlbedo } from './generated-textures';
+import { terrainWeights } from './terrain-biomes';
+import type { TerrainWeights } from './terrain-biomes';
+import { TerrainTextureBlend, TERRAIN_WEIGHTS_ATTRIBUTE } from './terrain-textures';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import type { Field, Floor, Obstacle, WorldConfig } from './types';
 import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase } from './game/world';
@@ -266,11 +269,12 @@ export class IslandRenderer {
     this.terrainMaterial = make('island-terrain');
     this.terrainMaterial.diffuseTexture = groundDetailTexture(scene);
     useGeneratedAlbedo(this.terrainMaterial, GENERATED_TEXTURES.ground, 4, 1.25);
+    new TerrainTextureBlend(this.terrainMaterial, !touch);
     // Relief lives on the second UV set so it can repeat much tighter than the colour texture.
     const bump = groundBumpTexture(scene);
     bump.coordinatesIndex = 1;
     bump.gammaSpace = false;
-    bump.level = 0.22;
+    bump.level = 0.14;
     this.terrainMaterial.bumpTexture = bump;
     const plainProps = make('island-props-plain'), woodProps = make('island-props-wood'), barkProps = make('island-props-bark');
     const plasterProps = make('island-props-plaster'), roofProps = make('island-props-roof'), rockProps = make('island-props-rock');
@@ -332,9 +336,11 @@ export class IslandRenderer {
     return weight;
   }
 
-  private groundColor(x: number, z: number, h: number, slope: number, key: number, hollow = 0): Rgb {
+  private groundSample(x: number, z: number, h: number, slope: number, key: number, hollow = 0): { color: Rgb; weights: TerrainWeights } {
     const noise = groundNoise(x, z);
     const forest = forestNoise(x, z);
+    const town = this.townWeight(x, z), seaLevel = this.world.water?.seaLevel ?? 0;
+    let lakeSand = 0, riverWet = 0, fieldKind: 0 | 1 | 2 | undefined;
     // Very broad patches: sun-dried grass on some slopes, lush moss in damp hollows.
     const patch = groundNoise(x * 0.22 + 91, z * 0.22 - 37);
     let color = mix(PALETTE.grassLow, PALETTE.grassHigh, clamp01((h - 28) / 75 + (noise - 0.5) * 0.7));
@@ -345,27 +351,36 @@ export class IslandRenderer {
     color = mix(color, PALETTE.dirt, clamp01((noise - 0.66) * 3) * 0.6);
     color = mix(color, PALETTE.rock, smooth(clamp01((slope - 0.34) / 0.26)));
     color = mix(color, PALETTE.peak, smooth(clamp01((h - 100) / 40)) * 0.8);
-    color = mix(color, PALETTE.concrete, this.townWeight(x, z) * 0.85);
+    color = mix(color, PALETTE.concrete, town * 0.85);
     // Beaches around the sea and shallows on the lake shores.
-    color = mix(color, PALETTE.sand, smooth(clamp01((3.8 - h) / 2.4)) * 0.95);
+    color = mix(color, PALETTE.sand, smooth(clamp01((seaLevel + 3.8 - h) / 2.4)) * 0.95);
     for (const lake of this.world.water?.lakes ?? []) {
       const d = Math.hypot(x - lake.x, z - lake.z);
-      if (d > lake.r * 0.85 && d < lake.r * 1.35) color = mix(color, PALETTE.sand, 0.75 * (1 - smooth(clamp01((d - lake.r * 1.0) / (lake.r * 0.3)))));
+      if (d > lake.r * 0.85 && d < lake.r * 1.35) {
+        const shore = 0.75 * (1 - smooth(clamp01((d - lake.r) / (lake.r * 0.3))));
+        lakeSand = Math.max(lakeSand, shore);
+        color = mix(color, PALETTE.sand, shore);
+      }
     }
     for (const bank of this.banksByChunk.get(key) ?? []) {
       const dx = bank.bx - bank.ax, dz = bank.bz - bank.az;
       const t = clamp01(((x - bank.ax) * dx + (z - bank.az) * dz) / (dx * dx + dz * dz || 1));
       const d = Math.hypot(x - bank.ax - dx * t, z - bank.az - dz * t);
-      if (d < bank.half + 5) color = mix(color, PALETTE.wet, 0.85 * (1 - smooth(clamp01((d - bank.half) / 5))));
+      if (d < bank.half + 5) {
+        const wet = 0.85 * (1 - smooth(clamp01((d - bank.half) / 5)));
+        riverWet = Math.max(riverWet, wet);
+        color = mix(color, PALETTE.wet, wet);
+      }
     }
     for (const field of this.fieldsByChunk.get(key) ?? []) {
       const ex = field.w / 2 - Math.abs(x - field.x), ez = field.d / 2 - Math.abs(z - field.z);
       if (ex < 0 || ez < 0) continue;
+      fieldKind = field.crop;
       const crop = shade(PALETTE.crop[field.crop], 0.9 + noise * 0.2);
       // A darker hedge row around the edge, as in real farmland.
       color = mix(color, Math.min(ex, ez) < 2.2 ? PALETTE.hedge : crop, 0.92);
     }
-    return color;
+    return { color, weights: terrainWeights({ height: h, seaLevel, slope, noise, forest, town, lakeSand, riverWet, field: fieldKind }) };
   }
 
   /** Curvature occlusion: hollows read darker and crests lighter, which makes the relief legible under flat light. */
@@ -380,7 +395,7 @@ export class IslandRenderer {
     // One extra ring of samples lets normals be computed by central differences without seams.
     const heights = new Float32Array(stride * stride);
     for (let j = 0; j < stride; j++) for (let i = 0; i < stride; i++) heights[j * stride + i] = this.height(origin.x + (i - 1) * step, origin.z + (j - 1) * step);
-    const positions: number[] = [], normals: number[] = [], colors: number[] = [], uvs: number[] = [], uvs2: number[] = [], indices: number[] = [];
+    const positions: number[] = [], normals: number[] = [], colors: number[] = [], uvs: number[] = [], uvs2: number[] = [], indices: number[] = [], weights: number[] = [];
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
         const h = heights[(j + 1) * stride + i + 1];
@@ -390,8 +405,9 @@ export class IslandRenderer {
         const x = origin.x + i * step, z = origin.z + j * step;
         // Laplacian of the height field: positive in hollows, negative on crests.
         const hollow = (heights[(j + 1) * stride + i] + heights[(j + 1) * stride + i + 2] + heights[j * stride + i + 1] + heights[(j + 2) * stride + i + 1] - 4 * h) / (step * step);
-        const base = this.groundColor(x, z, h, Math.hypot(dx, dz), key, hollow);
-        const color = shade(base, this.relief(hollow));
+        const sample = this.groundSample(x, z, h, Math.hypot(dx, dz), key, hollow);
+        weights.push(...sample.weights);
+        const color = shade(sample.color, this.relief(hollow));
         positions.push(x, h, z);
         normals.push(-dx / length, 1 / length, -dz / length);
         colors.push(color[0], color[1], color[2], 1);
@@ -421,6 +437,7 @@ export class IslandRenderer {
         colors.push(colors[vertex * 4], colors[vertex * 4 + 1], colors[vertex * 4 + 2], 1);
         uvs.push(uvs[vertex * 2], uvs[vertex * 2 + 1]);
         uvs2.push(uvs2[vertex * 2], uvs2[vertex * 2 + 1]);
+        weights.push(...weights.slice(vertex * 4, vertex * 4 + 4));
       }
       indices.push(a, base, b, b, base, base + 1);
     }
@@ -428,6 +445,7 @@ export class IslandRenderer {
     const data = new VertexData();
     data.positions = positions; data.normals = normals; data.colors = colors; data.uvs = uvs; data.uvs2 = uvs2; data.indices = indices;
     data.applyToMesh(mesh);
+    mesh.setVerticesData(TERRAIN_WEIGHTS_ATTRIBUTE, weights, false, 4);
     mesh.material = this.terrainMaterial;
     mesh.receiveShadows = true;
     mesh.isPickable = false;

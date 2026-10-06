@@ -1,0 +1,63 @@
+{
+  "generator": "Built-in ImageGen",
+  "date": "2026-10-06",
+  "assets": [
+    {
+      "key": "terrainGrass",
+      "file": "terrain-grass-v1.png",
+      "runtimeFile": "terrain-grass-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: one square opaque 1024x1024 production 3D game seamless terrain ALBEDO / BASE COLOR texture. Primary request: convincing short meadow grass ground texture for a stylized third-person island survival game. Orthographic top-down view of a continuous approximately 2m x 2m ground patch, dense fine short blades in irregular natural directions, subtle clumps, fine moss between blades, a little dry grass and tiny pores of soil. Rich layered microdetail but broad even coverage, no tall grass, no flowers or distinct focal objects. Palette bright nearly monochromatic warm silver grey, faint muted sage undertone only; diffuse luminance mainly 0.72-0.92 with restrained shallow recesses around 0.6. The game multiplies this albedo by green biome colors; do not make a dark vivid green photograph. Surface must read as fine meadow turf, not straw rope, carpet, chunky gravel or noisy scratches. Flat diffuse shadow-free lighting, no sun direction, baked highlights, cast shadows, perspective, vignette or depth of field. Opposite edges match for seamless horizontal and vertical repeat. No paths, rocks, footprints, borders, text, watermark, texture atlas, collage or material sphere. Deliver only the full-bleed square texture.",
+      "repeatMeters": 2.5,
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 86
+      },
+      "bytes": 522156
+    },
+    {
+      "key": "terrainDirt",
+      "file": "terrain-dirt-v1.png",
+      "runtimeFile": "terrain-dirt-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: single square opaque 1024x1024 production game seamless terrain ALBEDO / BASE COLOR image. Primary request: compact natural earth and forest-floor soil, orthographic straight-down view of a continuous 3m x 3m ground patch for a stylized island survival game. Fine irregular dried soil granules, delicate compacted earthy clumps, scattered tiny worn mineral grit, very sparse short root fragments and minute decomposed leaf flakes. Dry firm ground with subtle pores; no huge cracks, loose boulders, obvious footprints, tracks or standing plants. Dense convincing varied microdetail with homogeneous coverage and no focal stain. Bright nearly monochromatic pale warm grey / greige, most diffuse luminance 0.72-0.90, sparse shallow pores 0.55-0.65. The game multiplies this texture by brown biome colors, so no dark saturated brown base. Flat diffuse lighting, no baked directional light, cast shadows, perspective, depth of field or vignette. Match opposing edges for seamless repeat on both axes. No text, watermark, border, atlas, collage, rendered material sphere or scene. Deliver only the square texture.",
+      "repeatMeters": 3,
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 86
+      },
+      "bytes": 468962
+    },
+    {
+      "key": "terrainSand",
+      "file": "terrain-sand-v1.png",
+      "runtimeFile": "terrain-sand-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: one square opaque 1024x1024 production 3D game seamless terrain ALBEDO / BASE COLOR texture. Primary request: fine natural coastal beach sand, orthographic top-down view of a continuous 3m x 3m flat surface for a stylized island survival game. Very fine softly packed mineral grains, natural slight grain-size variation, tiny pale shell dust, faint irregular shallow sand rippling without a dominant stripe pattern. Subtle tactile detail distinguishable from earth: clean, fine-grained and smooth, no stones larger than a few millimeters, no gritty rocky rubble. Bright nearly monochromatic warm ivory and pale neutral greige, diffuse luminance mainly 0.78-0.94, gentle contrast and tiny recesses near 0.7. Existing game vertex colors supply beach gold, avoid saturated orange. Full homogeneous edge-to-edge surface without focal objects. Perfectly flat diffuse shadow-free lighting; no baked sun direction, cast shadows, reflections, perspective, depth of field or vignette. Opposite edges seamlessly tile horizontally and vertically. No footprints, shells, seaweed, grass, water, beach scene, border, text, watermark, atlas, collage or material ball. Deliver only the square texture.",
+      "repeatMeters": 3,
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 86
+      },
+      "bytes": 415118
+    },
+    {
+      "key": "terrainRock",
+      "file": "terrain-rock-v1.png",
+      "runtimeFile": "terrain-rock-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: single square opaque 1024x1024 production 3D game seamless rock terrain ALBEDO / BASE COLOR image. Primary request: continuous weathered bedrock outcrop surface for steep island hills, cliffs and mountain ground in a stylized third-person survival shooter. Orthographic close-up of roughly 4m x 4m continuous grey stone. Convincing fine mineral grains, irregular shallow broken strata, small worn mineral facets, subtle fissures and natural flaking layers. Distinct from loose gravel: one cohesive rock surface, no individual boulder silhouettes. Fine stone detail with varied non-directional natural structure and restrained contrast; no wide black cracks or dominant fault lines. Bright nearly monochromatic neutral warm silver grey, diffuse luminance mostly 0.70-0.91 with shallow cracks near 0.55-0.65. Game biome colors supply grey tones. Perfectly flat shadow-free diffuse lighting, no baked sunlight, highlights, cast shadows, perspective, vignette, depth of field or gloss. Entire square filled edge to edge, opposite edges match for seamless two-axis repetition. No foliage, soil, sky, landscape, borders, text, watermark, atlas, collage or material sphere. Deliver only the square texture.",
+      "repeatMeters": 4,
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 86
+      },
+      "bytes": 421912
+    }
+  ],
+  "notes": "Original generated PNGs retained. Runtime WebP albedos use shared textures, mipmaps, wrap addressing and anisotropic filtering. Vertex biome masks blend grass/dirt/sand/rock over existing terrain tints. Rock uses triplanar projection on desktop and XZ projection for touch. The previous ground albedo remains the loading/error fallback. These are albedos, with existing restrained procedural normal detail. Exact edge equality is not assumed from AI generation."
+}

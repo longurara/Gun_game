@@ -1,0 +1,54 @@
+{
+  "generator": "Built-in ImageGen",
+  "date": "2026-10-06",
+  "assets": [
+    {
+      "key": "metal",
+      "file": "gunmetal-v1.png",
+      "runtimeFile": "gunmetal-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: a single production 3D game seamless ALBEDO/BASE COLOR material texture, square 1024x1024 opaque. Primary request: neutral satin machined gunmetal microdetail for weapons in LASTLIGHT, a stylized third-person island survival game. Orthographic flat surface, edge-to-edge continuous metal; subtle fine horizontal machining fibres, extremely fine stippled steel pores, sparse delicate hairline scratches in varying directions, restrained natural handling wear. Bright neutral silver grey, achromatic, most luminance 0.76-0.94 and shallow scratches around 0.65. The game multiplies this texture with dark weapon vertex colors, so do not make the base dark. Dense understated microdetail, no large scars or recognizable repeated marks. Perfectly flat diffuse shadow-free illumination; no baked reflections, highlights, directional shadow, specular shine, perspective, vignette or depth of field. Opposite edges must match for seamless two-axis tiling. No panels, seams, bolts, gun silhouettes, rust, text, watermark, atlas, collage, material sphere. Output only the square texture.",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "poly",
+      "file": "tactical-polymer-v1.png",
+      "runtimeFile": "tactical-polymer-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: one square opaque 1024x1024 production 3D game seamless ALBEDO/BASE COLOR texture. Primary request: finely moulded matte tactical polymer surface, suitable for weapon grips, helmets, armor and boots in a stylized island survival shooter. Continuous flat material edge to edge, orthographic macro view of about a 20 cm square patch. Dense tiny irregular softly rounded stipple grain; subtle injection-moulded microtexture; restrained handling wear and minute rubbed spots. Fine pebble-like polymer grain without resembling gravel or craters. Bright achromatic neutral light grey, most luminance 0.77-0.93, recesses around 0.68; no dark base because existing vertex colors tint the surface. Natural fine-scale variation but homogeneous overall. Opposite edges seamlessly tile horizontally and vertically. Perfectly flat diffuse shadow-free illumination, no highlights, reflections, baked directional light, perspective, depth of field or vignette. No armor panels, seams, bolts, logos, text, weapons, material sphere, collage or atlas. Output only the full-bleed texture.",
+      "export": {
+        "width": 512,
+        "height": 512,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "weave",
+      "file": "tactical-weave-v1.png",
+      "runtimeFile": "tactical-weave-v1.webp",
+      "prompt": "Use case: photorealistic-natural. Asset type: single square 1024x1024 opaque production game seamless ALBEDO/BASE COLOR texture. Primary request: premium matte tactical cotton canvas / fine woven ripstop fabric for shirts, trousers, backpacks and caps in a stylized third-person survival game. Orthographic perfectly flat macro view of a continuous fabric patch about 40cm square, no folds. Tiny interlaced thread bundles with realistic fine fibres, delicate irregular yarn thickness, very faint widely spaced reinforcement threads; rich fine tactile cloth detail and restrained gentle handling wear. Avoid exaggerated thick rope, burlap, diagonal moire bands or coarse grid. Nearly achromatic pale warm silver grey, luminous but matte; most luminance 0.78-0.94, very fine recesses around 0.67. Existing game vertex colors tint this neutral base teal, gold, blue and khaki, preserve clear readable color. Uniform detail edge to edge; seamlessly matching opposite edges for repeat in both axes. Perfectly flat diffuse lighting, no cast shadows, sun direction, shiny highlights, perspective, depth of field, vignette, seams, stitches, pockets, buttons, logos, text, camouflage, collage, atlas or material sphere. Deliver only the full-bleed texture.",
+      "export": {
+        "width": 512,
+        "height": 512,
+        "format": "webp",
+        "quality": 88
+      }
+    },
+    {
+      "key": "camoMono",
+      "file": "woodland-camo-v1.png",
+      "runtimeFile": "woodland-camo-v1.webp",
+      "export": {
+        "width": 1024,
+        "height": 1024,
+        "format": "webp",
+        "quality": 88
+      }
+    }
+  ],
+  "notes": "Original opaque PNGs retained. WebP albedo exports use mipmaps and anisotropic filtering. Existing vertex/instance tints are preserved. Procedural normal intensity reduced so microdetail stays readable without harsh moire. Seamless generation is requested; verify repeats in-engine."
+}

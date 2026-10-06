@@ -12,13 +12,13 @@ export type SurfaceFinish = SurfaceKind | 'glass' | 'glow' | 'skin' | 'plain';
 
 interface Spec { size: number; specular: number; power: number; bump: number; lift: number }
 const TEXTURED: Record<SurfaceKind, Spec> = {
-  metal: { size: 512, specular: 0.62, power: 52, bump: 0.55, lift: 0.27 },
-  poly: { size: 256, specular: 0.16, power: 18, bump: 1.0, lift: 0.22 },
+  metal: { size: 512, specular: 0.62, power: 52, bump: 0.16, lift: 0.16 },
+  poly: { size: 256, specular: 0.16, power: 18, bump: 0.32, lift: 0.13 },
   wood: { size: 512, specular: 0.17, power: 32, bump: 0.18, lift: 0.035 },
   camoW: { size: 512, specular: 0.08, power: 10, bump: 0.6, lift: 0.17 }, camoD: { size: 512, specular: 0.08, power: 10, bump: 0.6, lift: 0.17 },
   camoU: { size: 512, specular: 0.08, power: 10, bump: 0.6, lift: 0.17 }, camoS: { size: 512, specular: 0.08, power: 10, bump: 0.6, lift: 0.17 },
-  camoMono: { size: 512, specular: 0.05, power: 8, bump: 0.7, lift: 0.13 },
-  weave: { size: 256, specular: 0.04, power: 6, bump: 0.9, lift: 0.13 },
+  camoMono: { size: 512, specular: 0.05, power: 8, bump: 0.22, lift: 0.10 },
+  weave: { size: 256, specular: 0.04, power: 6, bump: 0.20, lift: 0.10 },
 };
 
 const cache = new WeakMap<Scene, Map<string, StandardMaterial>>();
@@ -53,7 +53,12 @@ export function surfaceMaterial(scene: Scene, finish: SurfaceFinish): StandardMa
     material.specularPower = spec.power;
     // Lifts the shaded side so dark finishes stay readable outdoors.
     material.emissiveColor = new Color3(spec.lift, spec.lift, spec.lift * 1.03);
+    // Neutral ImageGen bases preserve the existing vertex and instance palette.
+    // Keep the procedural albedo until the image loads, including offline/error cases.
     if (finish === 'wood') useGeneratedAlbedo(material, GENERATED_TEXTURES.wood, 1, 1.12);
+    else if (finish === 'metal' || finish === 'poly' || finish === 'weave' || finish === 'camoMono') {
+      useGeneratedAlbedo(material, GENERATED_TEXTURES[finish], 1, finish === 'camoMono' ? 1 : 1.08);
+    }
   } else if (finish === 'glass') {
     material.specularColor = new Color3(1, 1, 1); material.specularPower = 120;
     material.emissiveColor = new Color3(0.2, 0.34, 0.36);
