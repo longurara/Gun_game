@@ -183,6 +183,7 @@ function keepEvent(sim: GameSimulation, event: GameEvent, near: (p: { x: number;
     case 'damage': return !!sim.actorById(event.actorId)?.isPlayer || !!(event.sourceId && sim.actorById(event.sourceId)?.isPlayer);
     case 'crash': case 'explosion': case 'smoke': case 'flash': case 'fire': return near(event.position);
     case 'throw': return near(event.from);
+    case 'portal': return near(event.from) || near(event.to);
     case 'drop': return !!sim.actorById(event.actorId)?.isPlayer;
     default: return true;
   }

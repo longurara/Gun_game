@@ -173,6 +173,8 @@ test('every bot jumps, lands on dry ground and starts looking for loot; none is 
   assert.ok(game.state.actors.filter(a => a.alive).length >= 75, 'the landing does not turn into a massacre');
   for (const actor of game.state.actors.filter(a => a.alive && !a.vehicleId)) {
     const ground = game.heightAt(actor.position.x, actor.position.z);
+    // (A bot may already have gone down into a bunker.)
+    if (actor.position.y < ground - 30) continue;
     assert.ok(Math.abs(actor.position.y - ground) < 1e-6, `${actor.id} floats`);
     assert.ok(Math.abs(actor.position.x) < 2000 && Math.abs(actor.position.z) < 2000);
   }

@@ -208,7 +208,7 @@ export type GameEvent =
   | { type: 'explosion'; position: Vec3; /** Set for a grenade: how far the blast reaches. */ radius?: number }
   | { type: 'throw'; actorId: string; kind: ThrowKind; from: Vec3; to: Vec3 }
   | { type: 'smoke'; position: Vec3 }
-  | { type: 'portal'; actorId: string; down: boolean }
+  | { type: 'portal'; actorId: string; down: boolean; from: Vec3; to: Vec3 }
   | { type: 'melee'; actorId: string; at: Vec3; hitId?: string; weapon: MeleeKind | 'fists' }
   | { type: 'flash'; position: Vec3 }
   | { type: 'fire'; position: Vec3 }

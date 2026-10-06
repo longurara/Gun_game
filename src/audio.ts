@@ -33,6 +33,11 @@ export class GameAudio {
   private currentPan: number | null = null;
   private stepSide = false;
   private music: MenuMusic | null = null;
+  /** Inside a bunker: sounds also go through a long echo, and the place hums and drips. */
+  private inCave = false;
+  private reverbSend: GainNode | null = null;
+  private lastHum = -Infinity;
+  private nextDrip = 0;
 
   /** Call directly from Start/Continue or another click/keyboard gesture. */
   async unlock(): Promise<void> {
@@ -60,6 +65,20 @@ export class GameAudio {
         master.connect(compressor);
         compressor.connect(context.destination);
         this.master = master;
+        // A long, dark echo for the bunkers: noise that fades away over a couple of seconds.
+        const length = Math.ceil(context.sampleRate * 1.9);
+        const impulse = context.createBuffer(2, length, context.sampleRate);
+        for (let channel = 0; channel < 2; channel++) {
+          const samples = impulse.getChannelData(channel);
+          for (let i = 0; i < length; i++) samples[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.6) * (1 - 0.35 * (i / length));
+        }
+        const reverb = context.createConvolver();
+        reverb.buffer = impulse;
+        const send = context.createGain();
+        send.gain.value = 0.5;
+        send.connect(reverb);
+        reverb.connect(compressor);
+        this.reverbSend = send;
         const noise = context.createBuffer(1, Math.ceil(context.sampleRate * 1.2), context.sampleRate);
         const data = noise.getChannelData(0);
         for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -148,6 +167,18 @@ export class GameAudio {
         if (d < 60) this.noise(0.18, 0.12 / (1 + d / 20), 'bandpass', 900, 0.06);
         break;
       }
+      case 'portal': {
+        // A heavy hatch and steps on the stairs, heard from either end; your own are right beside you.
+        const own = event.actorId === this.localId;
+        const near = (p: Vec3) => Math.hypot(p.x - playerPosition.x, p.y - playerPosition.y, p.z - playerPosition.z);
+        const here = near(event.from) <= near(event.to) ? event.from : event.to;
+        const d = own ? 0 : near(here);
+        if (d > 45) break;
+        this.currentPan = own ? null : this.panFor(here, playerPosition);
+        this.hatch(1 / (1 + d / 9), event.down);
+        this.currentPan = null;
+        break;
+      }
       case 'smoke': {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
         if (d < 120) { this.noise(1.1, 0.18 / (1 + d / 30), 'highpass', 2600); this.tone(180, 0.2, 0.08 / (1 + d / 30), 'sine', 0, 90); }
@@ -197,6 +228,39 @@ export class GameAudio {
     this.stepSide = !this.stepSide;
     this.noise(0.075, sprint ? 0.085 : 0.055, 'lowpass', this.stepSide ? 480 : 620);
     this.tone(this.stepSide ? 76 : 88, 0.065, sprint ? 0.07 : 0.045, 'sine', 0, 42);
+  }
+
+  /** A metal hatch swinging shut and boots on concrete steps (down: the steps fall in pitch; up: they climb). */
+  private hatch(gain: number, down: boolean): void {
+    this.noise(0.09, 0.3 * gain, 'bandpass', 900);
+    this.tone(95, 0.28, 0.22 * gain, 'square', 0, 52);
+    this.tone(310, 0.34, 0.05 * gain, 'sawtooth', 0.02, 170);
+    this.noise(0.14, 0.12 * gain, 'highpass', 2400, 0.2);
+    for (let i = 0; i < 5; i++) {
+      const pitch = down ? 120 - i * 9 : 84 + i * 9;
+      this.noise(0.06, 0.1 * gain, 'lowpass', 520, 0.34 + i * 0.1);
+      this.tone(pitch, 0.07, 0.09 * gain, 'sine', 0.34 + i * 0.1, pitch * 0.6);
+    }
+  }
+
+  /** Call every frame with whether the listener is in a bunker: an echo on everything, a low hum and the odd drip. */
+  cave(on: boolean): void {
+    if (on !== this.inCave) {
+      this.inCave = on;
+      if (this.context && this.reverbSend) this.reverbSend.gain.setTargetAtTime(on ? 0.5 : 0, this.context.currentTime, 0.1);
+    }
+    if (!on || !this.ready()) return;
+    const now = this.context!.currentTime;
+    if (now - this.lastHum > 2.2) {
+      this.lastHum = now;
+      this.tone(54, 2.6, 0.035, 'sine');
+      this.tone(81.5, 2.6, 0.012, 'triangle');
+    }
+    if (now > this.nextDrip) {
+      this.nextDrip = now + 2.5 + Math.random() * 4.5;
+      const pitch = 1500 + Math.random() * 900;
+      this.tone(pitch, 0.07, 0.05, 'sine', 0, pitch * 0.55);
+    }
   }
 
   /** Drawing a breath to hold it, and letting it go. */
@@ -302,6 +366,7 @@ export class GameAudio {
     const context = this.context;
     this.context = null;
     this.master = null;
+    this.reverbSend = null;
     this.noiseBuffer = null;
     if (context && context.state !== 'closed') void context.close().catch(() => {});
   }
@@ -442,11 +507,13 @@ export class GameAudio {
   /** Connect a finished sound to the output, through a stereo panner when it has a direction. Returns the extra nodes to clean up. */
   private send(node: AudioNode): AudioNode[] {
     const context = this.context!;
-    if (this.currentPan === null || typeof context.createStereoPanner !== 'function') { node.connect(this.master!); return []; }
+    const echo = this.inCave ? this.reverbSend : null;
+    if (this.currentPan === null || typeof context.createStereoPanner !== 'function') { node.connect(this.master!); if (echo) node.connect(echo); return []; }
     const panner = context.createStereoPanner();
     panner.pan.value = this.currentPan;
     node.connect(panner);
     panner.connect(this.master!);
+    if (echo) panner.connect(echo);
     return [panner];
   }
 

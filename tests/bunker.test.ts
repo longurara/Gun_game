@@ -162,3 +162,51 @@ test('nobody walks through bunker walls or up through the ceiling, and bullets a
   const terrainHit = (sim as unknown as { terrainHit(o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, range: number): unknown }).terrainHit;
   assert.equal(terrainHit.call(sim, { x: here.x, y: here.y + 1.6, z: here.z }, { x: 0, y: 0.3, z: 0.95 }, 60), null);
 });
+
+type Tweak = { runtime(a: unknown): { mission: unknown; bunkerAt: number } };
+
+test('bots go down into bunkers, loot them and come back up', () => {
+  const game = new GameSimulation({ seed: 21, botCount: 100, map: 'metro' });
+  game.start();
+  const down = new Set<string>(), up = new Set<string>();
+  let before = game.state.loot.filter(l => l.position.y < -30 && l.active).length;
+  for (let i = 0; i < 30 * 420; i++) {
+    for (const a of game.state.actors) if (a.isPlayer) a.health = 100;
+    game.update(1 / 30, idle);
+    for (const e of game.drainEvents()) if (e.type === 'portal' && e.actorId !== game.localId) (e.down ? down : up).add(e.actorId);
+  }
+  assert.ok(down.size >= 8, `${down.size} bots went down`);
+  assert.ok([...up].some(id => down.has(id)), 'and some came back');
+  const after = game.state.loot.filter(l => l.position.y < -30 && l.active).length;
+  assert.ok(after < before - 40, `bunker loot ${before} -> ${after}`);
+  // None is left walking in the rock: a living bot is on the street or inside a bunker.
+  for (const a of game.state.actors) if (a.alive && !a.isPlayer) {
+    const ground = game.heightAt(a.position.x, a.position.z);
+    assert.ok(a.position.y > ground - 1 || a.position.y < BUNKER_Y + 1, `${a.id} at ${a.position.y.toFixed(1)} under ground ${ground.toFixed(1)}`);
+  }
+});
+
+test('a bot in a bunker (with a player close by, so it runs the full routine) walks the corridors to the loot and stays on the floor', () => {
+  const game = new GameSimulation({ seed: 7, botCount: 3, map: 'metro' });
+  game.start();
+  const mine = game.world.portals!.filter(p => p.down && p.id.startsWith('bunker-hot-0-s'));
+  const bot = game.state.actors.find(x => !x.isPlayer)!;
+  for (const x of game.state.actors) if (x !== bot && !x.isPlayer) { x.alive = false; x.health = 0; }
+  game.player.position = { x: mine[0].to.x, y: BUNKER_Y, z: mine[0].to.z };
+  bot.position = { x: mine[1].to.x, y: BUNKER_Y, z: mine[1].to.z };
+  const bunkerLoot = () => game.state.loot.filter(l => l.position.y < -30 && Math.hypot(l.position.x - bot.position.x, l.position.z - bot.position.z) < 80);
+  const before = bunkerLoot().filter(l => l.active).length;
+  let moved = 0, last = { ...bot.position };
+  for (let i = 0; i < 30 * 40; i++) {
+    game.player.health = 100;
+    game.update(1 / 30, idle);
+    if (bot.alive && bot.position.y < -30) {
+      assert.ok(Math.abs(bot.position.y - BUNKER_Y) < 0.3, `bot left the floor: ${bot.position.y.toFixed(2)}`);
+      moved += Math.hypot(bot.position.x - last.x, bot.position.z - last.z);
+    }
+    last = { ...bot.position };
+  }
+  const after = bunkerLoot().filter(l => l.active).length;
+  assert.ok(moved > 40, `the bot walked ${moved.toFixed(0)} m`);
+  assert.ok(after <= before - 3 || bot.position.y > -30, `loot ${before} -> ${after}`);
+});

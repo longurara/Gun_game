@@ -987,7 +987,7 @@ function renderActors(dt: number) {
     model.stride += dt * model.moving * 2.2;
     // Each footfall of a nearby soldier is heard, placed left or right of the listener.
     const footfall = Math.floor(model.stride / Math.PI);
-    if (actor.id !== sim.localId && dt > 0 && actor.alive && !actor.air && !actor.vehicleId && model.moving > 1.5 && model.lastStep !== undefined && footfall !== model.lastStep) audio.footstepOther(actor.position, focus, model.moving > 5);
+    if (actor.id !== sim.localId && dt > 0 && actor.alive && !actor.air && !actor.vehicleId && Math.abs(actor.position.y - focus.y) < 14 && model.moving > 1.5 && model.lastStep !== undefined && footfall !== model.lastStep) audio.footstepOther(actor.position, focus, model.moving > 5);
     model.lastStep = footfall;
     model.root.position.copyFrom(pos);
     model.root.rotation.set(0, actor.yaw, actor.alive ? 0 : Math.PI / 2);
@@ -2062,6 +2062,20 @@ function replayCamera(dt: number) {
   camera.fov += (0.85 - camera.fov) * Math.min(1, dt * 6);
 }
 
+/** A short dip to black as you take the stairs, so the jump between street and bunker does not look like a glitch. */
+let fadeLayer: HTMLDivElement | null = null;
+function stairsFade(down: boolean) {
+  if (!fadeLayer) {
+    fadeLayer = document.createElement('div');
+    fadeLayer.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;z-index:40;transition:opacity .45s ease-out';
+    document.body.appendChild(fadeLayer);
+  }
+  const layer = fadeLayer;
+  layer.style.transition = 'none'; layer.style.opacity = down ? '1' : '0.85';
+  void layer.offsetWidth;
+  setTimeout(() => { layer.style.transition = 'opacity .55s ease-out'; layer.style.opacity = '0'; }, 120);
+}
+
 function events(dt: number) {
   // Online, the host also queues events for the others and a client gets them in snapshots; a client's own simulation
   // produces nothing worth showing (the host reports it).
@@ -2073,6 +2087,7 @@ function events(dt: number) {
     if (!ownEcho) audio.handle(event, focusPosition());
     if (net?.client && event.type === 'kill' && event.killerId === sim.localId && event.actorId !== sim.localId) sim.state.kills++;
     if (event.type === 'message') ui.notify(event.text);
+    if (event.type === 'portal' && event.actorId === sim.localId) stairsFade(event.down);
     if (event.type === 'shot') {
       cueGunshot(event.actorId, event.from);
       spawnTracer(event.from, event.to, event.actorId);
@@ -2355,6 +2370,7 @@ try {
       const at = focusPosition();
       const below = sim.state.phase !== 'menu' && !!islandRenderer && at.y < sim.heightAt(at.x, at.z) - DEEP;
       setUnderground(below);
+      audio.cave(below);
       if (below && lamp) lamp.position.set(camera.position.x, camera.position.y + 0.3, camera.position.z);
     }
     if (sim.state.phase === 'playing' && !underground) {

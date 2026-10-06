@@ -57,6 +57,12 @@ interface Runtime {
   airdropGoal: Vec2 | null;
   /** Current speed in m/s, kept for the accuracy penalty of shooting on the move. */
   speedNow: number;
+  /** A trip into a bunker: on the way down to its stairs, looting inside, or on the way back up. */
+  mission: { phase: 'down' | 'in' | 'up'; portal: Portal | null; until: number } | null;
+  /** Next time this bot thinks about a bunker, and the bunkers it has already visited. */
+  bunkerAt: number; bunkers: Set<string>;
+  /** The last pickup search found nothing worth taking. */
+  dry: boolean;
 }
 interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle; /** Where a bullet that followed an arc ended up. */ point?: Vec3 }
 /** What the player is told on landing, by map. */
@@ -557,12 +563,24 @@ export class GameSimulation {
   useStairs(actor: Actor = this.player): boolean {
     const portal = this.portalNear(actor);
     if (!portal) return false;
+    this.traverse(actor, portal);
+    return true;
+  }
+
+  /** Put an actor at the far end of a stairwell. */
+  private traverse(actor: Actor, portal: Portal): void {
+    const from = { ...actor.position };
     actor.position = { x: portal.to.x, y: portal.to.y, z: portal.to.z };
     const runtime = this.runtime(actor);
     runtime.velocityY = 0; runtime.vault = null;
+    runtime.path = []; runtime.pathTimer = 0; runtime.goal = null; runtime.lootRef = null; runtime.stuck = 0;
     this.cancelHeal(actor);
-    this.events.push({ type: 'portal', actorId: actor.id, down: portal.down });
-    return true;
+    this.events.push({ type: 'portal', actorId: actor.id, down: portal.down, from, to: { ...actor.position } });
+  }
+
+  /** Deep below the ground: inside a bunker. */
+  private underground(actor: Actor): boolean {
+    return actor.position.y < this.heightAt(actor.position.x, actor.position.z) - DEEP;
   }
 
   /**
@@ -1303,6 +1321,7 @@ export class GameSimulation {
         lootRef: null, lootTimer: 0, ignored: new Map(), coverGoal: null, coverTimer: 0, weaponTimer: 0,
         visited: new Set(), townGoal: null,
         lodAcc: 0, lodTier: 0, duelUntil: 0, detour: 0, carTarget: null, destination: null, carCooldown: 0, drop: null, airdropGoal: null, speedNow: 0,
+        mission: null, bunkerAt: 20 + (Number(actor.id.split('-')[1]) % 17) * 3, bunkers: new Set(), dry: false,
       };
       this.runtimes.set(actor.id, runtime);
     }
@@ -1964,7 +1983,7 @@ export class GameSimulation {
       if (!lod) { this.updateBot(actor, dt); continue; }
       const runtime = this.runtime(actor);
       let d = Infinity;
-      for (const human of watchers) d = Math.min(d, distance2(actor.position, human.position));
+      for (const human of watchers) d = Math.min(d, Math.hypot(actor.position.x - human.position.x, actor.position.z - human.position.z, actor.position.y - human.position.y));
       const tier = d < LOD_FULL ? 0 : d < LOD_NEAR ? 1 : 2;
       if (tier < 2 && runtime.lodTier === 2) { this.resolvePenetration(actor); runtime.path = []; runtime.pathTimer = 0; }
       runtime.lodTier = tier;
@@ -2334,7 +2353,9 @@ export class GameSimulation {
     const previous = { ...actor.position };
     const edge = this.world.halfSize - ACTOR_RADIUS;
     // Walkers track the terrain; only the player can leave it (jumping), so bots always stand on the ground.
-    const feet = () => actor.isPlayer ? actor.position.y : this.heightAt(actor.position.x, actor.position.z);
+    // Bots in a bunker stand on its floor; the ground overhead is far above them.
+    const deep = !actor.isPlayer && this.underground(actor);
+    const feet = () => actor.isPlayer || deep ? actor.position.y : this.heightAt(actor.position.x, actor.position.z);
     // Long strides (low-detail bots) are split so a thin wall can never be stepped over.
     const pieces = Math.max(1, Math.ceil(Math.hypot(moveX, moveZ) * scale / 0.45));
     for (let piece = 0; piece < pieces; piece++) {
@@ -2346,7 +2367,7 @@ export class GameSimulation {
     }
     if (!actor.isPlayer) {
       actor.yaw = Math.atan2(moveX, moveZ);
-      actor.position.y = this.heightAt(actor.position.x, actor.position.z);
+      actor.position.y = deep ? this.supportHeight(actor.position.x, actor.position.z, actor.position.y) : this.heightAt(actor.position.x, actor.position.z);
     }
     return distance2(actor.position, previous);
   }
@@ -2364,12 +2385,15 @@ export class GameSimulation {
     return false;
   }
 
+  /** While a bot plans a route deep underground, the level it plans on (the ground overhead means nothing there). */
+  private navFeet: number | null = null;
+
   private walkable(point: Vec2, padding = ACTOR_RADIUS + 0.15, standing?: number, height = ACTOR_HEIGHT): boolean {
     const edge = this.world.halfSize - padding;
     if (Math.abs(point.x) > edge || Math.abs(point.z) > edge) return false;
     const ground = this.heightAt(point.x, point.z);
     if (this.world.water && this.deepWater(point.x, point.z, ground)) return false;
-    const feet = standing ?? ground;
+    const feet = standing ?? this.navFeet ?? ground;
     let free = true;
     this.obstacles().queryBox(point.x - padding, point.z - padding, point.x + padding, point.z + padding, obstacle => {
       if (obstacle.kind === 'floor' && feet >= obstacleTop(obstacle) - STEP_UP) return;
@@ -2551,7 +2575,7 @@ export class GameSimulation {
       const runtime = this.runtime(other);
       if (runtime.targetId && runtime.memory > 0) return;
       const d = distance2(other.position, shooter.position);
-      if (d > loudness || d < 8 || runtime.heardTimer > 6.5) return;
+      if (d > loudness || d < 8 || runtime.heardTimer > 6.5 || Math.abs(other.position.y - shooter.position.y) > 14) return;
       if (this.random() > 0.3 + (1 - d / loudness) * 0.5) return;
       runtime.heard = { x: shooter.position.x + (this.random() - 0.5) * d * 0.3, z: shooter.position.z + (this.random() - 0.5) * d * 0.3 };
       runtime.heardTimer = 9;
@@ -2571,6 +2595,8 @@ export class GameSimulation {
         if (!loot.active) return;
         // Bots do not climb stairs: anything above the ground floor is for people.
         if (loot.position.y - this.heightAt(loot.position.x, loot.position.z) > 1.5) return;
+        // Another level (a bunker under the street, or the street over a bunker) is out of reach.
+        if (Math.abs(loot.position.y - actor.position.y) > 6) return;
         const until = runtime.ignored.get(loot.id);
         if (until !== undefined && until > now) return;
         const utility = lootUtility(actor, loot.kind);
@@ -2579,10 +2605,11 @@ export class GameSimulation {
         if (score > bestScore) { best = loot; bestScore = score; }
       });
       runtime.lootRef = best;
+      runtime.dry = !best;
     }
     const target = runtime.lootRef;
     if (!target) return false;
-    if (Math.hypot(target.position.x - actor.position.x, target.position.y - actor.position.y, target.position.z - actor.position.z) <= 1.5) {
+    if (Math.hypot(target.position.x - actor.position.x, target.position.y - actor.position.y, target.position.z - actor.position.z) <= (this.navFeet !== null || this.underground(actor) ? 2.2 : 1.5)) {
       this.collectLoot(actor, target);
       runtime.lootRef = null;
       runtime.lootTimer = 0.25;
@@ -2590,6 +2617,96 @@ export class GameSimulation {
     }
     runtime.goal = { x: target.position.x, z: target.position.z };
     return true;
+  }
+
+  /** Bunker stairs on the level the actor stands on that lead the other way: down from the street, up from below. */
+  private stairsOnLevel(actor: Actor, down: boolean): Portal[] {
+    return (this.world.portals ?? []).filter(p => p.down === down && Math.abs(p.y - actor.position.y) < 3);
+  }
+
+  private bunkerOf(portal: Portal): string { return portal.id.replace(/-s\d+-(?:down|up)$/, ''); }
+
+  /**
+   * A calm, healthy bot on the street now and then makes for a nearby bunker's stairs (once per bunker), to loot it.
+   * Returns the walking speed while the trip is on the way down, or null when the bot has other business.
+   */
+  private bunkerTrip(actor: Actor, runtime: Runtime): number | null {
+    const portals = this.world.portals;
+    if (!portals?.length) return null;
+    const now = this.state.elapsed;
+    const mission = runtime.mission;
+    if (mission?.phase === 'down' && mission.portal) {
+      if (now > mission.until) { runtime.mission = null; return null; }
+      if (distance2(actor.position, mission.portal) <= 2.3 && Math.abs(mission.portal.y - actor.position.y) <= 2.5) {
+        this.traverse(actor, mission.portal);
+        runtime.mission = { phase: 'in', portal: null, until: now + 45 + this.random() * 70 };
+        return 3.9;
+      }
+      // Far from anyone the walk is a straight line that a shed wall can stop: the last few metres are skipped.
+      if (runtime.lodTier === 2 && distance2(actor.position, mission.portal) < 14) { this.traverse(actor, mission.portal); runtime.mission = { phase: 'in', portal: null, until: now + 45 + this.random() * 70 }; return 3.9; }
+      runtime.goal = { x: mission.portal.x, z: mission.portal.z };
+      return 4.4;
+    }
+    runtime.mission = null;
+    if (now < runtime.bunkerAt || actor.health < 60 || runtime.targetId) return null;
+    runtime.bunkerAt = now + 8 + this.random() * 8;
+    if (this.random() > 0.5) return null;
+    const zone = this.state.zone;
+    const radius = zone.isShrinking ? Math.min(zone.radius, zone.nextRadius) : zone.radius;
+    const center = zone.isShrinking ? zone.nextCenter : zone.center;
+    let best: Portal | null = null, bestDistance = 380;
+    for (const portal of this.stairsOnLevel(actor, true)) {
+      if (runtime.bunkers.has(this.bunkerOf(portal)) || distance2(portal, center) > radius - 30) continue;
+      const d = distance2(actor.position, portal);
+      if (d < bestDistance) { best = portal; bestDistance = d; }
+    }
+    if (!best) return null;
+    runtime.bunkers.add(this.bunkerOf(best));
+    runtime.mission = { phase: 'down', portal: best, until: now + 40 + bestDistance / 3.5 };
+    runtime.goal = { x: best.x, z: best.z };
+    return 4.4;
+  }
+
+  /** Underground: loot the rooms for a while, then climb out (at once if the circle is closing in). */
+  private bunkerLeg(actor: Actor, runtime: Runtime, evacuating: boolean): number {
+    const now = this.state.elapsed;
+    const mission = runtime.mission ?? (runtime.mission = { phase: 'in', portal: null, until: now + 45 + this.random() * 70 });
+    if (mission.phase === 'in') {
+      if (!evacuating && now < mission.until) {
+        if (this.seekLoot(actor, runtime)) return 3.9;
+        // Just picked something up: look again in a moment rather than leaving.
+        if (!runtime.dry) return 3.6;
+      }
+      mission.phase = 'up';
+      runtime.lootRef = null;
+    }
+    const exits = this.stairsOnLevel(actor, false);
+    let exit: Portal | null = null, best = Infinity;
+    for (const portal of exits) { const d = distance2(actor.position, portal); if (d < best) { exit = portal; best = d; } }
+    if (!exit) return 3.6;
+    if (best <= 2.3) { this.traverse(actor, exit); runtime.mission = null; return 3.9; }
+    runtime.goal = { x: exit.x, z: exit.z };
+    return 4.6;
+  }
+
+  /** A bot far from anyone, underground: no routes through the walls; it loots what is near in a few jumps and climbs out. */
+  private farBunker(actor: Actor, runtime: Runtime, elapsed: number): void {
+    const now = this.state.elapsed;
+    const mission = runtime.mission ?? (runtime.mission = { phase: 'in', portal: null, until: now + 45 + this.random() * 70 });
+    runtime.lootTimer -= elapsed;
+    const zone = this.state.zone;
+    const evacuating = distance2(actor.position, zone.center) > Math.max(0, zone.radius - 5) || (zone.isShrinking && distance2(actor.position, zone.nextCenter) > Math.max(0, zone.nextRadius - 7));
+    if (mission.phase === 'in' && !evacuating && now < mission.until) {
+      if (runtime.lootTimer <= 0) {
+        runtime.lootTimer = 2 + this.random() * 1.5;
+        const loot = this.nearestLoot(actor.position, 60, item => Math.abs(item.position.y - actor.position.y) < 3 && lootUtility(actor, item.kind) > 0);
+        if (loot) this.collectLoot(actor, loot);
+      }
+      return;
+    }
+    const exit = this.stairsOnLevel(actor, false).sort((a, b) => distance2(actor.position, a) - distance2(actor.position, b))[0];
+    runtime.mission = null;
+    if (exit) this.traverse(actor, exit);
   }
 
   private nextTownGoal(actor: Actor, runtime: Runtime): Vec2 | null {
@@ -2613,7 +2730,9 @@ export class GameSimulation {
    */
   private pickGoal(actor: Actor, runtime: Runtime, evacuating: boolean, allowLoot = true): number {
     const zone = this.state.zone;
+    if (this.underground(actor)) return this.bunkerLeg(actor, runtime, evacuating);
     if (evacuating) {
+      if (runtime.mission) runtime.mission = null;
       runtime.lootRef = null;
       const destination = zone.isShrinking ? zone.nextCenter : zone.center;
       const safeRadius = Math.max(0, (zone.isShrinking ? zone.nextRadius : zone.radius) - 10);
@@ -2633,6 +2752,7 @@ export class GameSimulation {
       if (!open || distance2(actor.position, crate) < 5) runtime.airdropGoal = null;
       else { runtime.goal = { ...crate }; return 5; }
     }
+    if (allowLoot) { const trip = this.bunkerTrip(actor, runtime); if (trip !== null) return trip; }
     if (allowLoot && this.seekLoot(actor, runtime)) return 3.9;
     if (!runtime.goal || distance2(actor.position, runtime.goal) < (this.world.towns.length ? 8 : 3)) {
       runtime.goal = null;
@@ -2767,6 +2887,11 @@ export class GameSimulation {
 
   /** Walk the A* path toward `runtime.goal`, replanning on a timer and sidestepping when stuck. */
   private followPath(actor: Actor, runtime: Runtime, speed: number, dt: number): number {
+    this.navFeet = this.underground(actor) ? actor.position.y : null;
+    try { return this.followPathOn(actor, runtime, speed, dt); } finally { this.navFeet = null; }
+  }
+
+  private followPathOn(actor: Actor, runtime: Runtime, speed: number, dt: number): number {
     const goal = runtime.goal;
     if (!goal || this.state.phase !== 'playing') return 0;
     if ((runtime.pathTimer <= 0 || !runtime.path.length) && (this.pathBudget <= 0 || this.state.elapsed < runtime.pathHold)) {
@@ -2825,6 +2950,7 @@ export class GameSimulation {
     runtime.heardTimer = Math.max(0, runtime.heardTimer - dt);
     if (runtime.heardTimer === 0) runtime.heard = null;
     if (actor.healing > 0) return;
+    if (this.underground(actor)) { this.farBunker(actor, runtime, dt); return; }
     const farZone = this.state.zone;
     const farEvacuating = distance2(actor.position, farZone.center) > Math.max(0, farZone.radius - 5) || (farZone.isShrinking && distance2(actor.position, farZone.nextCenter) > Math.max(0, farZone.nextRadius - 7));
     if (actor.vehicleId) { this.botDriving(actor, runtime, farEvacuating); return; }
@@ -2868,7 +2994,7 @@ export class GameSimulation {
       const runtime = this.runtime(other);
       if (runtime.lodTier < 2 || runtime.duelUntil > now) return;
       const d = distance2(actor.position, other.position);
-      if (d < bestDistance) { best = other; bestDistance = d; }
+      if (d < bestDistance && Math.abs(other.position.y - actor.position.y) < 14) { best = other; bestDistance = d; }
     });
     return best;
   }
@@ -2894,7 +3020,7 @@ export class GameSimulation {
     if (distance < 0.01) return this.walkable(to);
     if (!this.walkable(to)) return false;
     const padding = ACTOR_RADIUS + 0.18;
-    const ankle = this.heightAt(from.x, from.z) + 0.05;
+    const ankle = (this.navFeet ?? this.heightAt(from.x, from.z)) + 0.05;
     const dx = to.x - from.x, dz = to.z - from.z;
     let clear = true;
     this.obstacles().queryBox(Math.min(from.x, to.x) - padding, Math.min(from.z, to.z) - padding, Math.max(from.x, to.x) + padding, Math.max(from.z, to.z) + padding, obstacle => {
@@ -2948,9 +3074,10 @@ export class GameSimulation {
     }
     if (this.clearPath(from, target)) return [{ ...target }];
     // Short hops indoors need a finer lattice: a doorway with a crate behind it is narrower than two coarse cells.
-    const cell = this.openWorld ? (distance2(from, target) <= 22 ? 1 : 2) : 4;
+    // Bunker doorways are narrow and the halls big: a fine lattice all the way.
+    const cell = this.navFeet !== null ? 1 : this.openWorld ? (distance2(from, target) <= 22 ? 1 : 2) : 4;
     // Search a box around the route; a big building in the way (a warehouse, an apartment block) can need a wider one.
-    let budget = 2600;
+    let budget = this.navFeet !== null ? 6000 : 2600;
     const search = (margin: number): Vec2[] => {
     const i0 = Math.floor((Math.min(from.x, target.x) - margin) / cell), i1 = Math.ceil((Math.max(from.x, target.x) + margin) / cell);
     const j0 = Math.floor((Math.min(from.z, target.z) - margin) / cell), j1 = Math.ceil((Math.max(from.z, target.z) + margin) / cell);
