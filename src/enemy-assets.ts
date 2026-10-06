@@ -102,5 +102,5 @@ export function instantiateEnemy(scene: Scene, parent: TransformNode, actorId: s
     }
   }
   const rest = nodes.map(node => ({ node, position: node.position.clone(), rotation: node.rotationQuaternion?.clone() }));
-  return { entries, arms, legs, rest, inverse: Matrix.Identity(), wrapper, ownedMaterials, key: model.id };
+  return { entries, arms, legs, rest, inverse: Matrix.Identity(), wrapper, ownedMaterials, key: model.id, helmet: null, helmetBase: null, hands: null };
 }

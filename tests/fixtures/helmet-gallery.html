@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi"><meta charset="utf-8"><title>LASTLIGHT — kiểm tra mũ</title>
+<style>html,body{margin:0}canvas{width:100vw;height:100vh;display:block}</style><canvas></canvas>
+<script type="module">
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Camera } from '@babylonjs/core/Cameras/camera.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { preloadFreeAssets } from '/src/free-assets.ts';
+import { Soldier } from '/src/soldier.ts';
+import { enemyModelFor } from '/src/enemy-catalog.ts';
+const engine=new Engine(document.querySelector('canvas'),true),scene=new Scene(engine);
+scene.clearColor=new Color4(.13,.16,.19,1);
+const camera=new FreeCamera('camera',new Vector3(0,2.7,4),scene);
+camera.mode=Camera.ORTHOGRAPHIC_CAMERA;camera.orthoLeft=-1.6;camera.orthoRight=1.6;camera.orthoTop=.6;camera.orthoBottom=-.6;
+camera.setTarget(new Vector3(0,1.52,0));
+new HemisphericLight('ambient',new Vector3(0,1,0),scene).intensity=1;
+const sun=new DirectionalLight('sun',new Vector3(-.3,-1,-.6),scene);sun.intensity=.8;
+const shadows=new ShadowGenerator(512,sun);
+await preloadFreeAssets(scene);
+const actors=[0,1,2,3].map(tier=>{const soldier=new Soldier(scene,'helmet-test-'+tier,true,shadows);soldier.root.position.x=(tier-1.5)*.76;soldier.setWeapon('rifle');soldier.setGear(tier,0);return soldier;});
+let mode='stand',time=0;
+engine.runRenderLoop(()=>{const dt=Math.min(.05,engine.getDeltaTime()/1000);time+=dt;
+for(const soldier of actors){const crouch=mode==='crouch'?1:0,prone=mode==='prone'?1:0;soldier.root.position.y=-.477*crouch;soldier.root.rotation.x=prone*(Math.PI/2-.12);soldier.pose(dt,{moving:mode==='run'?4:0,stride:time*8,alive:true,reloading:false,healing:false,time,crouch,prone,showcase:mode==='showcase'});}scene.render();});
+window.__HELMET_GALLERY__={engine,scene,camera,actors,createSwatBot:()=>{let index=0;while(enemyModelFor('helmet-bot-'+index)?.id!=='swat')index++;return new Soldier(scene,'helmet-bot-'+index,false,shadows);},setPose:next=>{mode=next;}};
+</script></html>

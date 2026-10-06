@@ -4,9 +4,11 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import type { WeaponClass } from './types';
+import { separateSwatHelmet } from './swat-helmet';
+import { swatHands } from './soldier-grip';
 
 /** Local, CC0 assets. Containers and baked gun meshes belong to one scene, never to an actor. */
 export interface AssetGun { meshes: Mesh[]; muzzle: [number, number, number]; grip: [number, number, number]; fore: [number, number, number] }
@@ -14,6 +16,23 @@ interface AssetSet { guns: Map<number, AssetGun>; swat: AssetContainer | null; r
 const assets = new WeakMap<Scene, AssetSet>();
 const files = [3, 5, 6, 7, 9, 14, 17, 18, 19, 20, 22, 23, 24];
 const lengths: Record<number, number> = { 3: .85, 5: 1.05, 6: 1, 7: .32, 9: .4, 14: .9, 17: .65, 18: 1.25, 19: 1.2, 20: 1.2, 22: .6, 23: .8, 24: 1.05 };
+// Palm contact points measured on the baked +Z-facing models, in metres.
+// Their authored origins sit near the grip, rather than .1 m below it.
+const holds: Record<number, { grip: [number, number, number]; fore: [number, number, number] }> = {
+  3: { grip: [0, -.04, .02], fore: [0, -.01, .27] },
+  5: { grip: [0, 0, .012], fore: [0, .078, .36] },
+  6: { grip: [0, 0, .012], fore: [0, .073, .34] },
+  7: { grip: [0, -.015, -.01], fore: [0, -.035, -.01] },
+  9: { grip: [0, -.015, 0], fore: [0, -.035, 0] },
+  14: { grip: [0, -.04, .02], fore: [0, -.015, .32] },
+  17: { grip: [0, -.01, -.015], fore: [0, .045, .22] },
+  18: { grip: [0, 0, 0], fore: [0, .045, .31] },
+  19: { grip: [0, -.055, .015], fore: [0, -.015, .26] },
+  20: { grip: [0, -.055, -.01], fore: [0, -.015, .32] },
+  22: { grip: [0, -.02, -.01], fore: [0, .05, .21] },
+  23: { grip: [0, -.025, 0], fore: [0, .055, .21] },
+  24: { grip: [0, 0, -.005], fore: [0, .055, .27] },
+};
 
 /** Use the authored colours with our existing lighting; these older FBX exports have no environment map. */
 export function litMaterials(container: AssetContainer, scene: Scene): void {
@@ -49,7 +68,10 @@ function bakeGun(container: AssetContainer, id: number, scene: Scene): AssetGun 
   }
   const scale = lengths[id] / (maxX - minX);
   // The imported FBX guns face -X in Babylon's left-handed scene. Bake them along +Z, in metres.
-  const alignment = Matrix.RotationY(Math.PI / 2).multiply(Matrix.Scaling(scale, scale, scale));
+  // AMR's export origin is ahead of its grip; bring that grip back to the holder origin.
+  const origin = id === 18 ? new Vector3(0, .005, -.16) : Vector3.Zero();
+  const alignment = Matrix.RotationY(Math.PI / 2).multiply(Matrix.Scaling(scale, scale, scale))
+    .multiply(Matrix.Translation(-origin.x, -origin.y, -origin.z));
   for (const mesh of meshes) {
     const world = mesh.getWorldMatrix().clone();
     mesh.parent = null;
@@ -64,7 +86,7 @@ function bakeGun(container: AssetContainer, id: number, scene: Scene): AssetGun 
   }
   for (const mesh of container.meshes) if (!meshes.includes(mesh as Mesh)) mesh.dispose(false, false);
   for (const node of container.transformNodes) node.dispose(false, false);
-  return { meshes, muzzle: [0, maxY * scale * .85, -minX * scale], grip: [0, -.1, 0], fore: [0, -.04, id === 7 || id === 9 ? .04 : .28] };
+  return { meshes, muzzle: [0, maxY * scale * .85 - origin.y, -minX * scale - origin.z], ...holds[id] };
 }
 
 export function preloadFreeAssets(scene: Scene): Promise<void> {
@@ -85,7 +107,7 @@ export function preloadFreeAssets(scene: Scene): Promise<void> {
         if (scene.isDisposed) return;
         const container = await LoadAssetContainerAsync(bytes, scene, { pluginExtension: '.glb', name });
         if (scene.isDisposed) { container.dispose(); return; }
-        if (name === 'swat') { litMaterials(container, scene); set.swat = container; }
+        if (name === 'swat') { litMaterials(container, scene); separateSwatHelmet(container); set.swat = container; }
         else set.guns.set(Number(name.slice(4)), bakeGun(container, Number(name.slice(4)), scene));
       } catch (error) {
         if (!scene.isDisposed) console.warn(`Không tải được ${name}; dùng mô hình dự phòng.`, error);
@@ -120,5 +142,9 @@ export function instantiateSwat(scene: Scene, parent: TransformNode, id: string)
   const arms = ['L', 'R'].map(side => ({ upper: nodeFor(`UpperArm.${side}`), lower: nodeFor(`LowerArm.${side}`), end: nodeFor(`Wrist.${side}`) }));
   const legs = ['L', 'R'].map(side => ({ upper: nodeFor(`UpperLeg.${side}`), lower: nodeFor(`LowerLeg.${side}`), end: nodeFor(`LowerLeg.${side}_end`), foot: nodeFor(`Foot.${side}`) }));
   const rest = nodes.map(node => ({ node, position: node.position.clone(), rotation: node.rotationQuaternion?.clone() }));
-  return { entries, arms, legs, rest, inverse: Matrix.Identity() };
+  const shell = parent.getChildMeshes().find(mesh => mesh.name === `${id}-swat-Swat_Helmet`);
+  const helmet = shell?.material instanceof StandardMaterial ? shell.material.clone(`${id}-swat-helmet`) : null;
+  const helmetBase = helmet?.diffuseColor.clone() ?? null;
+  if (shell && helmet) shell.material = helmet;
+  return { entries, arms, legs, rest, inverse: Matrix.Identity(), helmet, helmetBase, hands: swatHands(nodes) };
 }

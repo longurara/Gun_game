@@ -22,6 +22,8 @@ import { enemyModelFor } from './enemy-catalog';
 import type { EnemyModel } from './enemy-catalog';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import { gripWristOffset, poseSwatHand } from './soldier-grip';
+import { WEAPONS } from './game/weapons';
 
 type Rgb = [number, number, number];
 const TIER: Rgb[] = [[1, 1, 1], [0.55, 0.6, 0.5], [0.3, 0.52, 0.88], [0.92, 0.7, 0.22]];
@@ -166,6 +168,7 @@ export class Soldier {
         }
       }
     }
+    this.updateHelmet();
   }
 
   /** Create a rig only when a bot approaches. Hidden rigs keep their procedural, batched proxy. */
@@ -192,6 +195,7 @@ export class Soldier {
     for (const mesh of this.importedMeshes) mesh.setEnabled(this.detailed);
     for (const mesh of this.bodyMeshes) if (!this.helmet.includes(mesh) && !this.vest.includes(mesh)) mesh.setEnabled(!this.detailed);
     for (const mesh of this.headgear) mesh.setEnabled(!this.detailed && this.helmetTier === 0);
+    this.updateHelmet();
   }
 
   /** Draw the gun the actor currently holds, building its model on first use. */
@@ -214,15 +218,29 @@ export class Soldier {
     this.current = model; this.currentId = weapon; this.flash = model.flash;
   }
 
-  /** Helmet and vest appear only while worn, tinted by tier; without a helmet the soldier shows hair or a hat. */
+  /** Imported SWAT uses its skinned helmet shell; procedural soldiers use the batched gear. */
   setGear(helmet: number, vest: number): void {
     this.helmetTier = helmet;
     const key = `${helmet}:${vest}`;
     if (key === this.gearKey) return;
     this.gearKey = key;
-    for (const mesh of this.helmet) { mesh.setEnabled(helmet > 0); if (helmet > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[helmet], 1); }
+    this.updateHelmet();
     for (const mesh of this.headgear) mesh.setEnabled(!(this.swat && this.detailed) && helmet === 0);
     for (const mesh of this.vest) { mesh.setEnabled(vest > 0); if (vest > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[vest], 1); }
+  }
+
+  private updateHelmet(): void {
+    const imported = this.swat?.helmet;
+    const fitted = this.detailed && !!imported;
+    for (const mesh of this.helmet) {
+      mesh.setEnabled(this.helmetTier > 0 && !fitted);
+      if (this.helmetTier > 0) mesh.instancedBuffers.instanceColor = new Color4(...TIER[this.helmetTier], 1);
+    }
+    if (imported) {
+      if (this.helmetTier > 0) imported.diffuseColor.set(...TIER[this.helmetTier]);
+      else if (this.swat?.helmetBase) imported.diffuseColor.copyFrom(this.swat.helmetBase);
+      imported.emissiveColor = imported.diffuseColor.scale(.13);
+    }
   }
 
   /** Muzzle flash and a small recoil kick. */
@@ -233,6 +251,7 @@ export class Soldier {
   dispose(): void {
     for (const mesh of this.root.getChildMeshes()) this.shadows.removeShadowCaster(mesh);
     this.swat?.entries.dispose();
+    this.swat?.helmet?.dispose(false, false);
     if (this.swat && 'ownedMaterials' in this.swat) this.swat.ownedMaterials.forEach(material => material.dispose(false, false));
     this.root.dispose(false, false);
     this.jersey?.dispose();
@@ -293,13 +312,17 @@ export class Soldier {
     }
     const pitch = (p.showcase ? .25 : p.reloading ? .55 : p.healing ? .75 : 0) - prone * (Math.PI / 2 - .12);
     this.gun.rotation.x = pitch;
-    this.gun.position.set(.1, 1.36, .3 - this.kick * .045);
+    // SWAT needs room behind the grip for its palm; shorter rigs hold the gun nearer the body.
+    this.gun.position.set(.1, 1.36, (swat.hands ? .3 : .22) - this.kick * .045);
     if (this.current) for (let side = 0; side < 2; side++) {
       const arm = swat.arms[side];
       if (!arm.upper || !arm.lower || !arm.end) continue;
+      const pistol = !!this.currentId && WEAPONS[this.currentId].kind === 'pistol';
       const anchor = (side === 1 ? this.current.grip : this.current.fore).scale(GUN_SCALE);
+      if (swat.hands) anchor.addInPlace(gripWristOffset(side, pistol).scale(GUN_SCALE));
       const hand = new Vector3(this.gun.position.x + anchor.x, this.gun.position.y + anchor.y * Math.cos(pitch) - anchor.z * Math.sin(pitch), this.gun.position.z + anchor.y * Math.sin(pitch) + anchor.z * Math.cos(pitch));
       this.solveImportedLimb(arm.upper, arm.lower, arm.end, hand, new Vector3(side === 1 ? .55 : -.55, -1, -.25));
+      if (swat.hands) poseSwatHand(swat.hands[side], side, this.gun.computeWorldMatrix(true), pistol);
     }
   }
 
