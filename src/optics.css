@@ -1,0 +1,64 @@
+/* What you see while aiming through a scope: a heavy housing and a mil-dot reticle. */
+.optic { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; --lens: min(76vh, 88vw); }
+.optic[hidden] { display: none; }
+
+/* ---- Scope ---------------------------------------------------------------------------------------------- */
+/* The view outside the lens is the gun and ground, out of focus and darkened. */
+.scope-blur {
+  position: absolute; inset: 0;
+  background: rgba(8, 10, 8, .55);
+  -webkit-backdrop-filter: blur(9px) brightness(.55); backdrop-filter: blur(9px) brightness(.55);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent calc(var(--lens) * .5), #000 calc(var(--lens) * .5 + 1px));
+  mask-image: radial-gradient(circle at 50% 50%, transparent calc(var(--lens) * .5), #000 calc(var(--lens) * .5 + 1px));
+}
+.scope-body { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.scope-ring {
+  position: absolute; left: calc(var(--lens) / -2); top: calc(var(--lens) / -2); width: var(--lens); height: var(--lens); border-radius: 50%;
+  box-shadow:
+    inset 0 0 calc(var(--lens) * .07) calc(var(--lens) * .02) rgba(0, 0, 0, .78),
+    0 0 0 calc(var(--lens) * .012) #1b1d1b,
+    0 0 0 calc(var(--lens) * .052) #090a09,
+    0 0 0 calc(var(--lens) * .058) #2c302c,
+    0 0 0 calc(var(--lens) * .088) #121412,
+    0 0 0 calc(var(--lens) * .092) #3a3f3a,
+    0 0 calc(var(--lens) * .05) calc(var(--lens) * .09) rgba(0, 0, 0, .55);
+}
+/* Windage and elevation knobs on the sides and top of the tube. */
+.scope-turret {
+  position: absolute; border-radius: calc(var(--lens) * .02);
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 2px, transparent 2px 7px),
+    linear-gradient(180deg, #2b2e2b, #0c0d0c 55%, #1a1c1a);
+  box-shadow: inset 0 0 0 1px #3d423d, 0 4px 14px rgba(0, 0, 0, .6);
+}
+.scope-turret-l, .scope-turret-r { top: calc(var(--lens) * -.13); width: calc(var(--lens) * .17); height: calc(var(--lens) * .26); }
+.scope-turret-l { left: calc(var(--lens) * -.64); }
+.scope-turret-r { left: calc(var(--lens) * .47); }
+.scope-turret-t { left: calc(var(--lens) * -.11); top: calc(var(--lens) * -.62); width: calc(var(--lens) * .22); height: calc(var(--lens) * .14); background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .07) 0 2px, transparent 2px 7px), linear-gradient(90deg, #2b2e2b, #0c0d0c 55%, #1a1c1a); }
+.scope-reticle { position: absolute; left: 50%; top: 50%; width: var(--lens); height: var(--lens); transform: translate(-50%, -50%); clip-path: circle(50%); }
+/* Readouts sit inside the lens, either side of the lower bar of the reticle, like the printing on a real scope. */
+.scope-readout, .scope-zoombar {
+  position: absolute; top: calc(50% + var(--lens) * .3); display: flex; flex-direction: column; gap: 1px;
+  color: rgba(246, 243, 232, .92); text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 6px rgba(0, 0, 0, .6);
+  font: 600 calc(var(--lens) * .014 + 5px) / 1.15 "Segoe UI", Arial, sans-serif; letter-spacing: .6px;
+}
+.scope-readout { left: calc(50% - var(--lens) * .27); align-items: flex-start; }
+.scope-readout strong { font-weight: 600; font-size: 1.12em; }
+.scope-zoombar { left: calc(50% + var(--lens) * .09); flex-direction: row; align-items: center; gap: 8px; }
+.scope-zoombar > div { display: flex; flex-direction: column; align-items: flex-start; }
+.scope-zoombar strong { font: 600 calc(var(--lens) * .05 + 4px) / 1 "Segoe UI", Arial, sans-serif; letter-spacing: .5px; }
+.scope-zoombar small { font-weight: 500; font-size: .86em; letter-spacing: .5px; opacity: .7; }
+.scope-zoombar button {
+  pointer-events: none; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .28); background: rgba(10, 14, 11, .72);
+  color: #fff; font: 500 20px/1 "Segoe UI", Arial, sans-serif; display: none; align-items: center; justify-content: center; padding: 0; text-shadow: none;
+}
+.scope-zoombar button:disabled { opacity: .3; }
+html[data-input="touch"] .scope-zoombar button { display: flex; pointer-events: auto; }
+html[data-input="touch"] .scope-zoombar small { display: none; }
+html[data-input="touch"] .optic { --lens: min(84vh, 56vw); }
+/* A phone: no live blur (it costs too much); the outside is simply dark. */
+html[data-input="touch"] .scope-blur { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(5, 8, 6, .94); }
+html[data-input="touch"] .scope-zoombar { top: auto; bottom: 10px; left: auto; right: 16px; flex-direction: column-reverse; gap: 6px; color: #e8ece6; text-shadow: 0 1px 3px #000c; }
+html[data-input="touch"] .scope-zoombar > div { align-items: center; }
+html[data-input="touch"] .scope-zoombar button { pointer-events: auto; }

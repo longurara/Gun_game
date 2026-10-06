@@ -18,6 +18,8 @@ import { SpatialGrid } from './game/spatial';
 
 const SUN_DIRECTION = [-0.5, -1, 0.65] as const;
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+type GrassCell = { x: number; z: number; gx: number; gz: number; d: number; far: boolean };
+const grassHash = (gx: number, gz: number, salt: number) => Math.abs(Math.sin(gx * 127.1 + gz * 311.7 + salt * 74.7) * 43758.5453) % 1;
 type GrassExclusion = { ax: number; az: number; bx: number; bz: number; pad: number };
 
 /** Periodic noise texture: tileable, so it repeats without visible seams. */
@@ -109,6 +111,9 @@ export class IslandDecor {
   private readonly clouds: Cloud[] = [];
   private readonly grass: Mesh | null;
   private grassAt = { x: 1e9, z: 1e9 };
+  private grassJob: { cx: number; cz: number; candidates: GrassCell[]; next: number; count: number; matrices: Float32Array; colors: Float32Array } | null = null;
+  /** Inside this radius the grass is at full density. */
+  private readonly grassNear: number;
   private grassMatrices = new Float32Array(0);
   private grassColors = new Float32Array(0);
   private readonly grassWind: GrassWind;
@@ -117,7 +122,8 @@ export class IslandDecor {
 
   constructor(private readonly scene: Scene, private readonly world: WorldConfig, touch: boolean, private readonly foliage: StandardMaterial) {
     this.grassWind = new GrassWind(foliage);
-    this.grassWind.radius = touch ? 24 : 34;
+    this.grassNear = touch ? 24 : 34;
+    this.grassWind.radius = touch ? 40 : 80;
     const addRibbon = (ax: number, az: number, bx: number, bz: number, width: number) => {
       const pad = width / 2 + 1.2;
       this.grassExclusions.insertBox({ ax, az, bx, bz, pad }, Math.min(ax, bx) - pad, Math.min(az, bz) - pad,
@@ -154,7 +160,7 @@ export class IslandDecor {
     this.sky = this.buildSky();
     this.sun = this.buildSun();
     this.buildClouds();
-    this.grass = this.buildGrass(touch ? 2600 : 6000);
+    this.grass = this.buildGrass(touch ? 3600 : 10000);
   }
 
   /** Flat lake discs and river ribbons sitting at their own water level. */
@@ -361,59 +367,75 @@ export class IslandDecor {
     return this.world.towns.some(town => Math.hypot(x - town.x, z - town.z) < town.radius * 1.05);
   }
 
-  private rebuildGrass(cx: number, cz: number): void {
-    const mesh = this.grass;
-    if (!mesh) return;
-    const matrices = this.grassMatrices, colors = this.grassColors;
-    const max = colors.length / 4;
-    matrices.fill(0);
-    // A six-metre safety band stays outside the visible fade during each four-metre update.
-    const radius = this.grassWind.radius + 6, spacing = 0.85, terrain = this.world.terrain ?? (() => 0);
-    const lakes = this.world.water?.lakes ?? [];
-    const hashAt = (gx: number, gz: number, salt: number) => Math.abs(Math.sin(gx * 127.1 + gz * 311.7 + salt * 74.7) * 43758.5453) % 1;
-    const candidates: Array<{ x: number; z: number; gx: number; gz: number; d: number }> = [];
-    for (let gx = Math.floor((cx - radius) / spacing); gx <= Math.floor((cx + radius) / spacing); gx++) {
-      for (let gz = Math.floor((cz - radius) / spacing); gz <= Math.floor((cz + radius) / spacing); gz++) {
-        const x = (gx + hashAt(gx, gz, 1)) * spacing, z = (gz + hashAt(gx, gz, 2)) * spacing;
-        const d = Math.hypot(x - cx, z - cz);
-        if (d < radius) candidates.push({ x, z, gx, gz, d });
+  /** Plan a new set of tufts around (cx, cz): the lattice cells to test, nearest first. They are filled in over several frames. */
+  private startGrass(cx: number, cz: number): void {
+    const radius = this.grassWind.radius + 6;
+    // Close in the grass is dense; further out it is a sparser lattice of bigger tufts, so the meadow still looks full for a fraction of the cost.
+    const nearRadius = this.grassNear, nearSpacing = 0.85, farSpacing = nearSpacing * 2.2;
+    const candidates: GrassCell[] = [];
+    const scan = (spacing: number, from: number, to: number, far: boolean) => {
+      for (let gx = Math.floor((cx - to) / spacing); gx <= Math.floor((cx + to) / spacing); gx++) {
+        for (let gz = Math.floor((cz - to) / spacing); gz <= Math.floor((cz + to) / spacing); gz++) {
+          const x = (gx + grassHash(gx, gz, 1)) * spacing, z = (gz + grassHash(gx, gz, 2)) * spacing;
+          const d = Math.hypot(x - cx, z - cz);
+          if (d >= from && d < to) candidates.push({ x, z, gx, gz, d, far });
+        }
       }
-    }
-    // Fill nearby cells first if the phone budget is reached, keeping grass on every side.
-    candidates.sort((a, b) => a.d - b.d);
-    let n = 0;
-    for (const { x, z, gx, gz } of candidates) {
-      if (n >= max) break;
-      const hash = hashAt(gx, gz, 3), hash2 = hashAt(gx, gz, 4);
+    };
+    scan(nearSpacing, 0, Math.min(nearRadius, radius), false);
+    if (radius > nearRadius) scan(farSpacing, nearRadius, radius, true);
+    // Fill nearby cells first if the buffer is full, keeping grass on every side.
+    candidates.sort((p, q) => p.d - q.d);
+    const max = this.grassColors.length / 4;
+    this.grassJob = { cx, cz, candidates, next: 0, count: 0, matrices: new Float32Array(max * 16), colors: new Float32Array(max * 4) };
+  }
+
+  /** Test a slice of the planned cells, and when all are done swap the finished set in. */
+  private stepGrass(slice: number): void {
+    const job = this.grassJob, mesh = this.grass;
+    if (!job || !mesh) return;
+    const { matrices, colors, candidates } = job;
+    const max = colors.length / 4, terrain = this.world.terrain ?? (() => 0);
+    const lakes = this.world.water?.lakes ?? [];
+    const farBoost = 1.55;
+    const end = Math.min(candidates.length, job.next + slice);
+    for (; job.next < end && job.count < max; job.next++) {
+      const { x, z, gx, gz, far } = candidates[job.next];
+      const hash = grassHash(gx, gz, 3), hash2 = grassHash(gx, gz, 4);
       // A stable patch distribution avoids selection/rotation correlation and moving density rings.
       const meadow = groundNoise(x, z);
       const density = 0.42 + meadow * 0.42;
-      if (hashAt(gx, gz, 5) > density) continue;
+      if (grassHash(gx, gz, 5) > density) continue;
       const y = terrain(x, z);
       if (y < 2.6 || this.nearTown(x, z) || this.onRoadOrRiver(x, z)) continue;
       if (lakes.some(l => Math.hypot(x - l.x, z - l.z) < l.r * 1.2)) continue;
       const slope = Math.hypot((terrain(x + 0.75, z) - terrain(x - 0.75, z)) / 1.5,
         (terrain(x, z + 0.75) - terrain(x, z - 0.75)) / 1.5);
-      if (hashAt(gx, gz, 6) > 1 - clamp01((slope - 0.35) / 0.3)) continue;
-      const scale = 0.48 + hash * 0.64, rotation = hash2 * Math.PI * 2, c = Math.cos(rotation), s = Math.sin(rotation);
-      const m = n * 16;
+      if (grassHash(gx, gz, 6) > 1 - clamp01((slope - 0.35) / 0.3)) continue;
+      const scale = (0.48 + hash * 0.64) * (far ? farBoost : 1), rotation = hash2 * Math.PI * 2, c = Math.cos(rotation), s = Math.sin(rotation);
+      const m = job.count * 16;
       matrices[m] = c * scale; matrices[m + 2] = -s * scale;
       matrices[m + 5] = scale * (0.8 + hash2 * 0.5);
       matrices[m + 8] = s * scale; matrices[m + 10] = c * scale;
       matrices[m + 12] = x; matrices[m + 13] = y - 0.05; matrices[m + 14] = z; matrices[m + 15] = 1;
       // Tufts take the ground's own tint (dry on bare patches, lush in the meadow) so they melt into it.
-      const tint = 0.86 + hashAt(gx, gz, 7) * 0.12;
+      const tint = 0.86 + grassHash(gx, gz, 7) * 0.12;
       const dry = clamp01(groundNoise(x * 0.22 + 91, z * 0.22 - 37) * 2 - 0.9);
-      const k = n * 4;
+      const k = job.count * 4;
       colors[k] = tint * (0.98 + dry * 0.02); colors[k + 1] = tint * (1 - dry * 0.12); colors[k + 2] = tint * (0.94 - dry * 0.15); colors[k + 3] = 1;
-      n++;
+      job.count++;
     }
+    if (job.next < candidates.length && job.count < max) return;
+    this.grassMatrices.set(matrices);
+    this.grassColors.set(colors);
+    this.grassMatrices.fill(0, job.count * 16);
     mesh.thinInstanceBufferUpdated('matrix');
     mesh.thinInstanceBufferUpdated('color');
-    mesh.thinInstanceCount = n;
+    mesh.thinInstanceCount = job.count;
     // Do not draw a zero-count thin-instance mesh with stale instance-colour shader defines.
-    mesh.setEnabled(n > 0);
-    this.grassAt = { x: cx, z: cz };
+    mesh.setEnabled(job.count > 0);
+    this.grassAt = { x: job.cx, z: job.cz };
+    this.grassJob = null;
   }
 
   /**
@@ -439,7 +461,10 @@ export class IslandDecor {
       if (cloud.mesh.position.x < x - 1700) cloud.mesh.position.x += 3400;
       cloud.mesh.position.z += (z - cloud.mesh.position.z > 1700 ? 3400 : z - cloud.mesh.position.z < -1700 ? -3400 : 0);
     }
-    if (Math.hypot(x - this.grassAt.x, z - this.grassAt.z) > 4) this.rebuildGrass(x, z);
+    // The set is rebuilt in slices over a few frames once the player has walked a few metres.
+    if (!this.grassJob && Math.hypot(x - this.grassAt.x, z - this.grassAt.z) > 4) this.startGrass(x, z);
+    // The very first set is built at once; afterwards a slice per frame keeps the cost flat.
+    if (this.grassJob) this.stepGrass(this.grassAt.x > 1e8 ? 1e9 : 1400);
   }
 
   dispose(): void {

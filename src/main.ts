@@ -10,6 +10,7 @@ import './inventory.css';
 import './settings.css';
 import './lobby-polish.css';
 import './supplies.css';
+import './optics.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -65,6 +66,7 @@ import { MultiplayerController } from './net/controller';
 import type { MatchStart } from './net/controller';
 import { actorIdFor, ClientSession, HostSession, matchOptions } from './net/session';
 import { skinById } from './skins';
+import { clampZoom, fovFor, SCOPE_FROM, stepZoom, zoomLevels } from './optics';
 import type { Transport } from './net/transport';
 import type { ReplayActor } from './replay';
 import { IslandRenderer } from './island-renderer';
@@ -161,6 +163,7 @@ const ui = new GameUI({
     if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.root.dispose(false, true); models.delete(sim.localId); } }
   },
   onSelectWeapon: selectWeapon,
+  onZoomStep: direction => changeZoom(direction),
   onInventoryPickup: pickupInventory,
   onInventoryDrop: dropInventory,
   onInventoryHeal: () => { if (doHeal()) { void audio.unlock(); audio.heal(); } },
@@ -190,7 +193,7 @@ if (touchDevice) {
   mobile = new MobileControls(canvas, {
     onLook: (dx, dy) => {
       if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
-      const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? rigStats(sim.player, sim.player.weapon).zoom : null);
+      const sensitivity = touchLookSensitivity(canvas.clientWidth, canvas.clientHeight, settings.sensitivity, aiming ? activeZoom() : null);
       const scale = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
       lookBy(dx * sensitivity * scale, -dy * sensitivity * scale);
     },
@@ -287,8 +290,7 @@ function onGyroLook(dYaw: number, dPitch: number) {
   if (sim.state.phase !== 'playing' || gameplayInputBlocked() || settings.gyro === 'off') return;
   // "Khi ngắm": only while looking down the sights or holding the trigger, so walking is never twitchy.
   if (settings.gyro === 'aim' && !aiming && !shooting) return;
-  const zoom = aiming ? rigStats(sim.player, sim.player.weapon).zoom : 1;
-  const scale = settings.gyroSensitivity / Math.sqrt(zoom);
+  const scale = settings.gyroSensitivity / Math.sqrt(activeZoom());
   const friction = lookScale(pickAssist(yaw, pitch, assistTargets, assistLevel()), assistLevel());
   lookBy(dYaw * scale * friction, dPitch * scale * friction * (settings.gyroInvertY ? -1 : 1));
 }
@@ -640,7 +642,7 @@ function material(name: string, color: string, emissive = 0): StandardMaterial {
   value.diffuseColor = Color3.FromHexString(color);
   value.specularColor = Color3.Black();
   if (name === 'wood') useGeneratedAlbedo(value, GENERATED_TEXTURES.wood, 1, 1.12);
-  if (name === 'dry-grass') useGeneratedAlbedo(value, GENERATED_TEXTURES.ground, sim.world.halfSize * 2.5 / 4, 1.25);
+  if (name === 'dry-grass') useGeneratedAlbedo(value, GENERATED_TEXTURES.terrainGrass, sim.world.halfSize, 1.25);
   if (emissive) value.emissiveColor = value.diffuseColor.scale(emissive);
   return value;
 }
@@ -1463,11 +1465,11 @@ function updateCamera(dt: number) {
   const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   eyeHeight += (STANCE[actor.stance ?? 'stand'].eye - eyeHeight) * Math.min(1, dt * 10);
   const pivot = ridden ? new Vector3(ridden.position.x, ridden.position.y + 1.9, ridden.position.z) : new Vector3(actor.position.x, actor.position.y + eyeHeight, actor.position.z);
-  const weapon = WEAPONS[actor.weapon], zoom = rigStats(actor, actor.weapon).zoom;
-  if (aiming && zoom >= 4 && sim.state.phase === 'playing') {
+  if (aiming && isScope() && sim.state.phase === 'playing') {
+    // Down the scope: the camera sits at the eye and the scope overlay stands in for the gun.
     camera.position.copyFrom(pivot);
     camera.setTarget(pivot.add(forward.scale(200)));
-    camera.fov = 2 * Math.atan(Math.tan(0.92 / 2) / zoom);
+    camera.fov += (fovFor(activeZoom()) - camera.fov) * Math.min(1, dt * 16);
     models.get(actor.id)?.root.setEnabled(false);
     snapCamera = true;
     return;
@@ -1481,7 +1483,8 @@ function updateCamera(dt: number) {
   camera.position.copyFrom(snapCamera ? desired : Vector3.Lerp(camera.position, desired, 1 - Math.exp(-dt * 20)));
   snapCamera = false;
   camera.setTarget(camera.position.add(forward.scale(100)));
-  const targetFov = aiming ? 2 * Math.atan(Math.tan(0.92 / 2) / zoom) : 0.92;
+  // Over the shoulder a plain sight zooms a little; a scope never gets here.
+  const targetFov = aiming ? fovFor(activeZoom()) : 0.92;
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12);
 }
 
@@ -1623,14 +1626,36 @@ function cycleWeapon(direction: number) {
   selectWeapon(owned[(index + direction + owned.length) % owned.length]);
 }
 
+/** The magnification remembered for each gun's sight; undefined means "full zoom", which is where a scope starts. */
+const rememberedZoom = new Map<string, number>();
+let aimZoom: number | undefined;
+const aimLevels = () => zoomLevels(rigStats(sim.player, sim.player.weapon).zoom);
+/** The magnification in use: 1 off the sights, otherwise the chosen level of this gun's sight. */
+function activeZoom(): number { return aiming ? clampZoom(aimLevels(), aimZoom) : 1; }
+/** The gun in hand has a scope (4x and up) to look through; other guns are aimed over the shoulder. */
+const isScope = () => rigStats(sim.player, sim.player.weapon).zoom >= SCOPE_FROM;
+
+/** Zoom a scope in (+1) or out (-1); a close-range sight has one level and stays as it is. */
+function changeZoom(direction: number): boolean {
+  if (!aiming || !isScope()) return false;
+  const levels = aimLevels(), next = stepZoom(levels, activeZoom(), direction);
+  if (next === activeZoom()) return true;
+  aimZoom = next;
+  rememberedZoom.set(sim.player.weapon, next);
+  void audio.unlock();
+  return true;
+}
+
 function beginAim() {
-  if (rigStats(sim.player, sim.player.weapon).zoom >= 4) {
-    const ray = camera.getForwardRay(WEAPONS[sim.player.weapon].range);
+  aimZoom = rememberedZoom.get(sim.player.weapon);
+  if (isScope()) {
+    const range = WEAPONS[sim.player.weapon].range;
+    const ray = camera.getForwardRay(range);
     const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && !!mesh.metadata && mesh.metadata.actorId !== sim.localId && (!!mesh.metadata.solid || !!sim.state.actors.find(actor => actor.id === mesh.metadata.actorId)?.alive));
-    const target = pick?.pickedPoint ?? ray.origin.add(ray.direction.scale(WEAPONS[sim.player.weapon].range));
+    const target = pick?.pickedPoint ?? ray.origin.add(ray.direction.scale(range));
     const dx = target.x - sim.player.position.x, dz = target.z - sim.player.position.z;
     yaw = Math.atan2(dx, dz);
-    pitch = Math.atan2(target.y - sim.player.position.y - 1.52, Math.hypot(dx, dz));
+    pitch = Math.atan2(target.y - sim.player.position.y - eyeHeight, Math.hypot(dx, dz));
     recoil = 0;
   }
   aiming = true;
@@ -1839,11 +1864,12 @@ canvas.addEventListener('contextmenu', event => event.preventDefault());
 canvas.addEventListener('wheel', event => {
   if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
   event.preventDefault();
+  if (aiming && !event.altKey && isScope()) { changeZoom(event.deltaY < 0 ? 1 : -1); return; }
   if (event.altKey) cycleLoot(event.deltaY >= 0 ? 1 : -1); else cycleWeapon(event.deltaY >= 0 ? 1 : -1);
 }, { passive: false });
 window.addEventListener('mousemove', event => {
   if (touchDevice || sim.state.phase !== 'playing' || gameplayInputBlocked() || (document.pointerLockElement !== canvas && !shooting && !aiming)) return;
-  const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(rigStats(sim.player, sim.player.weapon).zoom) : 1);
+  const sensitivity = 0.0016 * settings.sensitivity * (aiming ? 0.72 / Math.sqrt(activeZoom()) : 1);
   lookBy(event.movementX * sensitivity, -event.movementY * sensitivity);
 });
 document.addEventListener('pointerlockchange', () => {
@@ -2026,7 +2052,7 @@ try {
       ui.updateInventory(sim.player, ui.inventoryOpen ? sim.nearbyLoot() : [], !!net);
       lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
     }
-    ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon, rigStats(sim.player, sim.player.weapon).zoom);
+    ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon, { zoom: activeZoom(), max: rigStats(sim.player, sim.player.weapon).zoom });
     mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
     ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / VEHICLES[kindOf(drivenCar)].health } : null);

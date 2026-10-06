@@ -9,6 +9,7 @@ import type { Actor, Loot, LootKind, AirMode, GyroMode, AmmoType, ArmorSlot, Gam
 import { mapData } from './game/world';
 import { remainingGlide } from './game/drop';
 import { ZERO_DISTANCE } from './game/ballistics';
+import { SCOPE_FROM } from './optics';
 import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
 
@@ -29,6 +30,8 @@ type Callbacks = {
   onReplay?: () => void;
   onReplayStop?: () => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
+  /** Change the scope's magnification: +1 zooms in, -1 out. */
+  onZoomStep?: (direction: number) => void;
   onTouchOverlayChange?: (open: boolean) => void;
   onInventoryPickup?: (lootId: string) => void;
   onInventoryDrop?: (kind: LootKind, amount: number) => void;
@@ -225,19 +228,26 @@ export class GameUI {
           <div class="touch-orientation-note">Xoay điện thoại ngang để chơi thoải mái.</div>
         </footer>
       </section>
-      <div id="scope-overlay" class="scope-overlay" aria-label="Ống ngắm" hidden>
-        <div class="scope-lens">
-          <svg class="scope-reticle" viewBox="0 0 1000 1000" fill="none" aria-hidden="true">
-            <g stroke="rgba(10, 17, 13, .9)" stroke-width="1.8">
-              <path d="M34 500H485M515 500H966M500 34V485M500 515V966"/>
-              <path d="M335 491V509M390 493V507M445 494V506M555 494V506M610 493V507M665 491V509M491 335H509M493 390H507M494 445H506M476 555H524M468 610H532M458 665H542M448 720H552"/>
-            </g>
-            <g stroke="rgba(5, 10, 7, .9)" stroke-width="6"><path d="M20 500H200M800 500H980M500 800V980"/></g>
-            <g fill="rgba(10, 17, 13, .75)" font-family="Segoe UI, Arial, sans-serif" font-size="14"><text x="541" y="560">2</text><text x="549" y="615">4</text><text x="559" y="670">6</text></g>
-            <circle cx="500" cy="500" r="2.2" fill="#b85435"/>
-          </svg>
-          <div class="scope-optic-label"><span id="scope-weapon-name">ỐNG NGẮM</span><strong id="scope-zoom">6×</strong></div>
+      <div id="scope-overlay" class="optic optic-scope" aria-label="Ống ngắm" hidden>
+        <div class="scope-blur"></div>
+        <div class="scope-body" aria-hidden="true">
+          <i class="scope-turret scope-turret-l"></i><i class="scope-turret scope-turret-r"></i><i class="scope-turret scope-turret-t"></i>
+          <div class="scope-ring"></div>
         </div>
+        <svg class="scope-reticle" viewBox="0 0 1000 1000" fill="none" aria-hidden="true">
+          <g stroke="#050605" stroke-linecap="butt">
+            <path stroke-width="9" d="M0 500H215M785 500H1000M500 785V1000"/>
+            <path stroke-width="9" d="M500 0V215" opacity="0"/>
+            <path stroke-width="2" d="M215 500H478M522 500H785M500 215V478M500 522V785"/>
+          </g>
+          <g fill="#050605">
+            <circle cx="300" cy="500" r="3.4"/><circle cx="360" cy="500" r="3.4"/><circle cx="420" cy="500" r="3.4"/><circle cx="580" cy="500" r="3.4"/><circle cx="640" cy="500" r="3.4"/><circle cx="700" cy="500" r="3.4"/>
+            <circle cx="500" cy="300" r="3.4"/><circle cx="500" cy="360" r="3.4"/><circle cx="500" cy="420" r="3.4"/><circle cx="500" cy="580" r="3.4"/><circle cx="500" cy="640" r="3.4"/><circle cx="500" cy="700" r="3.4"/>
+          </g>
+          <circle cx="500" cy="500" r="1.6" fill="#050605"/>
+        </svg>
+        <div class="scope-readout"><span>Điểm zero</span><strong id="scope-zero">100 m</strong></div>
+        <div class="scope-zoombar"><button id="scope-zoom-out" type="button" aria-label="Giảm độ phóng đại">−</button><div><strong id="scope-zoom">6×</strong><small>Lăn chuột để đổi</small></div><button id="scope-zoom-in" type="button" aria-label="Tăng độ phóng đại">+</button></div>
       </div>
       <section id="hud" class="hud" aria-label="Thông tin trận đấu" hidden>
         <button id="inventory-toggle" class="inventory-toggle" type="button" aria-label="Mở kho đồ" aria-controls="inventory-screen" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7V5a4 4 0 0 1 8 0v2M5 8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12H5zM5 14h14M9 17h6"/></svg><span>KHO ĐỒ</span><kbd>Tab</kbd></button>
@@ -315,6 +325,8 @@ export class GameUI {
     this.el('tab-settings').addEventListener('click', () => this.showSettings(true));
     this.el('back-play').addEventListener('click', () => this.showSettings(false));
     root.querySelector('.wordmark')?.addEventListener('click', event => { event.preventDefault(); this.showSettings(false); });
+    this.el('scope-zoom-in').addEventListener('click', () => this.callbacks.onZoomStep?.(1));
+    this.el('scope-zoom-out').addEventListener('click', () => this.callbacks.onZoomStep?.(-1));
     this.el('start-button').addEventListener('click', () => { this.hide('error-banner', true); this.callbacks.onStart({ ...this.settings }); });
     this.el('resume-button').addEventListener('click', callbacks.onResume);
     this.el('multi-button').addEventListener('click', () => callbacks.onMultiplayer?.());
@@ -626,23 +638,28 @@ export class GameUI {
     }
   }
 
-  public setAim(aiming: boolean, weapon: WeaponType, zoom = WEAPONS[weapon].zoom): void {
-    const key = `${this.phase}:${weapon}:${aiming}:${zoom}`;
+  /** Aiming through a scope (any magnification up to `max`) shows the scope; other guns aim over the shoulder with a tighter crosshair. */
+  public setAim(aiming: boolean, weapon: WeaponType, optic: { zoom: number; max: number } = { zoom: 1, max: 1 }): void {
+    const { zoom, max } = optic;
+    const key = `${this.phase}:${weapon}:${aiming}:${zoom}:${max}`;
     if (key === this.aimStateKey) return;
     this.aimStateKey = key;
     const config = WEAPONS[weapon];
     const active = aiming && this.phase === 'playing';
-    const scoped = active && zoom >= 4;
+    const scoped = active && max >= SCOPE_FROM;
     this.hide('scope-overlay', !scoped);
     this.hide('crosshair', scoped || this.phase !== 'playing');
     this.el('crosshair').classList.toggle('is-ads', active && !scoped);
-    this.el('crosshair').classList.toggle('sniper-hip', !active && zoom >= 4);
+    this.el('crosshair').classList.toggle('sniper-hip', !active && max >= SCOPE_FROM);
     this.root.dataset.aim = scoped ? 'scope' : active ? 'ads' : 'hip';
     if (scoped) {
-      this.text('scope-weapon-name', config.label);
+      const label = `${Number.isInteger(zoom) ? zoom : zoom.toFixed(1)}×`;
+      this.text('scope-zoom', label);
       // The sights are zeroed at a set distance; beyond it the bullet drops, so aim a little higher.
-      this.text('scope-zoom', `${zoom}× · ${ZERO_DISTANCE[config.kind]} M`);
-      this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${zoom} lần`);
+      this.text('scope-zero', `${ZERO_DISTANCE[config.kind]} m`);
+      this.el('scope-zoom-in').toggleAttribute('disabled', zoom >= max - 1e-6);
+      this.el('scope-zoom-out').toggleAttribute('disabled', zoom <= 1 + 1e-6);
+      this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${label}`);
     }
   }
 
