@@ -40,13 +40,13 @@ class AudioContextStub {
   samples() { return this.nodes.filter(n => n.kind === 'source' && n.buffer?.url); }
 }
 const bank: GunSoundBank = Object.fromEntries(['pistol', 'rifle556', 'rifle762', 'dmr', 'sniper', 'shotgun', 'lmg', 'suppressed'].map(key => [key, `/${key}.ogg`]));
-async function setup(t: TestContext, fetcher?: typeof fetch) {
+async function setup(t: TestContext, fetcher?: typeof fetch, foley: Record<string, string> = {}) {
   const context = new AudioContextStub();
   const oldWindow = (globalThis as any).window, oldFetch = globalThis.fetch;
   (globalThis as any).window = { AudioContext: function () { return context; } };
   const requests: string[] = [];
   globalThis.fetch = fetcher ?? (async url => { requests.push(String(url)); return new Response(String(url)); }) as typeof fetch;
-  const audio = new GameAudio(bank); audio.localId = 'me';
+  const audio = new GameAudio(bank, foley); audio.localId = 'me';
   t.after(() => { audio.dispose(); (globalThis as any).window = oldWindow; globalThis.fetch = oldFetch; });
   return { audio, context, requests };
 }
@@ -173,4 +173,36 @@ test('installed sound files match provenance hashes and remain small one-shots',
   assert.ok(bytes < 90000);
   const lmg = manifest.find((entry: any) => entry.file === 'lmg.ogg');
   assert.equal(lmg.author, 'KuraiWolf'); assert.equal(lmg.license, 'CC BY 4.0');
+});
+
+const foley = Object.fromEntries(['engine', 'hum', 'wind', 'drip', 'breath', 'step-grass', 'step-metal', 'step-concrete', 'reload', 'reload-pistol', 'reload-shotgun', 'heal'].map(key => [key, `/${key}.ogg`]));
+test('foley samples share unlock/cache, follow surface and reload family, and obey mute', async t => {
+  const {audio, context, requests} = await setup(t, undefined, foley);
+  await audio.prepareGunSounds(); assert.equal(requests.length, 0);
+  await audio.unlock(); await Promise.all([audio.prepareGunSounds(), audio.prepareGunSounds()]);
+  assert.equal(requests.length, 8 + Object.keys(foley).length);
+  audio.footSurface = 'grass'; audio.footstep(false); assert.equal(context.samples().at(-1)!.buffer!.url, '/step-grass.ogg');
+  context.currentTime = 1; audio.footSurface = 'metal'; audio.footstep(false); assert.equal(context.samples().at(-1)!.buffer!.url, '/step-metal.ogg');
+  audio.reload('pistol'); assert.equal(context.samples().at(-1)!.buffer!.url, '/reload-pistol.ogg');
+  context.currentTime = 2; audio.reload('shotgun'); assert.equal(context.samples().at(-1)!.buffer!.url, '/reload-shotgun.ogg');
+  context.currentTime = 3; audio.reload('rifle'); assert.equal(context.samples().at(-1)!.buffer!.url, '/reload.ogg');
+  const count = context.samples().length; audio.setVolume(0); context.currentTime = 5;
+  audio.footstep(true); audio.reload('rifle'); audio.heal(); audio.engine(20, 1);
+  assert.equal(context.samples().length, count);
+});
+test('engine has one loop, changes pitch without stacking and stops on exit/pause/dispose', async t => {
+  const {audio, context} = await setup(t, undefined, foley);
+  await audio.unlock(); await audio.prepareGunSounds();
+  audio.engine(0, 0); const car = context.samples().at(-1)!; const idle = car.playbackRate.value;
+  for(let i=0;i<100;i++) audio.engine(25, 1);
+  assert.equal(context.samples().length, 1); assert.ok(car.playbackRate.value > idle);
+  audio.engine(8, .2, true); assert.equal(car.stopped, true); const plane = context.samples().at(-1)!;
+  assert.equal(plane.buffer!.url, '/hum.ogg'); audio.stopEngine(); assert.equal(plane.stopped, true); assert.equal(plane.outs.length, 0);
+  audio.engine(10, .5); audio.pause(); assert.ok(context.samples().every(n=>n.stopped));
+  audio.engine(10, .5); const resumed = context.samples().at(-1)!; audio.dispose(); assert.equal(resumed.stopped, true);
+});
+test('failed foley downloads retain immediate playable footsteps and engines without delayed replay', async t => {
+  const {audio, context} = await setup(t, (async()=>new Response('',{status:404})) as typeof fetch, foley);
+  await audio.unlock(); await audio.prepareGunSounds(); audio.footstep(false); audio.engine(12, 1);
+  assert.equal(context.samples().length, 0); assert.ok(context.nodes.some(n=>n.kind==='osc'&&n.started));
 });

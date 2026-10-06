@@ -45,13 +45,16 @@ export class GameAudio {
   private gunLoads = new Map<string, Promise<void>>();
   private gunAbort = new AbortController();
 
-  constructor(private readonly gunSounds: GunSoundBank = {}) {}
+  private engineLoop: { source: AudioBufferSourceNode; gain: GainNode; key: string } | null = null;
+  private lastWindSample = -Infinity;
+  footSurface: 'grass' | 'concrete' | 'metal' = 'grass';
+  constructor(private readonly gunSounds: GunSoundBank = {}, private readonly foleySounds: Record<string, string> = {}) {}
 
   /** Load once when entering a match, after unlocking. Early/missing shots use synthesis immediately. */
   async prepareGunSounds(): Promise<void> {
     const context = this.context;
     if (!context || this.disposed) return;
-    for (const url of new Set(Object.values(this.gunSounds))) {
+    for (const url of new Set([...Object.values(this.gunSounds), ...Object.values(this.foleySounds)])) {
       if (!url || this.gunLoads.has(url)) continue;
       const loading = fetch(url, { signal: AbortSignal.any([this.gunAbort.signal, AbortSignal.timeout(10000)]) })
         .then(async response => {
@@ -197,6 +200,7 @@ export class GameAudio {
         break;
       case 'drop':
         if (event.actorId !== this.localId) break;
+        if (this.sampleFoley(event.stage === 'chute' ? 'cloth' : event.stage === 'land' ? 'step-concrete' : 'throw', .24)) break;
         if (event.stage === 'jump') { this.noise(0.9, 0.3, 'lowpass', 1500); this.noise(0.5, 0.12, 'highpass', 2600, 0.05); }
         else if (event.stage === 'chute') { this.noise(0.12, 0.34, 'bandpass', 700); this.noise(0.5, 0.2, 'lowpass', 520, 0.08); this.tone(90, 0.25, 0.1, 'sine', 0.05, 50); }
         else { this.noise(0.1, 0.22, 'lowpass', 380); this.tone(68, 0.12, 0.12, 'sine', 0, 40); }
@@ -211,6 +215,7 @@ export class GameAudio {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
         if (d < 120) {
           const gain = Math.min(1, event.strength / 22) / (1 + d / 18);
+          if (this.sampleFoley('impact', .4 * gain)) break;
           this.noise(0.22, 0.2 * gain, 'lowpass', 900);
           this.tone(70, 0.2, 0.2 * gain, 'square', 0, 38);
         }
@@ -219,13 +224,14 @@ export class GameAudio {
       case 'melee': {
         const source = event.actorId === this.localId ? 0 : Math.hypot(event.at.x - playerPosition.x, event.at.z - playerPosition.z);
         if (source > 60) break;
+        if (this.sampleFoley(event.hitId ? 'melee' : 'throw', .22 / (1 + source / 12))) break;
         this.noise(0.12, 0.16 / (1 + source / 12), 'bandpass', 1400, 0.05);
         if (event.hitId) { this.tone(140, 0.12, 0.2 / (1 + source / 12), 'triangle', 0.03, 70); this.noise(0.07, 0.14 / (1 + source / 12), 'lowpass', 700, 0.03); }
         break;
       }
       case 'throw': {
         const d = Math.hypot(event.from.x - playerPosition.x, event.from.z - playerPosition.z);
-        if (d < 60) this.noise(0.18, 0.12 / (1 + d / 20), 'bandpass', 900, 0.06);
+        if (d < 60 && !this.sampleFoley('throw', .16 / (1 + d / 20))) this.noise(0.18, 0.12 / (1 + d / 20), 'bandpass', 900, 0.06);
         break;
       }
       case 'portal': {
@@ -242,16 +248,19 @@ export class GameAudio {
       }
       case 'smoke': {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 120 && this.sampleFoley('hiss', .16 / (1 + d / 30))) break;
         if (d < 120) { this.noise(1.1, 0.18 / (1 + d / 30), 'highpass', 2600); this.tone(180, 0.2, 0.08 / (1 + d / 30), 'sine', 0, 90); }
         break;
       }
       case 'flash': {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 160 && this.sampleFoley('explosion', .28 / (1 + d / 35), 1.8)) break;
         if (d < 160) { this.noise(0.22, 0.5 / (1 + d / 35), 'highpass', 1800); this.tone(3400, 0.6, 0.1 / (1 + d / 50), 'sine', 0.02, 2600); }
         break;
       }
       case 'fire': {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
+        if (d < 120 && this.sampleFoley('fire-sfx', .16 / (1 + d / 30))) break;
         if (d < 120) { this.noise(0.5, 0.2 / (1 + d / 30), 'lowpass', 900); this.tone(110, 0.4, 0.12 / (1 + d / 30), 'triangle', 0, 70); }
         break;
       }
@@ -259,6 +268,7 @@ export class GameAudio {
         const d = Math.hypot(event.position.x - playerPosition.x, event.position.z - playerPosition.z);
         if (d < 300) {
           const gain = 1 / (1 + Math.pow(d / 60, 1.4));
+          if (this.sampleFoley('explosion', .55 * gain)) break;
           this.noise(0.9, 0.5 * gain, 'lowpass', Math.max(260, 1400 - d * 4));
           this.tone(52, 0.7, 0.45 * gain, 'sine', 0, 26);
         }
@@ -287,12 +297,17 @@ export class GameAudio {
     if (now - this.lastStep < (sprint ? 0.23 : 0.34)) return;
     this.lastStep = now;
     this.stepSide = !this.stepSide;
+    if (this.sampleFoley(`step-${this.footSurface}`, sprint ? .14 : .09, this.stepSide ? .98 : 1.03)) return;
     this.noise(0.075, sprint ? 0.085 : 0.055, 'lowpass', this.stepSide ? 480 : 620);
     this.tone(this.stepSide ? 76 : 88, 0.065, sprint ? 0.07 : 0.045, 'sine', 0, 42);
   }
 
   /** A metal hatch swinging shut and boots on concrete steps (down: the steps fall in pitch; up: they climb). */
   private hatch(gain: number, down: boolean): void {
+    if (this.sampleFoley('hatch', .27 * gain, down ? .95 : 1.05)) {
+      for (let i = 0; i < 5; i++) this.sampleFoley('step-concrete', .12 * gain, 1, .34 + i * .1);
+      return;
+    }
     this.noise(0.09, 0.3 * gain, 'bandpass', 900);
     this.tone(95, 0.28, 0.22 * gain, 'square', 0, 52);
     this.tone(310, 0.34, 0.05 * gain, 'sawtooth', 0.02, 170);
@@ -314,32 +329,57 @@ export class GameAudio {
     const now = this.context!.currentTime;
     if (now - this.lastHum > 2.2) {
       this.lastHum = now;
-      this.tone(54, 2.6, 0.035, 'sine');
-      this.tone(81.5, 2.6, 0.012, 'triangle');
+      if (!this.sampleFoley('hum', .025, .75)) {
+        this.tone(54, 2.6, 0.035, 'sine');
+        this.tone(81.5, 2.6, 0.012, 'triangle');
+      }
     }
     if (now > this.nextDrip) {
-      this.nextDrip = now + 2.5 + Math.random() * 4.5;
+      this.nextDrip = now + (this.gunBuffers.has(this.foleySounds.drip) ? 9 : 2.5) + Math.random() * 4.5;
       const pitch = 1500 + Math.random() * 900;
-      this.tone(pitch, 0.07, 0.05, 'sine', 0, pitch * 0.55);
+      if (!this.sampleFoley('drip', .025)) this.tone(pitch, 0.07, 0.05, 'sine', 0, pitch * 0.55);
     }
   }
 
   /** Drawing a breath to hold it, and letting it go. */
   breath(inhale: boolean): void {
     if (!this.ready()) return;
+    if (this.sampleFoley('breath', inhale ? .07 : .09, inhale ? 1.12 : .92)) return;
     this.noise(inhale ? 0.42 : 0.6, inhale ? 0.05 : 0.07, 'bandpass', inhale ? 1100 : 700);
     if (!inhale) this.noise(0.25, 0.03, 'lowpass', 500, 0.18);
   }
 
   /** Engine note for the car being driven: short pulses whose pitch climbs with speed. */
-  engine(speed: number, throttle: number): void {
+  engine(speed: number, throttle: number, plane = false): void {
     if (!this.ready()) return;
+    const key = plane ? 'hum' : 'engine', url = this.foleySounds[key], buffer = url && this.gunBuffers.get(url);
+    if (buffer) {
+      if (this.engineLoop?.key !== key) {
+        this.stopEngine();
+        const source = this.context!.createBufferSource(), gain = this.context!.createGain();
+        source.buffer = buffer; source.loop = true; source.connect(gain);
+        const placed = this.send(gain); this.track(source, [gain, ...placed]);
+        this.engineLoop = { source, gain, key };
+        const ended = source.onended;
+        source.onended = event => { ended?.call(source, event); if (this.engineLoop?.source === source) this.engineLoop = null; };
+        source.start();
+      }
+      const loop = this.engineLoop!;
+      loop.source.playbackRate.setTargetAtTime((plane ? .8 : .75) + Math.abs(speed) / 35, this.context!.currentTime, .1);
+      loop.gain.gain.setTargetAtTime((plane ? .09 : .10) + Math.abs(throttle) * .06, this.context!.currentTime, .08);
+      return;
+    }
     const now = this.context!.currentTime;
     if (now - this.lastEngine < 0.085) return;
     this.lastEngine = now;
     const pitch = 46 + Math.abs(speed) * 3.6;
     this.tone(pitch, 0.11, 0.05 + Math.abs(throttle) * 0.03, 'sawtooth', 0, pitch * 1.04);
     this.tone(pitch * 2.01, 0.09, 0.012, 'triangle');
+  }
+  stopEngine(): void {
+    if (!this.engineLoop) return;
+    try { this.engineLoop.source.stop(); } catch { /* already ended */ }
+    this.engineLoop = null;
   }
 
   /** Which way the listener faces, so sounds can be placed left or right of them. */
@@ -360,8 +400,10 @@ export class GameAudio {
     if (distance > 30) return;
     const gain = (running ? 0.085 : 0.055) / (1 + Math.pow(distance / 7, 1.7));
     this.currentPan = this.panFor(from, listener);
-    this.noise(0.075, gain, 'lowpass', 480 + Math.random() * 140);
-    this.tone(80, 0.06, gain * 0.8, 'sine', 0, 42);
+    if (!this.sampleFoley('step-concrete', gain, .96 + Math.random() * .08)) {
+      this.noise(0.075, gain, 'lowpass', 480 + Math.random() * 140);
+      this.tone(80, 0.06, gain * 0.8, 'sine', 0, 42);
+    }
     this.currentPan = null;
   }
 
@@ -369,17 +411,23 @@ export class GameAudio {
   wind(speed: number): void {
     if (!this.ready()) return;
     const now = this.context!.currentTime;
+    if (this.foleySounds.wind && this.gunBuffers.has(this.foleySounds.wind)) {
+      if (now - this.lastWindSample > 1.8) { this.lastWindSample = now; this.sampleFoley('wind', .03 + Math.min(1, speed / 70) * .16, 1, 0, 1.8); }
+      return;
+    }
     if (now - this.lastWind < 0.1) return;
     this.lastWind = now;
     const strength = Math.min(1, speed / 70);
     this.noise(0.22, 0.05 + strength * 0.16, 'bandpass', 500 + strength * 1900);
   }
 
-  reload(): void {
+  reload(weapon?: WeaponType): void {
     if (!this.ready()) return;
     const now = this.context!.currentTime;
     if (now - this.lastReload < 0.4) return;
     this.lastReload = now;
+    const kind = weapon && WEAPONS[weapon]?.kind;
+    if (this.sampleFoley(kind === 'pistol' ? 'reload-pistol' : kind === 'shotgun' ? 'reload-shotgun' : 'reload', .22)) return;
     this.noise(0.06, 0.09, 'bandpass', 1700);
     this.tone(220, 0.045, 0.08, 'square', 0, 90);
     this.noise(0.09, 0.11, 'bandpass', 2600, 0.22);
@@ -391,6 +439,7 @@ export class GameAudio {
     const now = this.context!.currentTime;
     if (now - this.lastHeal < 0.8) return;
     this.lastHeal = now;
+    if (this.sampleFoley('heal', .11)) return;
     this.noise(0.12, 0.045, 'highpass', 3400);
     this.tone(440, 0.18, 0.055, 'sine', 0.1);
     this.tone(660, 0.22, 0.045, 'sine', 0.26);
@@ -411,6 +460,7 @@ export class GameAudio {
 
   /** Cancel even future scheduled notes immediately when gameplay is paused. */
   pause(): void {
+    this.stopEngine();
     for (const source of this.sources) {
       try { source.stop(); } catch { /* An ended source is already silent. */ }
     }
@@ -438,6 +488,20 @@ export class GameAudio {
 
   private ready(): boolean {
     return !this.disposed && this.volume > 0 && this.context?.state === 'running' && !!this.master;
+  }
+
+  private sampleFoley(key: string, gain: number, rate = 1, delay = 0, maxDuration?: number): boolean {
+    const url = this.foleySounds[key], buffer = url && this.gunBuffers.get(url);
+    if (!buffer || !this.ready()) return false;
+    const source = this.context!.createBufferSource(), level = this.context!.createGain();
+    source.buffer = buffer; source.playbackRate.value = rate; level.gain.value = gain;
+    source.connect(level); const placed = this.send(level); this.track(source, [level, ...placed]);
+    if (maxDuration) {
+      const at = this.context!.currentTime + delay, duration = Math.min(buffer.duration, maxDuration);
+      level.gain.setValueAtTime(gain, at); level.gain.setTargetAtTime(.0001, at + Math.max(0, duration - .12), .025);
+      source.start(at, 0, duration);
+    } else source.start(this.context!.currentTime + delay);
+    return true;
   }
 
   private gunshot(weapon: WeaponType, gain: number, distance: number, silencer = false): void {

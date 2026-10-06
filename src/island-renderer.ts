@@ -14,6 +14,8 @@ import type { Field, Floor, Obstacle, WorldConfig } from './types';
 import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase } from './game/world';
 import { groundBumpTexture, groundDetailTexture, IslandDecor } from './island-decor';
 import { ATLAS, CardBatch, createFacadeMaterial, createFoliageMaterial } from './island-foliage';
+import { coverageParts, prepareCoverageAssets } from './coverage-assets';
+import type { CoverageModel } from './coverage-assets';
 
 /** World is split into square chunks; terrain detail and props stream in around the player. */
 export const CHUNK = 125;
@@ -228,7 +230,7 @@ class Geometry {
   }
 }
 
-interface Chunk { terrain: Mesh | null; detail: number; props: Mesh | null; foliage: Mesh | null; facade: Mesh | null; casting?: boolean }
+interface Chunk { terrain: Mesh | null; detail: number; props: Mesh | null; foliage: Mesh | null; facade: Mesh | null; assets: Mesh | null; casting?: boolean }
 interface Bank { ax: number; az: number; bx: number; bz: number; half: number }
 
 /**
@@ -254,6 +256,7 @@ export class IslandRenderer {
   private readonly height: (x: number, z: number) => number;
   /** Chunks per side: 32 for the 4 km island, 8 for the 1 km valley. */
   private readonly grid: number;
+  private disposed = false;
 
   constructor(private readonly scene: Scene, private readonly world: WorldConfig, readonly viewChunks = 6, touch = false, private readonly shadows: ShadowGenerator | null = null) {
     this.height = world.terrain ?? (() => 0);
@@ -278,6 +281,7 @@ export class IslandRenderer {
     this.terrainMaterial.bumpTexture = bump;
     const plainProps = make('island-props-plain'), woodProps = make('island-props-wood'), barkProps = make('island-props-bark');
     const plasterProps = make('island-props-plaster'), roofProps = make('island-props-roof'), rockProps = make('island-props-rock');
+    useGeneratedAlbedo(plainProps, GENERATED_TEXTURES.plaster, 1, 1.1);
     woodProps.specularColor = new Color3(0.10, 0.10, 0.10); woodProps.specularPower = 28;
     useGeneratedAlbedo(woodProps, GENERATED_TEXTURES.wood, 1, 1.12);
     useGeneratedAlbedo(barkProps, GENERATED_TEXTURES.bark);
@@ -308,6 +312,7 @@ export class IslandRenderer {
     }
     this.buildRoads();
     this.decor = new IslandDecor(scene, world, touch, this.foliageMaterial);
+    void prepareCoverageAssets(scene).then(() => { if (!this.disposed) this.propLevel.clear(); });
   }
 
   private bucket<T>(map: Map<number, T[]>, key: number, item: T): void {
@@ -612,11 +617,20 @@ export class IslandRenderer {
   }
 
   /** `far` builds a cheap silhouette (house boxes and one-piece trees) for chunks at the edge of view. */
-  private buildProps(cx: number, cz: number, far = false): { props: Mesh | null; foliage: Mesh | null; facade: Mesh | null } {
+  private buildProps(cx: number, cz: number, far = false, useKit = true): { props: Mesh | null; foliage: Mesh | null; facade: Mesh | null; assets: Mesh | null } {
     const geometry = new Geometry();
     const cards = new CardBatch();
     const panels = new CardBatch();
     const key = cz * this.grid + cx;
+    const assetParts: Mesh[] = [];
+    let importedTrees = 0;
+    const addAsset = (asset: CoverageModel, x: number, y: number, z: number, w: number, h: number, d: number): boolean => {
+      if (!useKit) return false;
+      const parts = coverageParts(this.scene, asset, null, [w, h, d], `chunk-kit-${cx}-${cz}-${assetParts.length}`);
+      if (!parts) return false;
+      for (const part of parts) { part.position.set(x, y, z); assetParts.push(part); }
+      return true;
+    };
     for (const obstacle of this.byChunk.get(key) ?? []) {
       geometry.finish = obstacle.kind === 'crate' ? 'wood' : obstacle.kind === 'tree' ? 'bark'
         : obstacle.kind === 'roof' ? 'roof' : obstacle.kind === 'rock' ? 'rock'
@@ -647,6 +661,8 @@ export class IslandRenderer {
       }
       switch (obstacle.kind) {
         case 'wall':
+          // A solid wall segment maps to one solid kit panel. Door/window gaps remain gaps in world data.
+          if (addAsset('k-wall', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) { this.trim(geometry, obstacle, bottom); break; }
           geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.plaster[Math.floor(seed * 5)], 0.96 + cellHash(obstacle.x, obstacle.z) * 0.08), obstacle.bottom ? 0.9 : 0.68);
           this.trim(geometry, obstacle, bottom);
           break;
@@ -663,11 +679,26 @@ export class IslandRenderer {
           }
           break;
         }
-        case 'building': this.block(geometry, panels, obstacle, bottom, height, seed); break;
-        case 'floor': geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.concrete, 0.95 + cellHash(obstacle.x, obstacle.z) * 0.08), 0.9, true); break;
-        case 'crate': geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.crate, 0.9 + seed * 0.2), 0.7); break;
-        case 'rock': this.boulder(geometry, obstacle, bottom, height, seed); break;
+        case 'building': {
+          const asset = /container/.test(obstacle.id) ? 'k-shipping-container-a' : /silo|tank/.test(obstacle.id) ? 'k-detail-tank-large' : /chimney/.test(obstacle.id) ? 'k-chimney-large' : null;
+          if (!asset || !addAsset(asset, obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) this.block(geometry, panels, obstacle, bottom, height, seed);
+          break;
+        }
+        case 'floor':
+          if (!addAsset('k-floor', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.concrete, 0.95 + cellHash(obstacle.x, obstacle.z) * 0.08), 0.9, true);
+          break;
+        case 'crate': {
+          // Building interiors already reserve these solid footprints as furniture/cover.
+          const choices: CoverageModel[] = /hospital/.test(obstacle.id) ? ['k-bedSingle', 'k-desk']
+            : /base|barrack/.test(obstacle.id) ? ['k-bedBunk', 'k-chest']
+            : /factory|hangar|bunker/.test(obstacle.id) ? ['k-barrel', 'k-box-large', 'k-pipe-large-long']
+            : /-\d+-crate/.test(obstacle.id) ? ['k-chair', 'k-desk', 'k-bookcaseOpen'] : ['k-box-large'];
+          if (!addAsset(choices[Math.floor(seed * choices.length)], obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) geometry.box(obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth, shade(PALETTE.crate, 0.9 + seed * 0.2), 0.7);
+          break;
+        }
+        case 'rock': if (!addAsset('k-rock_largeA', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) this.boulder(geometry, obstacle, bottom, height, seed); break;
         case 'tree':
+          if (importedTrees < 16 && addAsset(seed < .38 ? 'k-tree_oak' : 'k-tree_pineDefaultA', obstacle.x, bottom, obstacle.z, obstacle.width, height, obstacle.depth)) { importedTrees++; break; }
           if (seed < 0.38) this.broadleaf(geometry, cards, obstacle.x, bottom, obstacle.z, height, seed);
           else this.pine(geometry, cards, obstacle.x, bottom, obstacle.z, height, seed);
           break;
@@ -689,7 +720,11 @@ export class IslandRenderer {
     if (foliage) foliage.receiveShadows = true;
     const facade = panels.build(`facade-${cx}-${cz}`, this.scene, this.facadeMaterial);
     if (facade) facade.receiveShadows = true;
-    return { props: mesh, foliage, facade };
+    // Sorting makes equal-material index ranges consecutive, allowing Babylon to consolidate draw calls.
+    assetParts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0));
+    const assets = assetParts.length ? Mesh.MergeMeshes(assetParts, true, true, undefined, false, true) : null;
+    if (assets) { assets.name = `kit-props-${cx}-${cz}`; assets.metadata = { solid: true, coverageEnvironment: true }; assets.receiveShadows = true; assets.freezeWorldMatrix(); }
+    return { props: mesh, foliage, facade, assets };
   }
 
   /** Roads draped over the terrain: asphalt with dusty shoulders and a dashed centre line, one mesh for the island. */
@@ -730,14 +765,16 @@ export class IslandRenderer {
   }
 
   private dropProps(chunk: Chunk): void {
-    for (const mesh of [chunk.props, chunk.foliage, chunk.facade]) {
+    for (const mesh of [chunk.props, chunk.foliage, chunk.facade, chunk.assets]) {
       if (!mesh) continue;
       if (chunk.casting) this.shadows?.removeShadowCaster(mesh);
+      if (mesh === chunk.assets && mesh.material?.getClassName() === 'MultiMaterial') mesh.material.dispose(false, false);
       mesh.dispose();
     }
     chunk.props = null;
     chunk.foliage = null;
     chunk.facade = null;
+    chunk.assets = null;
     chunk.casting = false;
   }
 
@@ -768,7 +805,7 @@ export class IslandRenderer {
       const key = cz * this.grid + cx;
       keep.add(key);
       let chunk = this.chunks.get(key);
-      if (!chunk) { chunk = { terrain: null, detail: 0, props: null, foliage: null, facade: null }; this.chunks.set(key, chunk); }
+      if (!chunk) { chunk = { terrain: null, detail: 0, props: null, foliage: null, facade: null, assets: null }; this.chunks.set(key, chunk); }
       const detail = this.detailFor(ring);
       if (chunk.detail !== detail && built < budget) {
         chunk.terrain?.dispose();
@@ -777,21 +814,23 @@ export class IslandRenderer {
         chunk.detail = detail;
         built++;
       }
-      const level = ring <= 4 ? 2 : 1;
+      const level = ring <= 1 ? 3 : ring <= 4 ? 2 : 1;
       if (chunk.detail && this.propLevel.get(key) !== level && built < budget + 2) {
         this.dropProps(chunk);
-        const built2 = this.buildProps(cx, cz, level === 1);
+        const built2 = this.buildProps(cx, cz, level === 1, level === 3);
         chunk.props = built2.props;
         chunk.foliage = built2.foliage;
         chunk.facade = built2.facade;
+        chunk.assets = built2.assets;
         this.propLevel.set(key, level);
         built++;
       }
-      if (chunk.props || chunk.foliage) {
+      if (chunk.props || chunk.foliage || chunk.assets) {
         if (chunk.props) chunk.props.isPickable = ring <= 2;
+        if (chunk.assets) chunk.assets.isPickable = ring <= 2;
         const casting = ring <= 1;
         if (casting !== chunk.casting) {
-          for (const mesh of [chunk.props, chunk.foliage]) {
+          for (const mesh of [chunk.props, chunk.foliage, chunk.assets]) {
             if (!mesh) continue;
             if (casting) this.shadows?.addShadowCaster(mesh); else this.shadows?.removeShadowCaster(mesh);
           }
@@ -808,6 +847,7 @@ export class IslandRenderer {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const chunk of this.chunks.values()) {
       this.dropProps(chunk);
       chunk.terrain?.dispose();

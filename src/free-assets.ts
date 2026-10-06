@@ -20,11 +20,12 @@ export function litMaterials(container: AssetContainer, scene: Scene): void {
   const replacements = new Map<object, StandardMaterial>();
   for (const mesh of container.meshes) {
     if (!mesh.material) continue;
-    const source = mesh.material as typeof mesh.material & { albedoColor?: Color3 };
+    const source = mesh.material as typeof mesh.material & { albedoColor?: Color3; albedoTexture?: StandardMaterial['diffuseTexture'] };
     let material = replacements.get(source);
     if (!material) {
       material = new StandardMaterial(`free-${source.name}`, scene);
       material.diffuseColor = source.albedoColor?.toGammaSpace() ?? new Color3(.3, .35, .4);
+      material.diffuseTexture = source.albedoTexture ?? null;
       material.specularColor = new Color3(.12, .12, .12);
       material.specularPower = 32;
       material.emissiveColor = material.diffuseColor.scale(.13);

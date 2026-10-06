@@ -260,7 +260,7 @@ npm test
 npm run test:scenarios
 ```
 
-Bộ kiểm thử tự động gồm **322 bài** ở `tests/`: catalogue hơn 100 súng, nhặt/đổi súng theo ô, giáp, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, bot (nhặt đồ, đường đi, tầm nhìn), lưới không gian so với duyệt thủ công, sinh bản đồ đảo (đất liền, nước, nhà, loot), xe (lái, va chạm, đâm người, bị bắn, nổ, bot lái), và hai trận 100 bot trọn vẹn. Có thêm kiểm tra độ phân giải đầy đủ trên điện thoại ở DPR 1–4. Script kịch bản in kết quả trận trên bản đồ nhỏ.
+Bộ kiểm thử tự động gồm **747 bài** ở `tests/`: catalogue hơn 100 súng, nhặt/đổi súng theo ô, giáp, bắn/trúng đầu/vật cản, nạp đạn, hồi máu, nhảy/va chạm, pause, bo, thắng/thua, reset, bot (nhặt đồ, đường đi, tầm nhìn), lưới không gian so với duyệt thủ công, sinh bản đồ đảo (đất liền, nước, nhà, loot), xe (lái, va chạm, đâm người, bị bắn, nổ, bot lái), và hai trận 100 bot trọn vẹn. Có thêm kiểm tra độ phân giải đầy đủ trên điện thoại ở DPR 1–4. Script kịch bản in kết quả trận trên bản đồ nhỏ.
 
 Số đo trên máy phát triển (xem [KIEM_THU.md](KIEM_THU.md)): một trận 100 bot trên đảo kết thúc sau khoảng 580 giây game; mô phỏng tốn trung bình dưới 1 ms mỗi bước. Đây là kiểm tra logic và đo trên một laptop, **chưa phải đo FPS hay xác nhận hiệu năng trên điện thoại thật**.
 
@@ -269,3 +269,7 @@ Số đo trên máy phát triển (xem [KIEM_THU.md](KIEM_THU.md)): một trận
 Chạy `npm run build`, sau đó đưa **nội dung thư mục `dist/`** lên hosting tĩnh tại gốc website. Nếu dịch vụ có cấu hình build, dùng lệnh `npm run build` và thư mục đầu ra `dist`. Phục vụ qua HTTP(S), không mở trực tiếp `dist/index.html` bằng đường dẫn file. Nếu đặt game trong thư mục con của website, cần cấu hình `base` của Vite trước khi build.
 
 Game một người không cần máy chủ trận đấu hay tài khoản. `npm run preview` chỉ dùng để xem thử bản build trên máy. Các hướng dẫn này chưa thực hiện xuất bản website.
+
+## Asset bổ sung
+
+Xe, đồ nhặt, nỏ/súng phóng, dù, công trình, cây/đá, hiệu ứng và âm thanh đã được bổ sung từ nguồn miễn phí. [Coverage hiện tại](docs/ASSET_COVERAGE_AUDIT.md), [cách tái tạo](docs/FREE_COVERAGE_ASSETS.md), [nguồn và giấy phép](public/assets/coverage/CREDITS.md).

@@ -20,6 +20,12 @@ import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
 import { instantiateAircraft, preloadAircraftAssets } from './aircraft-assets';
 import { preloadEnemyAssets } from './enemy-assets';
+import { prepareCoverageAssets, coverageParts, hasCoverageModel } from './coverage-assets';
+import { createCoverageVehicle, VEHICLE_ASSETS } from './coverage-vehicles';
+import type { CoverageModel } from './coverage-assets';
+import { applyCoverageSurface } from './coverage-materials';
+import { vfxCard, vfxMaterial, coverageSky } from './coverage-vfx';
+import { FOLEY_ASSETS } from './foley-assets';
 import { enemyDetailBudget } from './enemy-catalog';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
@@ -102,7 +108,7 @@ canvas.tabIndex = -1;
 const touchDevice = isTouchDevice();
 document.documentElement.dataset.input = touchDevice ? 'touch' : 'mouse';
 const sim = new GameSimulation({ botCount: 5, difficulty: 'normal' });
-const audio = new GameAudio(GUN_SOUND_ASSETS);
+const audio = new GameAudio(GUN_SOUND_ASSETS, FOLEY_ASSETS);
 // Browsers only start audio after a gesture: the first click, touch or key press anywhere lets the menu theme begin.
 for (const type of ['pointerdown', 'keydown'] as const) window.addEventListener(type, () => { void audio.unlock(); }, { once: true, capture: true });
 let engine: Engine;
@@ -123,6 +129,7 @@ const lootTemplates = new Map<string, Mesh>();
 let lootSelector: Mesh | null = null;
 let arenaMeshes: Mesh[] = [];
 let islandRenderer: IslandRenderer | null = null;
+let flatSky: Mesh | null = null;
 /** Where the pointer is on screen (-1..1) and a smoothed copy: the lobby camera and soldier lean towards it a little. */
 const menuPointer = { x: 0, y: 0, sx: 0, sy: 0 };
 window.addEventListener('pointermove', event => { menuPointer.x = (event.clientX / Math.max(1, innerWidth)) * 2 - 1; menuPointer.y = (event.clientY / Math.max(1, innerHeight)) * 2 - 1; });
@@ -131,7 +138,7 @@ let ambient: HemisphericLight;
 let pipeline: DefaultRenderingPipeline | null = null;
 let lastLootScan = -Infinity;
 const effects: { mesh: Mesh; remaining: number; total?: number; grow?: number }[] = [];
-const carModels = new Map<string, { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number }>();
+const carModels = new Map<string, { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number; asset?: boolean; kitWheels?: boolean }>();
 let lastLookAt = -Infinity, wasDriving = false;
 let currentZone: Mesh, currentRing: Mesh, nextRing: Mesh;
 let settings: GameSettings;
@@ -245,7 +252,7 @@ if (touchDevice) {
       // At 30 FPS a tap can end before the next frame; preserve its airborne press edge.
       if (mobileJump && sim.airborne) pendingJump = true;
     },
-    onReload: () => { if (doReload()) { void audio.unlock(); audio.reload(); } },
+    onReload: () => { if (doReload()) { void audio.unlock(); audio.reload(sim.player.weapon); } },
     onInteract: () => { if (!doInteract()) useVehicle(); },
     onHeal: () => { if (doHeal() || doBoost()) { void audio.unlock(); audio.heal(); } },
     onThrow: () => { doThrow(); },
@@ -682,9 +689,10 @@ function configureWorld() {
   const range = sim.world.id === 'range';
   const island = sim.world.id !== 'arena' && !range;
   for (const mesh of arenaMeshes) mesh.setEnabled(!island && !range);
+  flatSky?.setEnabled(!island);
   if (range) buildRangeScene();
   for (const mesh of rangeMeshes) mesh.setEnabled(range);
-  for (const car of carModels.values()) car.root.dispose(false, true);
+  for (const car of carModels.values()) car.root.dispose(false, false);
   carModels.clear();
   for (const entry of lootMeshes.values()) entry.node.dispose();
   lootMeshes.clear();
@@ -835,6 +843,7 @@ function material(name: string, color: string, emissive = 0): StandardMaterial {
   value.specularColor = Color3.Black();
   if (name === 'wood') useGeneratedAlbedo(value, GENERATED_TEXTURES.wood, 1, 1.12);
   if (name === 'dry-grass') useGeneratedAlbedo(value, GENERATED_TEXTURES.terrainGrass, sim.world.halfSize, 1.25);
+  if (name !== 'wood' && name !== 'dry-grass') applyCoverageSurface(value, name);
   if (emissive) value.emissiveColor = value.diffuseColor.scale(emissive);
   return value;
 }
@@ -848,6 +857,7 @@ function box(name: string, width: number, height: number, depth: number, mat: St
 }
 
 function buildWorld() {
+  flatSky = coverageSky(scene);
   const earth = material('dry-grass', '#77754e');
   const road = material('road', '#5c6352');
   const roadMark = material('road-mark', '#a6a17d');
@@ -1029,6 +1039,13 @@ function createChute(parent: TransformNode, id: string): TransformNode {
   }
   const lines = MeshBuilder.CreateLines('chute-lines', { points }, scene);
   lines.color = new Color3(0.84, 0.85, 0.8); lines.parent = node; lines.isPickable = false;
+  void prepareCoverageAssets(scene, ['parachute']).then(() => {
+    if (node.isDisposed()) return;
+    const parts = coverageParts(scene, 'parachute', node, [6.2, 4.4, 3.6], `parachute-${id}`);
+    if (!parts) return;
+    for (const part of parts) part.position.y = 1.45;
+    dome.setEnabled(false); lines.setEnabled(false);
+  });
   return node;
 }
 
@@ -1120,11 +1137,24 @@ function renderActors(dt: number) {
 }
 
 const CAR_COLORS = ['#b5483a', '#3f6f9a', '#d0a739', '#dcdcd2', '#52624f'];
-type CarModel = { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number };
+type CarModel = { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; asset?: boolean; kitWheels?: boolean; lastYaw?: number };
 
 function createCarModel(v: Vehicle): CarModel {
+  const imported = createCoverageVehicle(v, scene, shadows);
+  if (imported) return imported;
   const build = VEHICLE_MODELS[kindOf(v)];
-  if (build) return build(v);
+  if (build) {
+    const car = build(v);
+    // Quad, tuk-tuk and sidecar keep their distinct chassis and use the same authored wheel kit.
+    for (const [i, pivot] of car.wheels.entries()) {
+      const wheels = coverageParts(scene, kindOf(v) === 'quad' ? 'k-wheel-racing' : 'k-wheel-default', pivot, [.32, .84, .84], `kit-wheel-${v.id}-${i}`);
+      if (!wheels) continue;
+      for (const old of pivot.getChildMeshes()) if (!wheels.includes(old as Mesh)) old.setEnabled(false);
+      for (const wheel of wheels) { wheel.position.y = -.42; wheel.metadata = { ...wheel.metadata, solid: true, car: true }; car.bodies.push(wheel); wheel.receiveShadows = true; shadows.addShadowCaster(wheel); }
+      car.kitWheels = true;
+    }
+    return car;
+  }
   const root = new TransformNode(`car-${v.id}`, scene);
   const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
   const dark = material('car-tyre', '#1b1f21');
@@ -1380,6 +1410,11 @@ function renderVehicles(dt: number) {
   for (const v of sim.state.vehicles) {
     let car = carModels.get(v.id);
     if (Math.hypot(v.position.x - focus.x, v.position.z - focus.z) > 380) { car?.root.setEnabled(false); continue; }
+    const key = VEHICLE_ASSETS[kindOf(v)];
+    if (car && !car.asset && ((key && hasCoverageModel(scene, key)) || (!key && !car.kitWheels && hasCoverageModel(scene, 'k-wheel-default') && hasCoverageModel(scene, 'k-wheel-racing')))) {
+      for (const mesh of car.root.getChildMeshes()) shadows.removeShadowCaster(mesh);
+      car.root.dispose(false, false); carModels.delete(v.id); car = undefined;
+    }
     if (!car) { car = createCarModel(v); carModels.set(v.id, car); }
     car.root.setEnabled(true);
     car.root.position.set(v.position.x, v.position.y, v.position.z);
@@ -1489,6 +1524,22 @@ function buildSupplyModel(kind: SupplyKind, mat: StandardMaterial, root: Transfo
 
 const AMMO_COLOR: Record<AmmoType, string> = { '9mm': '#e0c070', '45acp': '#d8a860', '357': '#d09070', '556': '#9cc27a', '762': '#c8b078', '12g': '#d46a5a', '300': '#8fb4d8', '50cal': '#d8d27a', bolt: '#a4bf88', '40mm': '#d5a063', rocket: '#b99575' };
 
+function pickupAsset(kind: string): { key: CoverageModel; size: number[] } | null {
+  const exact: Record<string, [CoverageModel, number[]]> = {
+    medkit: ['firstaid', [.42, .32, .26]], firstaid: ['firstaid', [.36, .28, .24]],
+    bandage: ['bandage', [.32, .10, .20]], painkiller: ['painkiller', [.20, .32, .20]], energy: ['energy', [.20, .34, .20]],
+    frag: ['k-grenade-a', [.22, .32, .22]], smoke: ['k-grenade-b', [.20, .34, .20]], flash: ['k-grenade-b', [.16, .30, .16]], molotov: ['molotov', [.16, .40, .16]],
+    pan: ['pan', [.36, .045, .60]], machete: ['machete', [.08, .03, .65]], crowbar: ['crowbar', [.08, .06, .65]], sickle: ['sickle', [.30, .035, .40]],
+    suppressor: ['k-silencer-small', [.08, .08, .36]],
+  };
+  const match = exact[kind];
+  if (match) return { key: match[0], size: match[1] };
+  if (/^pack[123]$/.test(kind)) return { key: 'backpack', size: [.34 + Number(kind.at(-1)) * .035, .42 + Number(kind.at(-1)) * .035, .24] };
+  if (kind.startsWith('scope')) return { key: Number(kind.slice(5)) >= 4 ? 'k-scope-large-a' : 'k-scope-small', size: [.12, .14, .34] };
+  if (kind.endsWith('Ammo')) return { key: 'k-box', size: [.35, .19, .30] };
+  return null;
+}
+
 function createLootNode(loot: Loot): TransformNode {
   const root = new TransformNode(`loot-${loot.id}`, scene);
   const isMed = loot.kind === 'medkit' || loot.kind === 'firstaid', weapon = isWeaponKind(loot.kind) ? loot.kind : null;
@@ -1499,13 +1550,25 @@ function createLootNode(loot: Loot): TransformNode {
   const armor = isArmorKind(loot.kind) ? parseArmor(loot.kind) : null;
   const tierColor = ['#9aa3a0', '#9aa3a0', '#4f8fd6', '#e0b13a'];
   const mat = material(`loot-${loot.kind}`, armor ? tierColor[armor.level] : supply ? SUPPLY_COLOR[supply] : melee ? '#9aa3a0' : gear ? (isPackKind(gear) ? PACK_COLOR[gear] : '#4a5650') : isMed ? '#88d4a4' : weapon ? WEAPONS[weapon].color : ammoType ? AMMO_COLOR[ammoType] : '#c1b77e', 0.25);
-  if (armor) {
+  const asset = pickupAsset(loot.kind);
+  const imported = asset && coverageParts(scene, asset.key, root, asset.size, `pickup-${loot.kind}`);
+  if (imported) {
+    for (const part of imported) part.position.y = -.12;
+    if (ammoType) box('ammo-label', .26, .12, .003, mat, new Vector3(0, -.015, -.152), root).isPickable = false;
+  } else if (armor) {
     if (armor.slot === 'helmet') {
       const dome = MeshBuilder.CreateSphere('helmet-loot', { diameter: 0.46, segments: 8, slice: 0.6 }, scene);
       dome.material = mat; dome.parent = root; dome.isPickable = false;
+      const rim = MeshBuilder.CreateTorus('helmet-rim', { diameter: .44, thickness: .025, tessellation: 16 }, scene);
+      rim.material = material('helmet-rim', '#353e36'); rim.parent = root; rim.position.y = -.1; rim.isPickable = false;
+      if (armor.level === 3) box('helmet-visor', .32, .11, .04, material('car-glass', '#33454f', .15), new Vector3(0, -.02, -.23), root).isPickable = false;
     } else {
       const body = box('vest-loot', 0.5, 0.56, 0.2, mat, new Vector3(0, 0, 0), root); body.isPickable = false;
       box('vest-strap', 0.52, 0.08, 0.22, material('vest-strap', '#2c3430'), new Vector3(0, 0.12, 0), root).isPickable = false;
+      const cloth = material('loot-vest-cloth', '#758060'), plate = material('gear-metal', '#5c675b');
+      for (const x of [-.13, .13]) box('vest-pocket', .20, .18, .08, cloth, new Vector3(x, -.10, -.13), root).isPickable = false;
+      for (const y of [-.18, -.08, .02]) box('vest-webbing', .48, .018, .02, cloth, new Vector3(0, y, -.16), root).isPickable = false;
+      if (armor.level > 1) box('vest-plate', .30, .24, .025, plate, new Vector3(0, .12, -.12), root).isPickable = false;
     }
   } else if (weapon) {
     const display = createWeaponModel(weapon, scene, root);
@@ -1520,7 +1583,7 @@ function createLootNode(loot: Loot): TransformNode {
   } else {
     const base = box('loot', 0.35, isMed ? 0.35 : 0.16, 0.3, mat, new Vector3(0, 0, 0), root); base.isPickable = false;
   }
-  if (isMed) {
+  if (isMed && !imported) {
     const crossMat = material('cross', '#edf5d7', 0.3);
     box('cross', 0.22, 0.07, 0.04, crossMat, new Vector3(0, 0, -0.17), root).isPickable = false;
     box('cross', 0.07, 0.22, 0.04, crossMat, new Vector3(0, 0, -0.171), root).isPickable = false;
@@ -1529,7 +1592,10 @@ function createLootNode(loot: Loot): TransformNode {
   marker.parent = root; marker.position.y = -0.3; marker.isPickable = false;
   marker.material = weapon ? material(`loot-ring-tier-${WEAPONS[weapon].tier}`, ['', '#d6ded9', '#4f9bd9', '#f0b43c'][WEAPONS[weapon].tier], 0.6) : mat;
   // Merging needs every part to carry the same vertex attributes; procedural guns use vertex colours.
-  if (weapon) marker.setVerticesData(VertexBuffer.ColorKind, new Array(marker.getTotalVertices() * 4).fill(1));
+  for (const part of root.getChildMeshes() as Mesh[]) {
+    if (!part.isVerticesDataPresent(VertexBuffer.ColorKind)) part.setVerticesData(VertexBuffer.ColorKind, new Array(part.getTotalVertices() * 4).fill(1));
+    if (!part.isVerticesDataPresent(VertexBuffer.UVKind)) part.setVerticesData(VertexBuffer.UVKind, new Array(part.getTotalVertices() * 2).fill(0));
+  }
   return root;
 }
 
@@ -1570,10 +1636,13 @@ function renderGrenades(time: number) {
     liveShells.add(p.id);
     let mesh = grenadeMeshes.get(p.id);
     if (!mesh) {
-      mesh = p.kind === 'molotov' ? CreateCylinder('grenade', { diameter: 0.13, height: 0.28, tessellation: 8 }, scene)
+      const asset = pickupAsset(p.kind);
+      const parts = asset && coverageParts(scene, asset.key, null, asset.size, `projectile-${p.id}`);
+      if (parts) { parts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0)); mesh = Mesh.MergeMeshes(parts, true, true, undefined, false, true)!; }
+      else mesh = p.kind === 'molotov' ? CreateCylinder('grenade', { diameter: 0.13, height: 0.28, tessellation: 8 }, scene)
         : p.kind === 'rocket' ? CreateCylinder('rocket', { diameter: 0.16, height: 0.8, tessellation: 8 }, scene)
         : CreateSphere('grenade', { diameter: p.kind === 'shell' ? 0.16 : 0.22, segments: 6 }, scene);
-      mesh.material = material(`grenade-${p.kind}`, GRENADE_COLOR[p.kind], 0.2);
+      if (!parts) mesh.material = material(`grenade-${p.kind}`, GRENADE_COLOR[p.kind], 0.2);
       mesh.isPickable = false;
       grenadeMeshes.set(p.id, mesh);
     }
@@ -1588,11 +1657,11 @@ function renderGrenades(time: number) {
     liveClouds.add(smoke.id);
     let cloud = smokeClouds.get(smoke.id);
     if (!cloud) {
-      const skin = new StandardMaterial(`smoke-${smoke.id}`, scene);
+      const skin = vfxMaterial(scene, 'smoke').clone(`smoke-${smoke.id}`)!;
       skin.diffuseColor = new Color3(0.8, 0.82, 0.82); skin.emissiveColor = new Color3(0.42, 0.44, 0.44); skin.specularColor = Color3.Black();
       skin.alpha = 0.85; skin.backFaceCulling = false;
       const puffs = Array.from({ length: 11 }, (_, i) => {
-        const puff = CreateSphere(`smoke-puff-${smoke.id}-${i}`, { diameter: 4.4 + scatter(smoke.id, i) * 2.6, segments: 8 }, scene);
+        const puff = vfxCard(scene, `smoke-puff-${smoke.id}-${i}`, 5.8 + scatter(smoke.id, i) * 3.4, skin);
         puff.material = skin; puff.isPickable = false;
         return puff;
       });
@@ -1614,10 +1683,10 @@ function renderGrenades(time: number) {
     liveFires.add(fire.id);
     let bed = fireBeds.get(fire.id);
     if (!bed) {
-      const glow = new StandardMaterial(`fire-${fire.id}`, scene);
+      const glow = vfxMaterial(scene, 'flame', '#ffb54d').clone(`fire-${fire.id}`)!;
       glow.emissiveColor = new Color3(1, 0.5, 0.12); glow.diffuseColor = Color3.Black(); glow.alpha = 0.8; glow.disableLighting = true;
       const flames = Array.from({ length: 9 }, (_, i) => {
-        const flame = CreateCylinder(`flame-${fire.id}-${i}`, { diameterTop: 0, diameterBottom: 0.9, height: 1.6, tessellation: 6 }, scene);
+        const flame = vfxCard(scene, `flame-${fire.id}-${i}`, 1.9, glow);
         flame.material = glow; flame.isPickable = false;
         return flame;
       });
@@ -1908,10 +1977,18 @@ function renderAirdrops() {
       const wood = material('airdrop-wood', '#8a6a3c');
       const band = material('airdrop-band', '#d9482f');
       const parts = [box('airdrop-box', 1.5, 1.1, 1.5, wood, new Vector3(0, 0.55, 0), root), box('airdrop-band', 1.56, 0.3, 1.56, band, new Vector3(0, 0.55, 0), root), box('airdrop-lid', 1.6, 0.12, 1.6, band, new Vector3(0, 1.14, 0), root)];
+      void prepareCoverageAssets(scene, ['k-crate-wide']).then(() => {
+        if (root.isDisposed()) return;
+        const kit = coverageParts(scene, 'k-crate-wide', root, [1.5, 1.2, 1.5], `supply-${drop.id}`);
+        if (!kit) return;
+        for (const part of parts) { shadows.removeShadowCaster(part); part.setEnabled(false); }
+        for (const part of kit) { shadows.addShadowCaster(part); part.receiveShadows = true; }
+      });
       for (const part of parts) { part.isPickable = false; shadows.addShadowCaster(part); }
       const chute = createChute(root, drop.id);
-      const flare = MeshBuilder.CreateCylinder('airdrop-smoke', { diameterTop: 7, diameterBottom: 1.6, height: 140, tessellation: 10, cap: 0 }, scene);
-      const smoke = material('airdrop-smoke', '#e0453a', 0.9);
+      const smoke = vfxMaterial(scene, 'puff', '#e0453a');
+      const flare = vfxCard(scene, 'airdrop-smoke', 1, smoke);
+      flare.scaling.set(7, 140, 1);
       smoke.alpha = 0.4; smoke.disableLighting = true; smoke.fogEnabled = false; smoke.backFaceCulling = false;
       flare.material = smoke; flare.isPickable = false; flare.parent = root; flare.position.y = 70;
       model = { root, chute, flare };
@@ -1920,7 +1997,7 @@ function renderAirdrops() {
     model.root.position.set(drop.x, drop.y, drop.z);
     model.chute.setEnabled(!drop.landed);
     model.flare.setEnabled(drop.landed && !drop.empty);
-    if (drop.landed) model.flare.scaling.x = model.flare.scaling.z = 1 + Math.sin(time * 2 + drop.x) * 0.08;
+    if (drop.landed) model.flare.scaling.x = 7 * (1 + Math.sin(time * 2 + drop.x) * 0.08);
     else model.root.rotation.y = Math.sin(time * 0.7 + drop.z) * 0.15;
   }
   for (const [id, model] of airdropModels) if (!live.has(id)) { model.root.dispose(false, false); airdropModels.delete(id); }
@@ -2222,15 +2299,15 @@ function events(dt: number) {
     if (event.type === 'airdrop' && event.stage === 'incoming') ui.tip('airdrop', 'Hộp tiếp tế có đồ rất tốt nhưng ai cũng muốn lấy. Xem vị trí trên bản đồ (M).');
     if (event.type === 'crash' && sim.player.vehicleId === event.vehicleId) recoil = Math.min(0.13, recoil + event.strength * 0.004);
     if (event.type === 'flash') {
-      const burst = CreateSphere('flash-burst', { diameter: 3, segments: 10 }, scene);
-      const glare = new StandardMaterial('flash-burst', scene);
+      const glare = vfxMaterial(scene, 'flash').clone('flash-burst')!;
+      const burst = vfxCard(scene, 'flash-burst', 3, glare);
       glare.emissiveColor = new Color3(1, 1, 0.92); glare.diffuseColor = Color3.Black(); glare.alpha = 0.9; glare.disableLighting = true;
       burst.material = glare; burst.isPickable = false; burst.position.set(event.position.x, event.position.y + 0.6, event.position.z);
       effects.push({ mesh: burst, remaining: 0.4, total: 0.4, grow: 7 });
     }
     if (event.type === 'explosion') {
-      const flash = CreateSphere('blast', { diameter: 2, segments: 8 }, scene);
-      const blastMaterial = new StandardMaterial('blast', scene);
+      const blastMaterial = vfxMaterial(scene, 'fire', '#ffac54').clone('blast')!;
+      const flash = vfxCard(scene, 'blast', 2, blastMaterial);
       blastMaterial.emissiveColor = new Color3(1, 0.6, 0.2); blastMaterial.diffuseColor = Color3.Black(); blastMaterial.alpha = 0.85; blastMaterial.disableLighting = true;
       flash.material = blastMaterial; flash.isPickable = false; flash.position.set(event.position.x, event.position.y + 1, event.position.z);
       effects.push({ mesh: flash, remaining: 0.5, total: 0.5, grow: event.radius ? event.radius * 0.55 : 4 });
@@ -2246,7 +2323,7 @@ function events(dt: number) {
       effect.mesh.scaling.setAll(1 + effect.grow * t);
       if (effect.mesh.material) effect.mesh.material.alpha = 0.85 * (1 - t);
     }
-    if (effect.remaining <= 0) { effect.mesh.dispose(false, !!effect.total); effects.splice(i, 1); }
+    if (effect.remaining <= 0) { if (effect.total) effect.mesh.material?.dispose(false, false); effect.mesh.dispose(false, false); effects.splice(i, 1); }
   }
 }
 
@@ -2289,7 +2366,7 @@ window.addEventListener('keydown', event => {
   if (event.repeat) return;
   // A quick tap on Space (jump from the plane, open the canopy) can be over before the next frame reads the keys.
   if (event.code === 'Space' && sim.airborne) pendingJump = true;
-  if (event.code === 'KeyR' && doReload()) audio.reload();
+  if (event.code === 'KeyR' && doReload()) audio.reload(sim.player.weapon);
   if (event.code === 'KeyH' && doHeal()) audio.heal();
   if (event.code === 'KeyJ' && doBoost()) audio.heal();
   if (event.code === 'KeyG' && !sim.airborne) doThrow();
@@ -2386,6 +2463,13 @@ try {
   grading.contrast = 1.22;
   ui.setLoading('Đang chuẩn bị nhân vật và vũ khí…');
   await preloadFreeAssets(scene);
+  void prepareCoverageAssets(scene).then(() => {
+    if (scene.isDisposed) return;
+    for (const entry of lootMeshes.values()) entry.node.dispose();
+    lootMeshes.clear();
+    for (const template of lootTemplates.values()) template.dispose(false, false);
+    lootTemplates.clear();
+  });
   buildWorld(); applySettings();
   ui.setLoading(null);
   engine.runRenderLoop(() => {
@@ -2396,6 +2480,8 @@ try {
     lastRenderTime = now;
     const dt = Math.min(0.1, Math.max(0, (now - clock) / 1000)); clock = now;
     audio.setMenuMusic(sim.state.phase === 'menu');
+    if (sim.state.phase !== 'playing' || (!sim.player.vehicleId && sim.player.air?.mode !== 'plane')) audio.stopEngine();
+    audio.footSurface = underground ? 'metal' : sim.world.id === 'range' || sim.world.id === 'arena' || sim.world.id === 'metro' ? 'concrete' : 'grass';
     if (sim.state.phase === 'playing') {
       const rawForward = gameplayInputBlocked() ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (mobile?.movement.forward ?? 0);
       const rawSide = gameplayInputBlocked() ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
@@ -2431,7 +2517,7 @@ try {
       if (wasDriving && !car) { snapCamera = true; pitch = -0.12; }
       wasDriving = !!car;
       const lowStance = sim.player.stance ?? 'stand';
-      if (!car && !sim.player.air && (forward || side) && lowStance !== 'prone') { footsteps += dt; if (footsteps > (sprint ? 0.30 : lowStance === 'crouch' ? 0.75 : 0.43) && sim.player.position.y < 0.05 && lowStance === 'stand') { audio.footstep(sprint); footsteps = 0; } else if (footsteps > 0.75) footsteps = 0; }
+      if (!car && !sim.player.air && (forward || side) && lowStance !== 'prone') { footsteps += dt; if (footsteps > (sprint ? 0.30 : lowStance === 'crouch' ? 0.75 : 0.43) && Math.abs(sim.motionOf(sim.player).vy) < 0.2 && lowStance === 'stand') { audio.footstep(sprint); footsteps = 0; } else if (footsteps > 0.75) footsteps = 0; }
       else footsteps = 0;
     }
     if (net) {
@@ -2550,7 +2636,7 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
       const agl = sim.heightAboveGround(sim.player);
       const speed = air.mode === 'plane' ? plane?.speed ?? 0 : Math.hypot(air.vx, air.vy, air.vz);
       if (sim.state.phase === 'playing') {
-        if (air.mode === 'plane') audio.engine(8, 0.2); else audio.wind(air.mode === 'chute' ? speed * 0.5 : speed);
+        if (air.mode === 'plane') audio.engine(8, 0.2, true); else audio.wind(air.mode === 'chute' ? speed * 0.5 : speed);
       }
       if (!touchDevice || now - lastAirHud >= 90) {
         lastAirHud = now;

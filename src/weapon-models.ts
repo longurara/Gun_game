@@ -6,7 +6,9 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
+import { vfxCard, vfxMaterial } from './coverage-vfx';
+import { coverageParts, hasCoverageModel } from './coverage-assets';
+import type { CoverageModel } from './coverage-assets';
 import { WEAPONS } from './game/weapons';
 import { buildGun } from './gun-builder';
 import type { GunGeometry } from './gun-builder';
@@ -21,6 +23,11 @@ export interface WeaponModel {
   grip: Vector3; fore: Vector3;
 }
 
+export function weaponCoverageKey(weapon: WeaponType): CoverageModel | null {
+  const config = WEAPONS[weapon];
+  return config.kind === 'bow' ? 'crossbow' : config.kind === 'launcher' ? config.ammoType === 'rocket' ? 'rocketLauncher' : 'grenadeLauncher' : null;
+}
+
 interface Template { meshes: Mesh[]; geometry: Pick<GunGeometry, 'muzzle' | 'grip' | 'fore'> }
 const templates = new WeakMap<Scene, Map<WeaponType, Template>>();
 const flashes = new WeakMap<Scene, Mesh>();
@@ -29,9 +36,25 @@ const flashes = new WeakMap<Scene, Mesh>();
 function templateFor(weapon: WeaponType, scene: Scene): Template {
   let byWeapon = templates.get(scene);
   if (!byWeapon) { byWeapon = new Map(); templates.set(scene, byWeapon); scene.onDisposeObservable.add(() => templates.delete(scene)); }
-  const existing = byWeapon.get(weapon);
-  if (existing && existing.meshes.every(mesh => !mesh.isDisposed())) return existing;
   const config = WEAPONS[weapon];
+  const key = weaponCoverageKey(weapon);
+  const existing = byWeapon.get(weapon);
+  if (key && hasCoverageModel(scene, key) && existing?.meshes[0]?.metadata?.coverageAsset !== key) {
+    const size = config.kind === 'bow' ? [.68, .24, .80] : [.20, .28, 1.05];
+    const parts = coverageParts(scene, key, null, [1, 1, 1], `gun-${weapon}`)!;
+    const extent = parts[0].metadata.sourceExtent;
+    const sideways = extent[0] > extent[2] * 1.3;
+    for (const part of parts) {
+      part.makeGeometryUnique();
+      part.scaling.set(sideways ? size[2] : size[0], size[1], sideways ? size[0] : size[2]);
+      if (sideways) part.rotation.y = -Math.PI / 2;
+      part.position.set(0, -.10, -.25); part.bakeCurrentTransformIntoVertices();
+      part.position.setAll(0); part.scaling.setAll(1); part.rotation.setAll(0); part.setEnabled(false);
+    }
+    const template = { meshes: parts, geometry: { muzzle: [0, .04, size[2] / 2 - .25] as [number, number, number], grip: [0, -.12, -.1] as [number, number, number], fore: [0, -.04, .18] as [number, number, number] } };
+    byWeapon.set(weapon, template); return template;
+  }
+  if (existing && existing.meshes.every(mesh => !mesh.isDisposed())) return existing;
   const imported = freeGun(scene, config.kind, config.look);
   if (imported && imported.meshes.every(mesh => !mesh.isDisposed())) {
     const template = { meshes: imported.meshes, geometry: imported };
@@ -59,8 +82,8 @@ function templateFor(weapon: WeaponType, scene: Scene): Template {
 function flashTemplate(scene: Scene): Mesh {
   let flash = flashes.get(scene);
   if (flash && !flash.isDisposed()) return flash;
-  flash = CreateSphere('muzzle-flash-template', { diameter: 0.21, segments: 4 }, scene);
-  const material = new StandardMaterial('muzzle-flash', scene);
+  const material = vfxMaterial(scene, 'flash', '#ffd695');
+  flash = vfxCard(scene, 'muzzle-flash-template', .35, material);
   material.diffuseColor = Color3.FromHexString('#ffd695'); material.emissiveColor = Color3.FromHexString('#ffd695');
   material.disableLighting = true;
   flash.material = material; flash.isPickable = false; flash.setEnabled(false);
@@ -80,7 +103,7 @@ export function createWeaponModel(weapon: WeaponType, scene: Scene, parent: Tran
   const template = templateFor(weapon, scene);
   const root = new TransformNode(`${prefix}-weapon`, scene);
   root.parent = parent;
-  root.metadata = { weapon, label: config.label, category: config.category, zoom: config.zoom };
+  root.metadata = { weapon, label: config.label, category: config.category, zoom: config.zoom, coverageAsset: template.meshes[0]?.metadata?.coverageAsset };
   for (const source of template.meshes) {
     const part = actorId ? source.createInstance(`${prefix}-${source.name}`) : source.clone(`${prefix}-${source.name}`);
     part.parent = root;

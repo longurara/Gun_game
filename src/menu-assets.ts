@@ -1,3 +1,4 @@
+import { COVERAGE_CREDITS } from './coverage-credits';
 import type { GameAudio } from './audio';
 import w from './assets/ui/input-prompts/keyboard_w.svg';
 import a from './assets/ui/input-prompts/keyboard_a.svg';
@@ -69,6 +70,20 @@ export function installMenuAssets(root: HTMLElement, audio: GameAudio): void {
       <li><a href="https://kenney.nl/assets/animated-characters-survivors" target="_blank" rel="noopener noreferrer">Animated Characters Survivors</a><span>Kenney · CC0 1.0 · bốn ngoại hình quân địch</span><small>Đã chuyển FBX sang GLB và ghép clip idle/run/jump; giữ texture gốc.</small></li>
       <li><a href="https://poly.pizza/m/2eG17I-VDiG" target="_blank" rel="noopener noreferrer">Airplane</a><span>Poly by Google · <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a></span><small>Model GLB gốc; chỉnh hướng, sải cánh 34 m, material và đèn dẫn đường trong game.</small></li>
     </ul><button id="asset-credits-close" class="button button-secondary" type="button">ĐÓNG</button>`;
+  // Use DOM text rather than HTML interpolation for source metadata.
+  const list = dialog.querySelector('ul')!;
+  for (const credit of COVERAGE_CREDITS) {
+    const item = document.createElement('li'), link = document.createElement('a'), byline = document.createElement('span');
+    link.href = credit.url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = credit.label;
+    byline.textContent = `${credit.author} · ${credit.license}`;
+    if (credit.license === 'CC-BY 3.0') {
+      const license = document.createElement('a'); license.href = 'https://creativecommons.org/licenses/by/3.0/';
+      license.target = '_blank'; license.rel = 'noopener noreferrer'; license.textContent = 'CC BY 3.0';
+      byline.textContent = `${credit.author} · `; byline.appendChild(license);
+    }
+    const note = document.createElement('small'); note.textContent = 'Đã căn hướng, tỷ lệ và vật liệu trong game; ảnh gốc được giữ. Âm thanh được đổi định dạng/cân âm lượng.';
+    item.append(link, byline, note); list.appendChild(item);
+  }
   root.querySelector('.lobby-foot')?.appendChild(creditsButton);
   root.appendChild(dialog);
   creditsButton.addEventListener('click', () => dialog.showModal());

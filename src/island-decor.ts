@@ -4,6 +4,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
+import { coverageUrl } from './coverage-assets';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
@@ -147,6 +148,12 @@ export class IslandDecor {
     this.water.backFaceCulling = false;
     this.water.bumpTexture = normals;
     this.water.bumpTexture.level = 0.5;
+    // Small neutral ripples/foam modulate the existing water tint, alongside its animated normal map.
+    this.water.diffuseTexture = noiseTexture(scene, 'water-surface-detail', 256, (x, y, size) => {
+      const ripple = periodicNoise(x, y, size), crest = Math.pow(Math.max(0, ripple), 3) * 55;
+      const value = 205 + ripple * 22 + crest;
+      return [value, value, Math.min(255, value + 4), 255];
+    });
 
     this.sea = CreateGround('sea', { width: 16000, height: 16000, subdivisions: 1 }, scene);
     this.sea.material = this.water;
@@ -221,6 +228,10 @@ export class IslandDecor {
     material.fogEnabled = false;
     material.backFaceCulling = false;
     dome.material = material;
+    const skyTexture = new Texture(coverageUrl('sky-day.png'), this.scene, false, false, Texture.BILINEAR_SAMPLINGMODE,
+      () => { if (dome.isDisposed()) return; material.emissiveTexture = skyTexture; dome.useVertexColors = false; },
+      () => skyTexture.dispose());
+    material.onDisposeObservable.addOnce(() => skyTexture.dispose());
     dome.infiniteDistance = true;
     dome.isPickable = false;
     dome.renderingGroupId = 0;
@@ -455,6 +466,8 @@ export class IslandDecor {
     const bump = this.water.bumpTexture as Texture;
     bump.uOffset = this.scroll * 0.012;
     bump.vOffset = this.scroll * 0.007;
+    const detail = this.water.diffuseTexture as Texture;
+    detail.uOffset = this.scroll * .006; detail.vOffset = this.scroll * .004;
     for (const cloud of this.clouds) {
       cloud.mesh.position.x += cloud.speed * dt;
       if (cloud.mesh.position.x > x + 1700) cloud.mesh.position.x -= 3400;

@@ -16,7 +16,11 @@
     "assets:fetch-gun-audio": "node scripts/fetch-gun-audio.mjs",
     "assets:fetch-enemies": "node scripts/fetch-enemy-assets.mjs",
     "assets:fetch-aircraft": "node scripts/fetch-aircraft-assets.mjs",
-    "test:scenarios": "tsx tests/match-scenarios.ts"
+    "test:scenarios": "tsx tests/match-scenarios.ts",
+    "assets:fetch-coverage": "node scripts/fetch-coverage-assets.mjs",
+    "assets:fetch-coverage-models": "node scripts/fetch-coverage-models.mjs",
+    "assets:prepare-coverage": "python scripts/prepare-coverage-assets.py",
+    "assets:fetch-coverage-audio": "node scripts/fetch-coverage-audio.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "9.29.0",

@@ -1,0 +1,80 @@
+[
+  {
+    "file": "reload.ogg",
+    "author": "SpringySpringo",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/gun-reload-sounds",
+    "sourceUrl": "https://opengameart.org/sites/default/files/assaultriflereload1_0.wav",
+    "originalSha256": "efb2d724d634eabe6ba8d3065686abca848bb7497d4d43a5e4aed5e5ea23016f",
+    "bytes": 17469,
+    "sha256": "1d8e5de8ced8694cf1bd9a9b6b501c550e86e062f2591388c0ed93e213ffe3e9",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "reload-pistol.ogg",
+    "author": "SpringySpringo",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/gun-reload-sounds",
+    "sourceUrl": "https://opengameart.org/sites/default/files/gunreload1.wav",
+    "originalSha256": "685cac6a184e3cc3ec09a25b6ddb1d6feffd86d469778f339aa423d384035c50",
+    "bytes": 18384,
+    "sha256": "b4f44ea3c0df28a86c0c015d3a9c51a1df747528a97d1b3cf5a42fc89fada8c2",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "reload-shotgun.ogg",
+    "author": "SpringySpringo",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/gun-reload-sounds",
+    "sourceUrl": "https://opengameart.org/sites/default/files/shotguncock_0.wav",
+    "originalSha256": "33e007321ba83301c861aef573f2c40b70bc62f8f24c0164877e6dd123e24371",
+    "bytes": 8049,
+    "sha256": "7f3456dfbf23a2666424aecbf2c31141557221ada8b63766c9ee69381af8e28f",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "engine.ogg",
+    "author": "domasx2",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/racing-car-engine-sound-loops",
+    "sourceUrl": "https://opengameart.org/sites/default/files/loop_0.wav",
+    "originalSha256": "69d74b106509037ce547429e4c3f9ae906b0fffe88d0bb8b3b5a8b0cfc239048",
+    "bytes": 10335,
+    "sha256": "4a32d3b3cb2488a56d4695a9a6d168065e6bcb048fa150dcb0dd40994f7767e9",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "wind.ogg",
+    "author": "SketchMan3",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/wind-whoosh-loop",
+    "sourceUrl": "https://opengameart.org/sites/default/files/wind%20woosh%20loop.ogg",
+    "originalSha256": "0cfdbd3f21ed449689a9024264edf267d0037a6495813a7010827672ec191dac",
+    "bytes": 33434,
+    "sha256": "bf19a1fd80b7192bed73e47b10c19d1553469101cc24560db618b3958b6a224c",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "drip.ogg",
+    "author": "Independent.nu (submitted by qubodup)",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/dripping-water-loop",
+    "sourceUrl": "https://opengameart.org/sites/default/files/atmosbasement.mp3_.flac",
+    "originalSha256": "247c0ef181c8ba8d190a6194f6ea02d9defb23b70194c52c7f9187b5b7b1cc61",
+    "bytes": 70071,
+    "sha256": "2db1b188ae1abf5135680e6e28640ede5e75984b1f305eb6ff1142db4513dae7",
+    "processing": "Mono 44.1kHz Vorbis, loudness normalised -20 LUFS"
+  },
+  {
+    "file": "breath.ogg",
+    "author": "rubberduck",
+    "license": "CC0-1.0",
+    "page": "https://opengameart.org/content/80-cc0-creature-sfx",
+    "sourceUrl": "https://opengameart.org/sites/default/files/80-CC0-creature-SFX_0.zip",
+    "sourceFile": "breath.ogg",
+    "originalSha256": "5d4002eea42f278e76543bb36e8ddd2cb978588a13271984191d8228f5d26768",
+    "bytes": 8986,
+    "sha256": "a089b7b8dd0f143e7b82f188b8ecc012bfc29886089836d305c8c56cec2a7413",
+    "processing": "First second, mono 44.1kHz Vorbis, -24 LUFS"
+  }
+]

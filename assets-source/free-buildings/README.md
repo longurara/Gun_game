@@ -2,7 +2,7 @@
 
 Đã tải và kiểm tra ngày 06/10/2026: **10 gói Kenney, 860 model/mảnh ghép GLB**, khoảng **20,6 MiB** gồm texture, ảnh xem trước và giấy phép. Số GLB thực tế trong archive có thể khác số asset quảng bá trên website do model mẫu và biến thể.
 
-Đây là thư viện nguồn để nâng cấp bản đồ. **Các công trình trong game chưa được thay bằng những model này.** Súng, SWAT và UI đã được tích hợp riêng trong `src/free-assets.ts` và `src/free-assets.css`.
+Đây là thư viện nguồn để nâng cấp bản đồ. **Đã chọn 14 GLB từ Building/Furniture/Industrial/Factory/Survival Kit đưa vào runtime** cho tường, sàn, nội thất và thiết bị phù hợp footprint. Xem [tích hợp asset](../../docs/FREE_COVERAGE_ASSETS.md); các file còn lại là thư viện nguồn. Súng, SWAT và UI đã được tích hợp riêng trong `src/free-assets.ts` và `src/free-assets.css`.
 
 ## Gói đã tải
 

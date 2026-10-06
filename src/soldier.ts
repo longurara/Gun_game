@@ -10,7 +10,8 @@ import { surfaceMaterial } from './surface-materials';
 import type { SurfaceFinish } from './surface-materials';
 import { ARM_FORE, ARM_UPPER, buildSoldierPart, FABRIC_PARTS, HIP_HEIGHT, KNEE_DROP, SHOULDER } from './soldier-geometry';
 import type { PartName } from './soldier-geometry';
-import { createWeaponModel } from './weapon-models';
+import { hasCoverageModel } from './coverage-assets';
+import { createWeaponModel, weaponCoverageKey } from './weapon-models';
 import type { WeaponModel } from './weapon-models';
 import type { WeaponType } from './types';
 import { outfitFor } from './outfits';
@@ -195,9 +196,15 @@ export class Soldier {
 
   /** Draw the gun the actor currently holds, building its model on first use. */
   setWeapon(weapon: WeaponType): void {
-    if (this.currentId === weapon) return;
+    const key = weaponCoverageKey(weapon);
+    const upgrade = !!key && hasCoverageModel(this.scene, key) && this.weapons.get(weapon)?.root.metadata?.coverageAsset !== key;
+    if (this.currentId === weapon && !upgrade) return;
     this.current?.root.setEnabled(false);
     let model = this.weapons.get(weapon);
+    if (model && upgrade) {
+      for (const mesh of model.root.getChildMeshes()) this.shadows.removeShadowCaster(mesh);
+      model.root.dispose(false, false); model = undefined;
+    }
     if (!model) {
       model = createWeaponModel(weapon, this.scene, this.gun, this.id);
       for (const mesh of model.root.getChildMeshes()) if (mesh !== model.flash) this.shadows.addShadowCaster(mesh);
