@@ -1,3 +1,7 @@
+import { drawRouteMap, statsHtml } from './stats-panel';
+import { DRILL_ORDER, DRILLS, drillGrade } from './game/drills';
+import type { DrillId } from './game/drills';
+import type { MatchSummary } from './match-stats';
 import { InventoryView, itemIcon } from './inventory-ui';
 import { SUPPLIES, SUPPLY_ORDER, THROW_ORDER } from './game/supplies';
 import { ATTACH, ATTACH_SLOTS, attachmentsOf, rigStats } from './game/gear';
@@ -30,10 +34,15 @@ type Callbacks = {
   /** Watch the last seconds before dying again, and stop watching. */
   onReplay?: () => void;
   onReplayStop?: () => void;
+  /** The match statistics (route, kills, weapons) for the results screen, or null when there are none. */
+  onStats?: () => MatchSummary | null;
   onSelectWeapon?: (weapon: WeaponType) => void;
   /** The shooting range: take this gun, and the armoury window opened or closed. */
   onRangeEquip?: (weapon: WeaponType) => void;
   onArmouryChange?: (open: boolean) => void;
+  /** The range drills: start this one, or stop the running one (null); and put every vehicle back. */
+  onDrill?: (id: DrillId | null) => void;
+  onResetVehicles?: () => void;
   /** The breath button on a phone was pressed or let go. */
   onBreath?: (held: boolean) => void;
   /** Change the scope's magnification: +1 zooms in, -1 out. */
@@ -57,7 +66,7 @@ const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time
   island: { title: 'ĐẢO LASTLIGHT', blurb: 'Sông, hồ, thị trấn và rừng. Lục nhà tìm súng, giáp; lái xe vượt đảo trước khi bo khép lại.', size: '4 × 4 KM', time: '≈ 10 PHÚT' },
   valley: { title: 'ĐẤU TRƯỜNG THUNG LŨNG', blurb: 'Một thung lũng khép kín, đông bot, bo thu nhanh. Giao tranh liên tục từ giây đầu tiên.', size: '1 × 1 KM', time: '≈ 6 PHÚT' },
   arena: { title: 'SÂN TẬP', blurb: 'Bản đồ nhỏ có sẵn đủ 8 loại súng quanh điểm xuất phát. Hợp để thử súng và luyện ngắm.', size: '200 M', time: '≈ 7 PHÚT' },
-  range: { title: 'TRƯỜNG BẮN', blurb: 'Năm làn bia từ 15 đến 250 m, bia di động, khu bot bắn trả và kệ đủ mọi loại vũ khí. Đạn vô hạn, có thể bật bất tử để luyện thoải mái.', size: '400 M', time: 'KHÔNG GIỚI HẠN' },
+  range: { title: 'TRƯỜNG BẮN', blurb: 'Năm làn bia từ 15 đến 250 m, bia chạy và bia bật lên, bài tập tính điểm, khu bot bắn trả, bãi thử mọi loại xe và kệ đủ vũ khí. Đạn vô hạn, có thể bật bất tử.', size: '400 M', time: 'KHÔNG GIỚI HẠN' },
   desert: { title: 'SA MẠC ĐỎ', blurb: 'Cồn cát và cao nguyên đá, vài ốc đảo, thị trấn cách xa nhau. Tìm xe để vượt sa mạc trước khi bo khép lại, và đừng để lộ mình giữa trời trống.', size: '5 × 5 KM', time: '≈ 20 PHÚT' },
   pines: { title: 'RỪNG THÔNG', blurb: 'Cao nguyên phủ rừng thông dày, hồ rải rác và những con dốc. Chỗ nấp khắp nơi, tầm nhìn chẳng được bao xa.', size: '4,5 × 4,5 KM', time: '≈ 20 PHÚT' },
   metro: { title: 'ĐÔ THỊ', blurb: 'Năm thành phố sát nhau, nhà cao tầng và công viên xen giữa. Giao tranh liên miên trong phố, chiếm tầng cao để làm chủ.', size: '3 × 3 KM', time: '≈ 20 PHÚT' },
@@ -65,6 +74,7 @@ const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time
 const readMap = (value: unknown): MapId => typeof value === 'string' && Object.hasOwn(MAP_INFO, value) ? value as MapId : 'island';
 const SETTINGS_KEY = 'lastlight.settings.v1';
 const BEST_KEY = 'lastlight.best.v1';
+const RANGE_BEST_KEY = 'lastlight.range.best';
 const TIPS_KEY = 'lastlight.tips.v1';
 const FIRE_MODE_LABELS = { auto: 'TỰ ĐỘNG', semi: 'BÁN TỰ ĐỘNG', bolt: 'LÊN ĐẠN TỪNG PHÁT' } as const;
 const icons = {
@@ -284,13 +294,18 @@ export class GameUI {
           <div class="range-title">TRƯỜNG BẮN</div>
           <div id="range-last" class="range-last">Chưa bắn trúng bia</div>
           <div id="range-stats" class="range-stats">—</div>
+          <div id="range-vehicle" class="range-vehicle" hidden></div>
+          <div class="range-sub">BÀI TẬP <kbd>T</kbd> <kbd>Y</kbd></div>
+          <div id="drill-list" class="drill-list">${DRILL_ORDER.map(id => `<button type="button" data-drill="${id}" title="${DRILLS[id].blurb}"><b>${DRILLS[id].name}</b><small>${DRILLS[id].seconds} giây</small><em data-best="${id}"></em></button>`).join('')}</div>
+          <div id="drill-live" class="drill-live" hidden><div class="drill-name"><b id="drill-name"></b><button id="drill-stop" type="button">DỪNG</button></div><div class="drill-score"><strong id="drill-score">0</strong><span id="drill-time">0:00</span></div><div id="drill-detail" class="drill-detail"></div><div class="drill-bar"><i id="drill-bar"></i></div></div>
           <div class="range-actions">
             <button id="range-immortal" type="button" aria-pressed="false">BẤT TỬ: <b id="range-immortal-state">TẮT</b> <kbd>K</kbd></button>
             <button id="range-armoury-btn" type="button">KHO VŨ KHÍ <kbd>B</kbd></button>
+            <button id="range-reset-cars" type="button">ĐƯA XE VỀ BÃI <kbd>L</kbd></button>
           </div>
         </div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
-        <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="sound-dirs" class="sound-dirs" aria-hidden="true">${[0, 1, 2, 3].map(i => `<div id="sound-dir-${i}" class="sound-dir"><i></i></div>`).join('')}</div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
+        <div id="rangefinder" class="rangefinder" aria-hidden="true" hidden></div><div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="sound-dirs" class="sound-dirs" aria-hidden="true">${[0, 1, 2, 3].map(i => `<div id="sound-dir-${i}" class="sound-dir"><i></i></div>`).join('')}</div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
         <div id="stance-badge" class="stance-badge" hidden></div><div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
@@ -301,7 +316,8 @@ export class GameUI {
         <div class="orientation-hint">Xoay điện thoại ngang để chơi</div>
       </section>
       <section id="pause-screen" class="overlay-screen" aria-labelledby="pause-title" hidden><div class="dialog pause-dialog"><div class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU ĐÃ TẠM DỪNG</div><h2 id="pause-title">NGHỈ MỘT NHỊP.</h2><p>Chiến trường đang chờ bạn quay lại.</p><button id="resume-button" class="button button-primary" type="button">TIẾP TỤC TRẬN ${icon('arrow')}</button><button id="pause-restart" class="button button-secondary" type="button">CHƠI LẠI</button><button id="pause-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button><small class="dialog-hint">Nhấn ESC để tiếp tục</small></div></section>
-      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="replay-button" class="button button-secondary" type="button" hidden>XEM LẠI CÚ HẠ GỤC ${icon('arrow')}</button><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button"><span id="restart-button-label">VÀO TRẬN MỚI</span> ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
+      <section id="result-screen" class="overlay-screen results-screen" aria-labelledby="result-title" hidden><div class="result-backdrop-mark" aria-hidden="true">01</div><div class="dialog result-dialog"><div id="result-eyebrow" class="eyebrow"><span class="orange-dash"></span>TRẬN ĐẤU KẾT THÚC</div><span id="result-rank" class="result-rank">#1</span><h2 id="result-title">NGƯỜI SỐNG CUỐI.</h2><p id="result-copy">Bạn đã giữ vững vị trí cho đến giây cuối cùng.</p><div class="result-stats"><div><strong id="result-kills">0</strong><span>HẠ GỤC</span></div><div><strong id="result-time">00:00</strong><span>SỐNG SÓT</span></div><div><strong id="result-accuracy">0%</strong><span>CHÍNH XÁC</span></div></div><button id="replay-button" class="button button-secondary" type="button" hidden>XEM LẠI CÚ HẠ GỤC ${icon('arrow')}</button><button id="stats-button" class="button button-secondary" type="button" hidden>THỐNG KÊ TRẬN ĐẤU ${icon('arrow')}</button><button id="spectate-button" class="button button-secondary" type="button" hidden>XEM TIẾP TRẬN ${icon('arrow')}</button><button id="restart-button" class="button button-primary" type="button"><span id="restart-button-label">VÀO TRẬN MỚI</span> ${icon('arrow')}</button><button id="result-menu" class="text-button" type="button">VỀ MÀN HÌNH CHÍNH</button></div></section>
+      <section id="stats-screen" class="stats-screen" aria-label="Thống kê trận đấu" hidden><div class="stats-card"><div class="stats-head"><h2>THỐNG KÊ TRẬN ĐẤU</h2><button id="stats-close" type="button" aria-label="Đóng">✕</button></div><div class="stats-body"><div class="stats-map"><canvas id="stats-route" width="880" height="880" aria-label="Bản đồ đường đi của bạn"></canvas><div class="stats-legend"><span><i style="background:#6fe08a"></i>Điểm xuất phát</span><span><i style="background:#8fe39a"></i>→<i style="background:#ffb347"></i>Đi bộ / lái xe</span><span><i style="background:#e8503a"></i>Hạ gục</span><span><i class="x">✕</i>Nơi bạn gục</span></div></div><div class="stats-side"><div id="stats-lights"></div><div id="stats-weapons"></div><h3 id="stats-kills-title">CÁC LẦN HẠ GỤC</h3><div id="stats-kills"></div></div></div></div></section>
       <section id="map-screen" class="map-screen" aria-label="Bản đồ lớn" hidden><div class="map-card"><div class="map-card-head"><b>BẢN ĐỒ</b><span id="bigmap-stage">VÒNG 1</span><kbd>M</kbd><small>ĐÓNG</small></div><canvas id="bigmap" width="880" height="880"></canvas><div class="map-legend"><span><i class="lg-player"></i>Bạn</span><span><i class="lg-zone"></i>Vùng an toàn</span><span><i class="lg-next"></i>Vòng kế tiếp</span><span><i class="lg-town"></i>Thị trấn</span><span><i class="lg-crate"></i>Hộp tiếp tế</span><span class="map-tip">Chạm bản đồ để đặt hoặc bỏ cờ đáp</span></div></div></section><div id="replay-bar" class="replay-bar" hidden><span id="replay-title">PHÁT LẠI · 8 GIÂY CUỐI</span><small id="replay-detail"></small><button id="replay-stop" type="button">ĐÓNG</button></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       <div id="loading-screen" class="loading-screen" role="status" aria-live="polite" hidden><div class="loading-spinner"></div><span id="loading-text">ĐANG CHUẨN BỊ CHIẾN TRƯỜNG</span></div>
@@ -396,6 +412,14 @@ export class GameUI {
     this.el('restart-button').addEventListener('click', callbacks.onRestart);
     this.el('spectate-button').addEventListener('click', () => callbacks.onSpectate?.());
     this.el('replay-button').addEventListener('click', () => callbacks.onReplay?.());
+    this.el('stats-button').addEventListener('click', () => this.openStats(true));
+    this.el('drill-list').addEventListener('click', event => {
+      const button = (event.target as Element).closest<HTMLElement>('[data-drill]');
+      if (button) { this.pickedDrill = button.dataset.drill as DrillId; this.startPickedDrill(); }
+    });
+    this.el('drill-stop').addEventListener('click', () => this.callbacks.onDrill?.(null));
+    this.el('range-reset-cars').addEventListener('click', () => this.callbacks.onResetVehicles?.());
+    this.el('stats-close').addEventListener('click', () => this.openStats(false));
     this.el('replay-stop').addEventListener('click', () => callbacks.onReplayStop?.());
     this.el('spectate-exit').addEventListener('click', () => callbacks.onSpectateExit?.());
     this.el('pause-menu').addEventListener('click', callbacks.onMenu);
@@ -747,9 +771,83 @@ export class GameUI {
     this.text('range-last', this.rangeLastText ? this.rangeLastText : 'Chưa bắn trúng bia');
     this.el('range-last').classList.toggle('fresh', fresh);
     this.text('range-stats', state.shots ? `Chính xác ${Math.round(state.hits / state.shots * 100)}% · ${state.hits}/${state.shots} phát · hạ ${state.kills} bia` : 'Chưa bắn phát nào');
+    this.updateDrills(state);
     this.text('range-immortal-state', this.settings.immortal ? 'BẬT' : 'TẮT');
     this.el('range-immortal').setAttribute('aria-pressed', String(this.settings.immortal));
     this.el('range-immortal').classList.toggle('on', this.settings.immortal);
+  }
+
+  private pickedDrill: DrillId = 'warm';
+  private recordedDrill: unknown = null;
+  private bestCache: Record<string, { score: number; weapon: string }> | null = null;
+  private readBest(): Record<string, { score: number; weapon: string }> {
+    if (this.bestCache) return this.bestCache;
+    const saved = readJson(RANGE_BEST_KEY);
+    return this.bestCache = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved as Record<string, { score: number; weapon: string }> : {};
+  }
+
+  /** Start the chosen drill, or stop the running one (the T key). */
+  public toggleDrill(): void {
+    if (this.lastState?.drill && !this.lastState.drill.done) this.callbacks.onDrill?.(null);
+    else this.startPickedDrill();
+  }
+  private startPickedDrill(): void { this.callbacks.onDrill?.(this.pickedDrill); }
+  /** The Y key: choose the next drill. */
+  public cycleDrill(): void {
+    this.pickedDrill = DRILL_ORDER[(DRILL_ORDER.indexOf(this.pickedDrill) + 1) % DRILL_ORDER.length];
+    this.notify(`Bài tập: ${DRILLS[this.pickedDrill].name} · ${DRILLS[this.pickedDrill].blurb}`);
+  }
+
+  /** The drill list with the best scores, or the running drill's clock, score and combo. */
+  private updateDrills(state: GameState): void {
+    const drill = state.drill ?? null, running = !!drill && !drill.done;
+    const best = this.readBest();
+    const def = drill ? DRILLS[drill.id as DrillId] ?? null : null;
+    if (drill && def && !running && this.recordedDrill !== drill) {
+      this.recordedDrill = drill;
+      const old = best[drill.id];
+      if (drill.score > 0 && (!old || drill.score > old.score)) {
+        best[drill.id] = { score: drill.score, weapon: WEAPONS[drill.weapon as WeaponType]?.label ?? drill.weapon };
+        saveJson(RANGE_BEST_KEY, best);
+        this.notify(`KỶ LỤC MỚI · ${def.name}: ${drill.score} điểm`);
+      }
+    }
+    for (const id of DRILL_ORDER) {
+      const mark = this.root.querySelector<HTMLElement>(`[data-best="${id}"]`);
+      if (mark) { const text = best[id] ? `${best[id].score}` : ''; if (mark.textContent !== text) mark.textContent = text; }
+      const button = this.root.querySelector<HTMLElement>(`[data-drill="${id}"]`);
+      button?.classList.toggle('picked', id === this.pickedDrill && !drill);
+      button?.classList.toggle('active', !!drill && drill.id === id);
+    }
+    this.hide('drill-list', !!drill);
+    this.hide('drill-live', !drill);
+    if (!drill || !def) return;
+    const left = Math.max(0, drill.endsAt - state.elapsed);
+    this.text('drill-name', running ? def.name : `${def.name} · XONG`);
+    this.text('drill-score', `${drill.score}`);
+    this.text('drill-time', running ? `${Math.floor(left / 60)}:${String(Math.ceil(left % 60) % 60).padStart(2, '0')}` : `Hạng ${drillGrade(drill.id as DrillId, drill.score)}`);
+    const accuracy = drill.shots ? Math.round(drill.hits / drill.shots * 100) : 0;
+    this.text('drill-detail', `${drill.hits}/${drill.shots} phát (${accuracy}%) · đầu ${drill.heads} · hạ ${drill.kills}${running && drill.combo > 0 ? ` · COMBO ×${(1 + Math.min(10, drill.combo) * 0.1).toFixed(1)}` : ''}`);
+    this.el('drill-bar').style.transform = `scaleX(${running ? Math.max(0, Math.min(1, left / Math.max(1, drill.endsAt - drill.startedAt))) : 0})`;
+    this.el('drill-stop').textContent = running ? 'DỪNG' : 'XONG';
+  }
+
+  /** What the crosshair is on: distance, the hold-over it takes and the flight time; null hides it. */
+  public setRangefinder(info: { distance: number; holdover: number; flight: number; what: string } | null): void {
+    const el = this.el('rangefinder');
+    if (!info) { if (!el.hidden) el.hidden = true; return; }
+    const text = `${Math.round(info.distance)} m${info.what ? ` · ${info.what}` : ''}\n${info.holdover >= 0.05 ? `bù ${info.holdover.toFixed(1)} m lên · ` : ''}bay ${info.flight.toFixed(2)} s`;
+    if (el.dataset.text !== text) { el.dataset.text = text; el.innerHTML = `<b>${Math.round(info.distance)} m${info.what ? `<i> · ${info.what}</i>` : ''}</b><small>${info.holdover >= 0.05 ? `bù ${info.holdover.toFixed(1)} m lên · ` : ''}bay ${info.flight.toFixed(2)} s</small>`; }
+    if (el.hidden) el.hidden = false;
+  }
+
+  /** On the range, while driving: the vehicle, its top speed and the time it took to reach 100 km/h. */
+  public setRangeVehicle(info: { label: string; top: number; to100: number | null } | null): void {
+    const el = this.el('range-vehicle');
+    if (!info) { if (!el.hidden) el.hidden = true; return; }
+    const text = `${info.label} · tối đa ${Math.round(info.top)} km/h · 0–100: ${info.to100 === null ? '—' : `${info.to100.toFixed(1)} s`}`;
+    if (el.textContent !== text) el.textContent = text;
+    if (el.hidden) el.hidden = false;
   }
 
   /** Switch immortality on the range (the K key and the button on the panel). */
@@ -1136,7 +1234,9 @@ export class GameUI {
       for (const x of world.range.laneX) ctx.fillRect(mapX(x - 10), mapY(world.range.firingZ + Math.max(...world.range.distances) + 8), 20 * scale, (Math.max(...world.range.distances) + 8) * scale);
       ctx.fillStyle = '#e2b53c'; ctx.fillRect(mapX(-110), mapY(world.range.firingZ) - 1, 220 * scale, 2);
       ctx.fillStyle = '#f0a04a';
-      for (const actor of state.actors) if (actor.dummy && actor.alive) ctx.fillRect(mapX(actor.position.x) - 1.2, mapY(actor.position.z) - 1.2, 2.4, 2.4);
+      for (const actor of state.actors) if (actor.dummy && actor.alive && !actor.hidden) ctx.fillRect(mapX(actor.position.x) - 1.2, mapY(actor.position.z) - 1.2, 2.4, 2.4);
+      ctx.fillStyle = '#6fb6ff';
+      for (const car of state.vehicles) if (car.health > 0) ctx.fillRect(mapX(car.position.x) - 2, mapY(car.position.z) - 2, 4, 4);
     }
     // Tint terrain outside the safe circle. Enemy positions are deliberately omitted.
     ctx.fillStyle = '#4898ce25';
@@ -1207,6 +1307,28 @@ export class GameUI {
     ctx.strokeStyle = '#ffffff20'; ctx.lineWidth = 1; ctx.strokeRect(padding, padding, size - padding * 2, size - padding * 2);
   }
 
+  /** The statistics window of the match that just ended: route map, weapon table, highlights and kills. */
+  private openStats(open: boolean): void {
+    const screen = this.el('stats-screen');
+    if (!open) { screen.hidden = true; return; }
+    const summary = this.callbacks.onStats?.() ?? null, world = this.lastWorld, state = this.lastState;
+    if (!summary || !world || !state) return;
+    const canvas = this.el('stats-route') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const backdrop = world.id !== 'arena' && world.id !== 'range' && world.terrain ? this.islandBackdrop(canvas.width, world, world.terrain) : null;
+      const zone = world.id === 'arena' || world.id === 'range' ? null : { x: state.zone.center.x, z: state.zone.center.z, r: state.zone.radius };
+      drawRouteMap(ctx, canvas.width, { backdrop, halfSize: world.halfSize, summary, zone });
+    }
+    const html = statsHtml(summary);
+    this.el('stats-lights').innerHTML = html.highlights;
+    this.el('stats-weapons').innerHTML = html.weapons;
+    this.el('stats-kills').innerHTML = html.kills;
+    this.hide('stats-kills-title', !summary.kills.length);
+    screen.hidden = false;
+    this.el('stats-close').focus({ preventScroll: true });
+  }
+
   private showResults(state: GameState): void {
     const won = state.phase === 'won';
     this.el('result-screen').classList.toggle('victory', won);
@@ -1214,6 +1336,8 @@ export class GameUI {
     // The place the player died in; the option to keep watching disappears once they already did.
     this.hide('spectate-button', this.multiplayer || won || !!state.spectating || state.actors.filter(actor => actor.alive).length < 2);
     this.hide('replay-button', this.multiplayer);
+    this.hide('stats-button', !this.callbacks.onStats || this.lastWorld?.id === 'range');
+    this.openStats(false);
     const winner = state.winnerId ? state.actors.find(actor => actor.id === state.winnerId) : undefined;
     this.text('result-title', won ? 'NGƯỜI SỐNG CUỐI.' : this.multiplayer && winner ? `${winner.name.toUpperCase()} CHIẾN THẮNG.` : 'HẸN Ở TRẬN SAU.');
     this.text('result-copy', won ? 'Bạn đã giữ vững vị trí cho đến giây cuối cùng.' : this.multiplayer && winner ? `Hạng của bạn: #${state.playerRank ?? '?'}. Chúc mừng ${winner.name}!` : 'Mỗi lần trở lại, bạn sẽ hiểu chiến trường hơn.');

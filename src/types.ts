@@ -61,7 +61,11 @@ export interface MapTheme {
   /** Fog and sky colour (0..1 per channel) and the fog density. */ haze: [number, number, number]; fogDensity: number;
 }
 /** A practice target: where it stands, how far from the firing line, and (if it moves) how it slides sideways. */
-export interface RangeDummySpec { id: string; x: number; z: number; distance: number; sway?: { amp: number; period: number; phase: number } }
+/** How a practice target moves: running back and forth across the field, or popping up and ducking down. */
+export type RangeMotion =
+  | { kind: 'run'; from: number; to: number; speed: number; pause: number; phase: number }
+  | { kind: 'pop'; up: number; down: number; phase: number };
+export interface RangeDummySpec { id: string; x: number; z: number; distance: number; sway?: { amp: number; period: number; phase: number }; motion?: RangeMotion }
 /** The layout of the shooting range. */
 export interface RangeLayout {
   playerSpawn: Vec3; firingZ: number; dummies: RangeDummySpec[]; botSpawns: Vec3[]; laneX: number[]; distances: number[];
@@ -89,6 +93,8 @@ export interface WorldConfig {
   /** Ground height; absent on the flat arena. Must be pure and deterministic. */
   terrain?: (x: number, z: number) => number;
   zone: ZoneProfile; towns: Town[]; roads: RoadSegment[]; vehicleSpawns: VehicleSpawn[]; lootSpots: LootSpot[];
+  /** Which kind waits at each vehicle spawn (the range lines them all up); absent leaves it to the spot's number. */
+  vehicleKinds?: VehicleKind[];
   water?: WaterFeatures; fields?: Field[];
   /** Absent on the original island, the valley and the arena. */
   theme?: MapTheme;
@@ -154,6 +160,8 @@ export interface Actor {
   breath?: number; holding?: boolean; winded?: boolean;
   /** A practice target on the shooting range: it stands still (or slides), never shoots, and stands back up after a few seconds. */
   dummy?: boolean;
+  /** A pop-up target that is ducked down: it cannot be hit and is not drawn. */
+  hidden?: boolean;
 }
 export interface Loot {
   id: string; kind: LootKind; position: Vec3; active: boolean;
@@ -167,6 +175,12 @@ export interface Loot {
 export interface ZoneState {
   center: Vec2; radius: number; nextCenter: Vec2; nextRadius: number;
   stage: number; timeRemaining: number; isShrinking: boolean;
+}
+/** A timed scoring drill on the shooting range. */
+export interface DrillState {
+  id: string; startedAt: number; endsAt: number; score: number; hits: number; shots: number; heads: number; kills: number;
+  /** Hits in quick succession raise the score multiplier. */ combo: number; lastHitAt: number;
+  done: boolean; weapon: string;
 }
 export interface GameState {
   phase: GamePhase; elapsed: number; actors: Actor[]; loot: Loot[]; vehicles: Vehicle[];
@@ -182,6 +196,8 @@ export interface GameState {
   winnerId?: string;
   /** The human at this machine (everything the HUD shows is about them). */
   localId?: string;
+  /** The shooting range's drill in progress (or just finished). */
+  drill?: DrillState | null;
 }
 /** While driving, throttle (-1 reverse to 1 forward) and steer (-1 left to 1 right) replace the move vector; jump is the handbrake. */
 export interface PlayerInput { moveX: number; moveZ: number; sprint: boolean; jump: boolean; throttle?: number; steer?: number }
@@ -200,8 +216,8 @@ export interface WeaponConfig {
 }
 export type GameEvent =
   | { type: 'shot'; actorId: string; weapon: WeaponType; from: Vec3; to: Vec3; hitId?: string; /** Fired through a suppressor. */ silenced?: boolean }
-  | { type: 'damage'; actorId: string; amount: number; sourceId?: string }
-  | { type: 'kill'; actorId: string; killerId?: string }
+  | { type: 'damage'; actorId: string; amount: number; sourceId?: string; /** What did it: a gun, a grenade, 'vehicle', 'fire', or a melee weapon. */ cause?: string; head?: boolean }
+  | { type: 'kill'; actorId: string; killerId?: string; cause?: string; head?: boolean; /** Where the victim fell and where the killer stood. */ at?: Vec3; from?: Vec3 }
   | { type: 'pickup'; kind: LootKind; /** Set in multiplayer: only this human should see it. */ for?: string }
   | { type: 'message'; text: string; /** Set in multiplayer: a private message for one human. */ for?: string }
   | { type: 'crash'; vehicleId: string; strength: number; position: Vec3 }

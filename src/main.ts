@@ -13,6 +13,7 @@ import './supplies.css';
 import './optics.css';
 import './breath.css';
 import './range.css';
+import './stats.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -62,6 +63,10 @@ import { STANCE } from './game/stance';
 import { lookScale, pickAssist, pullStep } from './aim-assist';
 import type { AssistTarget } from './aim-assist';
 import { ReplayRecorder, sampleReplay, shotsBetween } from './replay';
+import { MatchStats } from './match-stats';
+import { holdover, ZERO_DISTANCE } from './game/ballistics';
+import { MOTOR_POOL, SLALOM, SPEED_STRIP } from './game/range';
+import type { RouteMode } from './match-stats';
 import { LobbyView } from './lobby-ui';
 import { createClient } from '@supabase/supabase-js';
 import { SupabaseSocialApi } from './social/api';
@@ -134,6 +139,9 @@ let planeModel: TransformNode | null = null;
 let autoGlide = false;
 /** The last seconds of the match, kept so the death can be replayed. */
 const recorder = new ReplayRecorder();
+/** What happened to you this match, for the statistics screen. */
+const matchStats = new MatchStats();
+const routeMode = (): RouteMode => sim.player.air ? 'air' : sim.player.vehicleId ? 'car' : sim.player.position.y < sim.heightAt(sim.player.position.x, sim.player.position.z) - DEEP ? 'under' : 'foot';
 let replay: { time: number; killerId: string; saved: Map<string, { x: number; y: number; z: number; yaw: number; stance: Actor['stance']; weapon: string; alive: boolean }> } | null = null;
 const lastSoundCue = new Map<string, number>();
 /** An online match: the host runs the game, a client mirrors it. Null in single player. */
@@ -166,6 +174,11 @@ const ui = new GameUI({
   onSpectate: startSpectating,
   onReplay: startReplay,
   onReplayStop: stopReplay,
+  onStats: () => {
+    if (sim.rangeMode) return null;
+    matchStats.finish(sim.state.diedAt ?? sim.state.elapsed, sim.player.position, routeMode());
+    return matchStats.summary();
+  },
   onSpectateExit: () => { if (net) leaveMatch(); else sim.endSpectating(); },
   onSettings: (next) => {
     const outfitChanged = settings?.skin !== next.skin;
@@ -176,6 +189,8 @@ const ui = new GameUI({
   },
   onSelectWeapon: selectWeapon,
   onRangeEquip: weapon => doRangeEquip(weapon),
+  onDrill: id => { if (id) sim.startDrill(id); else sim.stopDrill(); },
+  onResetVehicles: () => { if (sim.rangeResetVehicles()) { aiming = false; shooting = false; } },
   onArmouryChange: open => { if (open) { shooting = false; aiming = false; if (document.pointerLockElement) document.exitPointerLock(); } else { void audio.unlock(); lockPointer(); } },
   onBreath: held => { mobileBreath = held; },
   onZoomStep: direction => changeZoom(direction),
@@ -496,7 +511,7 @@ function beginMultiplayer(info: MatchStart) {
   ui.setMultiplayer(true); ui.setMpMenu(false);
   lobbyView.show(false);
   configureWorld();
-  stopReplay(); recorder.clear();
+  stopReplay(); recorder.clear(); matchStats.reset();
   resultReported = false; social.newMatch();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
@@ -556,7 +571,7 @@ function start() {
   sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' && settings.map !== 'range', immortal: settings.immortal, humans: 1, localId: '', names: [], remote: false });
   audio.localId = sim.localId;
   configureWorld();
-  stopReplay(); recorder.clear();
+  stopReplay(); recorder.clear(); matchStats.reset();
   resultReported = false; social.newMatch();
   pendingJump = false; lastAirMode = ''; autoGlide = false; ui.setWaypoint(null); spectateId = null; lastKillerId = null;
   yaw = sim.state.plane?.yaw ?? 0; pitch = sim.state.plane ? -0.3 : -0.12; recoil = 0; snapCamera = true; footsteps = 0;
@@ -618,7 +633,28 @@ function buildRangeScene() {
   for (let x = -100; x <= 100; x += 40) box('stall-divider', 0.25, 1.0, 5, dark, new Vector3(x, 0.5, z0 - 2.5)).isPickable = false;
   box('berm-back', half * 2.1, 8, 12, earth, new Vector3(0, 4, half + 4)).isPickable = false;
   for (const side of [-1, 1]) box('berm-side', 12, 7, half * 2.1, earth, new Vector3(side * (half + 4), 3.5, 0)).isPickable = false;
+  // The vehicle test ground: a concrete pad for the motor pool, a dark strip for the slalom and a marked straight for top speed.
+  const asphalt = material('range-asphalt', '#464b48'), coneMat = material('range-cone', '#ee7a22'), coneStripe = material('range-cone-stripe', '#f4efe2');
+  const xs = MOTOR_POOL.map(p => p.x), zs = MOTOR_POOL.map(p => p.z);
+  flat('motor-pool', Math.max(...xs) - Math.min(...xs) + 26, Math.max(...zs) - Math.min(...zs) + 20, concrete, (Math.max(...xs) + Math.min(...xs)) / 2, 0.02, (Math.max(...zs) + Math.min(...zs)) / 2);
+  const slalomMid = (SLALOM.x0 + SLALOM.x1) / 2;
+  flat('slalom-strip', SLALOM.x1 - SLALOM.x0 + 40, 24, asphalt, slalomMid, 0.02, SLALOM.z);
+  flat('slalom-line', SLALOM.x1 - SLALOM.x0 + 30, 0.3, paint, slalomMid, 0.03, SLALOM.z);
+  flat('speed-strip', SPEED_STRIP.x1 - SPEED_STRIP.x0, 16, asphalt, 0, 0.02, SPEED_STRIP.z);
+  for (let x = SPEED_STRIP.x0; x <= SPEED_STRIP.x1; x += 50) {
+    flat('speed-mark', 0.5, 16, paint, x, 0.03, SPEED_STRIP.z);
+    const pole = box('speed-pole', 0.14, 3, 0.14, dark, new Vector3(x, 1.5, SPEED_STRIP.z + 10)); pole.isPickable = false;
+    const board = box('speed-sign', 3.2, 1.6, 0.1, signBoard(`${x - SPEED_STRIP.x0} M`), new Vector3(x, 3.1, SPEED_STRIP.z + 10)); board.isPickable = false;
+  }
+  const poolSign = box('pool-sign', 12, 2.2, 0.15, signBoard('BÃI XE'), new Vector3(-165, 3.4, -140)); poolSign.isPickable = false;
   for (const obstacle of sim.world.obstacles) {
+    if (obstacle.id.startsWith('cone-')) {
+      const cone = MeshBuilder.CreateCylinder(obstacle.id, { diameterTop: 0.1, diameterBottom: 0.7, height: obstacle.height, tessellation: 14 }, scene);
+      cone.material = coneMat; cone.position.set(obstacle.x, obstacle.height / 2, obstacle.z); cone.metadata = { solid: true };
+      const stripe = MeshBuilder.CreateCylinder(`${obstacle.id}-stripe`, { diameterTop: 0.34, diameterBottom: 0.44, height: 0.14, tessellation: 14 }, scene);
+      stripe.material = coneStripe; stripe.position.set(obstacle.x, obstacle.height * 0.55, obstacle.z); stripe.isPickable = false;
+      continue;
+    }
     const mat = obstacle.kind === 'building' ? plaster : obstacle.kind === 'crate' ? wood : rockMat;
     const body = box(obstacle.id, obstacle.width, obstacle.height, obstacle.depth, mat, new Vector3(obstacle.x, obstacle.height / 2, obstacle.z));
     body.metadata = { solid: true };
@@ -692,6 +728,39 @@ function setUnderground(on: boolean) {
     surfaceLook = null;
     lamp?.setEnabled(false);
   }
+}
+
+/** The range's rangefinder (what the crosshair is on) and the vehicle readout (top speed, time to 100 km/h). */
+let rangeFindAt = 0;
+const driveRecord = { id: '', top: 0, start: null as number | null, to100: null as number | null };
+function updateRangeTools(now: number) {
+  if (sim.state.phase !== 'playing' || !sim.player.alive || ui.armouryOpen || ui.mapOpen) { ui.setRangefinder(null); ui.setRangeVehicle(null); return; }
+  const car = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
+  if (car) {
+    ui.setRangefinder(null);
+    const kmh = Math.abs(car.speed) * 3.6;
+    if (driveRecord.id !== car.id) { driveRecord.id = car.id; driveRecord.top = 0; driveRecord.start = null; driveRecord.to100 = null; }
+    driveRecord.top = Math.max(driveRecord.top, kmh);
+    if (kmh < 2) { driveRecord.start = null; driveRecord.to100 = null; }
+    else if (driveRecord.start === null) driveRecord.start = sim.state.elapsed;
+    if (driveRecord.start !== null && driveRecord.to100 === null && kmh >= 100) driveRecord.to100 = sim.state.elapsed - driveRecord.start;
+    ui.setRangeVehicle({ label: VEHICLES[kindOf(car)].label, top: driveRecord.top, to100: driveRecord.to100 });
+    return;
+  }
+  ui.setRangeVehicle(null);
+  // Looking down the range with a laser: a few times a second is plenty.
+  if (now - rangeFindAt < 90) return;
+  rangeFindAt = now;
+  const weapon = WEAPONS[sim.player.weapon];
+  const ray = camera.getForwardRay(600);
+  const pick = scene.pickWithRay(ray, mesh => {
+    if (!mesh.isEnabled() || !mesh.isPickable) return false;
+    if (mesh.metadata?.actorId) return mesh.metadata.actorId !== sim.localId && !!sim.state.actors.find(a => a.id === mesh.metadata.actorId)?.alive;
+    return !!mesh.metadata?.solid;
+  });
+  if (!pick?.hit || !pick.pickedMesh || pick.distance < 3) { ui.setRangefinder(null); return; }
+  const target = pick.pickedMesh.metadata?.actorId ? sim.state.actors.find(a => a.id === pick.pickedMesh!.metadata.actorId) : undefined;
+  ui.setRangefinder({ distance: pick.distance, holdover: holdover(pick.distance, weapon.velocity, ZERO_DISTANCE[weapon.kind]), flight: pick.distance / weapon.velocity, what: target ? (target.dummy ? 'bia' : 'bot') : '' });
 }
 
 function gameplayInputBlocked(): boolean {
@@ -980,7 +1049,7 @@ function renderActors(dt: number) {
       if (!actor.isPlayer) newModels++;
       model = createCharacter(actor); models.set(actor.id, model); model.last.set(actor.position.x, actor.position.y, actor.position.z);
     }
-    model.root.setEnabled(!actor.vehicleId);
+    model.root.setEnabled(!actor.vehicleId && !actor.hidden);
     const pos = new Vector3(actor.position.x, actor.position.y, actor.position.z);
     const speed = Vector3.Distance(pos, model.last) / Math.max(dt, 0.001);
     model.moving += ((actor.alive && !actor.air ? Math.min(speed, 8) : 0) - model.moving) * Math.min(1, dt * 12);
@@ -2082,6 +2151,7 @@ function events(dt: number) {
   const list = net?.host ? net.host.drainEvents() : net?.client ? (sim.drainEvents(), net.client.drainEvents()) : sim.drainEvents();
   for (const event of list) {
     if ((event.type === 'message' || event.type === 'pickup') && event.for && event.for !== sim.localId) continue;
+    matchStats.event(event, { localId: sim.localId, t: sim.state.elapsed, nameOf: id => sim.actorById(id)?.name ?? 'Đối thủ' });
     const ownEcho = !!net?.client && event.type === 'shot' && event.actorId === sim.localId;
     if (ownEcho && event.type === 'shot' && event.hitId) sim.state.hits++;
     if (!ownEcho) audio.handle(event, focusPosition());
@@ -2172,6 +2242,9 @@ window.addEventListener('keydown', event => {
   if (sim.rangeMode && !event.repeat && !mpMenuOpen && !ui.mapOpen) {
     if (event.code === 'KeyB') { event.preventDefault(); ui.toggleArmoury(); return; }
     if (event.code === 'KeyK') { ui.toggleImmortal(); return; }
+    if (event.code === 'KeyT') { ui.toggleDrill(); return; }
+    if (event.code === 'KeyY') { ui.cycleDrill(); return; }
+    if (event.code === 'KeyL') { if (sim.rangeResetVehicles()) { aiming = false; shooting = false; } return; }
   }
   if (gameplayInputBlocked()) return;
   if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
@@ -2390,6 +2463,7 @@ try {
     ui.setCrosshair(4 + Math.tan(sim.currentSpread(aiming)) / Math.tan(camera.fov / 2) * (canvas.clientHeight / 2));
     ui.setStance(sim.player.air || sim.state.phase !== 'playing' ? 'stand' : sim.player.stance ?? 'stand');
     if (sim.state.phase === 'playing' && sim.player.alive && !sim.player.air) recorder.frame(sim.state.elapsed, snapshotActors);
+    if (sim.state.phase === 'playing' && sim.player.alive && !sim.rangeMode) matchStats.sample(sim.state.elapsed, sim.player.position, routeMode());
     if (replay) stepReplay(dt);
     ui.setReplayAvailable(canReplay() && !replay);
     audio.setListenerYaw(yaw);
@@ -2414,6 +2488,7 @@ try {
       lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
     }
     ui.setBreath((sim.player.breath ?? BREATH_SECONDS) / BREATH_SECONDS, !!sim.player.holding, !!sim.player.winded);
+    if (sim.rangeMode) updateRangeTools(now);
     if (!!sim.player.holding !== wasHolding) { wasHolding = !!sim.player.holding; if (aiming) audio.breath(wasHolding); }
     ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon, { zoom: activeZoom(), max: rigStats(sim.player, sim.player.weapon).zoom });
     mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());

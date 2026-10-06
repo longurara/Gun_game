@@ -18,9 +18,11 @@ test('the range has five lanes of targets from 15 to 250 m, moving targets, and 
   assert.equal(world.id, 'range');
   assert.equal(world.halfSize, RANGE_HALF);
   const layout = world.range!;
-  const fixed = layout.dummies.filter(d => !d.sway), moving = layout.dummies.filter(d => d.sway);
+  const fixed = layout.dummies.filter(d => !d.sway && !d.motion), moving = layout.dummies.filter(d => d.sway);
   assert.equal(fixed.length, LANE_X.length * LANE_DISTANCES.length);
   assert.equal(moving.length, 6);
+  assert.equal(layout.dummies.filter(d => d.motion?.kind === 'run').length, 3, 'runners');
+  assert.equal(layout.dummies.filter(d => d.motion?.kind === 'pop').length, 6, 'pop-ups');
   assert.equal(new Set(layout.dummies.map(d => d.id)).size, layout.dummies.length, 'ids are unique');
   for (const d of layout.dummies) {
     assert.equal(Math.round(d.z - FIRING_Z), d.distance, `${d.id} stands ${d.distance} m out`);
@@ -49,11 +51,11 @@ test('a match on the range puts you on the firing line with targets standing and
   assert.equal(game.player.id, 'player');
   assert.deepEqual([game.player.position.x, game.player.position.z], [0, FIRING_Z - 2]);
   const dummies = game.state.actors.filter(a => a.dummy), bots = game.state.actors.filter(a => !a.isPlayer && !a.dummy);
-  assert.equal(dummies.length, 46);
+  assert.equal(dummies.length, 55);
   assert.equal(bots.length, 5);
   assert.ok(dummies.every(d => d.alive && d.health === 100 && d.name === 'Bia'));
   assert.ok(bots.every(b => b.position.x > 100), 'bots wait in the yard');
-  assert.equal(game.state.vehicles.length, 0);
+  assert.equal(game.state.vehicles.length, 12, 'the motor pool');
   assert.equal(game.state.plane, null);
 });
 

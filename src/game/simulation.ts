@@ -18,6 +18,8 @@ import type { AttachKind, AttachSlot, PackKind } from './gear';
 import { BOOST_DRAIN, BOOST_MAX, boostRegen, boostSpeed, emptySupplies, HEAL_CAP, isSupplyKind, isThrowKind, isUseKind, SUPPLIES, SUPPLY_ORDER, THROW_ORDER } from './supplies';
 import type { SupplyKind, ThrowKind, UseKind } from './supplies';
 import { movementSpread, NECK, STANCE, stanceOf } from './stance';
+import { COMBO_WINDOW, DRILLS, hitPoints, isDrillId, drillGrade } from './drills';
+import { popUp, runState } from './range';
 import { holdover, pathOffset, SEGMENT, STRAIGHT_RANGE, ZERO_DISTANCE } from './ballistics';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
 
@@ -69,7 +71,7 @@ interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehic
 const ARRIVAL_MESSAGE: Partial<Record<MapId, string>> = {
   island: 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!',
   valley: 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!',
-  range: 'Trường bắn: bia ở mọi cự ly, bot ở khu phía đông. Nhấn B để lấy bất kỳ vũ khí nào, K để bật/tắt bất tử.',
+  range: 'Trường bắn: bia ở mọi cự ly, bot ở khu phía đông. B: kho vũ khí · K: bất tử · T: bài tập · Y: đổi bài · L: đưa xe về bãi.',
   desert: 'Sa mạc mênh mông. Tìm nhà, tìm xe, và tìm bóng râm trước khi bo khép lại.',
   pines: 'Rừng thông dày đặc. Dùng cây làm chỗ nấp và coi chừng những con dốc.',
   metro: 'Thành phố đông đúc. Lục tòa nhà, chiếm tầng cao, đừng để bị bao vây.',
@@ -609,7 +611,7 @@ export class GameSimulation {
     }
     this.events.push({ type: 'melee', actorId: actor.id, at: { ...actor.position }, weapon: actor.melee ?? 'fists', ...(target ? { hitId: target.id } : {}) });
     this.alertNearby(actor, 22);
-    if (target) this.damage(target, this.absorb(target, config.damage, false), actor.id);
+    if (target) this.damage(target, this.absorb(target, config.damage, false), actor.id, { cause: actor.melee ?? 'fists' });
     return true;
   }
 
@@ -757,7 +759,7 @@ export class GameSimulation {
         fire.tick = 0.25;
         for (const actor of state.actors) {
           if (!actor.alive || actor.air || Math.abs(actor.position.y - fire.y) > 2.5) continue;
-          if (Math.hypot(actor.position.x - fire.x, actor.position.z - fire.z) <= fire.radius) this.damage(actor, FIRE_DPS * 0.25, fire.owner);
+          if (Math.hypot(actor.position.x - fire.x, actor.position.z - fire.z) <= fire.radius) this.damage(actor, FIRE_DPS * 0.25, fire.owner, { cause: 'fire' });
         }
       }
       state.fires = fires.filter(fire => fire.until > state.elapsed);
@@ -776,7 +778,7 @@ export class GameSimulation {
         const d = Math.hypot(chest.x - center.x, chest.y - center.y, chest.z - center.z);
         if (d > blast.radius || (d > 0.8 && !this.lineClear(center, chest, true))) continue;
         const raw = blast.damage * Math.pow(1 - d / blast.radius, 1.15);
-        this.damage(actor, this.absorb(actor, raw, false), p.owner);
+        this.damage(actor, this.absorb(actor, raw, false), p.owner, { cause: p.kind });
       }
       for (const car of state.vehicles) {
         const d = Math.hypot(car.position.x - p.x, car.position.y + 0.8 - p.y, car.position.z - p.z);
@@ -1117,7 +1119,7 @@ export class GameSimulation {
     zone.nextCenter = this.nextZoneCenter(zone.center, zone.radius, zone.nextRadius);
     const vehicles: Vehicle[] = this.world.vehicleSpawns.map((spawn, index) => ({
       id: `car-${index}`, position: { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z }, yaw: spawn.yaw, speed: 0,
-      kind: vehicleKindFor(index), health: VEHICLES[vehicleKindFor(index)].health, driverId: null, colorIndex: index % 5, hitTimer: 0,
+      kind: this.world.vehicleKinds?.[index] ?? vehicleKindFor(index), health: VEHICLES[this.world.vehicleKinds?.[index] ?? vehicleKindFor(index)].health, driverId: null, colorIndex: index % 5, hitTimer: 0,
     }));
     const plane = this.options.drop && island && phase === 'playing' ? makePlane(this.world.halfSize, () => this.random()) : null;
     if (plane) {
@@ -1277,15 +1279,95 @@ export class GameSimulation {
     } else if (now - (player.diedAt ?? now) > 2) this.revive(player, layout.playerSpawn);
     for (const actor of this.state.actors) {
       if (actor.isPlayer) continue;
+      const spec = actor.dummy ? this.dummySpecs.get(actor.id) : undefined;
+      const motion = spec?.motion;
+      // A ducked target comes back with the next rising of its cycle, standing up fresh; the rest wait a moment.
+      if (motion?.kind === 'pop') {
+        const up = popUp(motion, now);
+        if (up && actor.hidden) { actor.hidden = false; if (!actor.alive) this.revive(actor, { x: spec!.x, y: 0, z: spec!.z }); }
+        else if (!up && !actor.hidden) actor.hidden = true;
+        continue;
+      }
       if (!actor.alive) {
         if (now - (actor.diedAt ?? now) < (actor.dummy ? 2.5 : 6)) continue;
-        const spec = this.dummySpecs.get(actor.id);
         if (spec) this.revive(actor, { x: spec.x, y: 0, z: spec.z }); else this.reviveBot(actor);
         continue;
       }
-      const spec = actor.dummy ? this.dummySpecs.get(actor.id) : undefined;
       if (spec?.sway) actor.position.x = spec.x + Math.sin(now * Math.PI * 2 / spec.sway.period + spec.sway.phase) * spec.sway.amp;
+      if (motion?.kind === 'run') {
+        const { x, dir } = runState(motion, now);
+        actor.position.x = x;
+        if (dir !== 0) actor.yaw = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      }
     }
+    const drill = this.state.drill;
+    if (drill && !drill.done && now >= drill.endsAt) {
+      drill.done = true;
+      this.tell(player, `Hết giờ · ${DRILLS[drill.id as keyof typeof DRILLS]?.name ?? 'Bài tập'}: ${drill.score} điểm, hạng ${drillGrade(drill.id as keyof typeof DRILLS, drill.score)}.`);
+    }
+    // A wrecked vehicle is replaced after a few seconds.
+    this.state.vehicles.forEach((car, index) => {
+      if (car.health > 0) { this.wrecked.delete(car.id); return; }
+      const since = this.wrecked.get(car.id) ?? (this.wrecked.set(car.id, now), now);
+      if (now - since > 6) this.resetVehicle(car, index);
+    });
+  }
+
+  private wrecked = new Map<string, number>();
+
+  /** Put a vehicle back at its parking spot, whole and empty. */
+  private resetVehicle(car: Vehicle, index: number): void {
+    const spawn = this.world.vehicleSpawns[index];
+    if (!spawn) return;
+    const driver = this.vehicleDriver(car);
+    if (driver) this.exitVehicle(driver);
+    const kind = this.world.vehicleKinds?.[index] ?? vehicleKindFor(index);
+    car.position = { x: spawn.x, y: this.heightAt(spawn.x, spawn.z), z: spawn.z };
+    car.yaw = spawn.yaw; car.speed = 0; car.health = VEHICLES[kind].health; car.hitTimer = 0; car.driverId = null;
+    this.wrecked.delete(car.id);
+  }
+
+  /** The range: every vehicle back where it started (the L key and the panel button). */
+  rangeResetVehicles(): boolean {
+    if (!this.rangeMode || this.state.phase !== 'playing') return false;
+    this.state.vehicles.forEach((car, index) => this.resetVehicle(car, index));
+    this.tell(this.player, 'Đã đưa mọi xe về bãi.');
+    return true;
+  }
+
+  /** Begin a timed drill: every target stands up, the clock starts, and the score is cleared. */
+  startDrill(id: unknown): boolean {
+    if (!this.rangeMode || this.state.phase !== 'playing' || !this.player.alive || !isDrillId(id)) return false;
+    for (const actor of this.state.actors) if (actor.dummy && !actor.alive) { const spec = this.dummySpecs.get(actor.id); if (spec) this.revive(actor, { x: spec.x, y: 0, z: spec.z }); }
+    const now = this.state.elapsed;
+    this.state.drill = { id, startedAt: now, endsAt: now + DRILLS[id].seconds, score: 0, hits: 0, shots: 0, heads: 0, kills: 0, combo: 0, lastHitAt: -Infinity, done: false, weapon: this.player.weapon };
+    this.tell(this.player, `${DRILLS[id].name}: ${DRILLS[id].seconds} giây · ${DRILLS[id].blurb}.`);
+    return true;
+  }
+
+  /** End the drill early (it keeps the score so far on show), or clear a finished one. */
+  stopDrill(): boolean {
+    const drill = this.state.drill;
+    if (!this.rangeMode || !drill) return false;
+    if (drill.done) { this.state.drill = null; return true; }
+    drill.done = true; drill.endsAt = this.state.elapsed;
+    return true;
+  }
+
+  /** A hit on a target counts for the drill if it is one the drill is about. */
+  private scoreDrill(target: Actor, head: boolean, killed: boolean): void {
+    const drill = this.state.drill;
+    if (!drill || drill.done || !isDrillId(drill.id)) return;
+    const spec = this.dummySpecs.get(target.id);
+    if (!spec || !DRILLS[drill.id].counts(spec)) return;
+    const now = this.state.elapsed;
+    drill.combo = now - drill.lastHitAt <= COMBO_WINDOW ? drill.combo + 1 : 0;
+    drill.lastHitAt = now;
+    const distance = Math.hypot(target.position.x - this.player.position.x, target.position.z - this.player.position.z);
+    drill.score += hitPoints(spec, distance, head, killed, drill.combo);
+    drill.hits++;
+    if (head) drill.heads++;
+    if (killed) drill.kills++;
   }
 
   /** Take any gun in the game, with a full magazine and plenty in reserve; it replaces the one in hand (or the sidearm for a pistol). */
@@ -1455,7 +1537,7 @@ export class GameSimulation {
       if (player.position.y === ground) {
         // Landing from a real fall (off a roof or a mezzanine) hurts; the host decides how much.
         const impact = -playerRuntime.velocityY;
-        if (impact > FALL_SAFE_SPEED && !this.options.remote) this.damage(player, (impact - FALL_SAFE_SPEED) * 8);
+        if (impact > FALL_SAFE_SPEED && !this.options.remote) this.damage(player, (impact - FALL_SAFE_SPEED) * 8, undefined, { cause: 'fall' });
         playerRuntime.velocityY = 0;
       }
       this.resolvePenetration(player);
@@ -1468,7 +1550,7 @@ export class GameSimulation {
       if (!actor.alive || actor.air || this.state.phase !== 'playing') continue;
       if (distance2(actor.position, this.state.zone.center) > this.state.zone.radius) {
         const damage = 1.5 + this.state.zone.stage * 2 + (this.state.zone.radius <= 0.01 ? 20 : 0);
-        this.damage(actor, damage * dt);
+        this.damage(actor, damage * dt, undefined, { cause: 'zone' });
       }
     }
     this.checkEnd();
@@ -1591,7 +1673,7 @@ export class GameSimulation {
     this.events.push({ type: 'drop', actorId: actor.id, stage: 'land' });
     if (actor.isPlayer && splash) this.tell(actor, 'Bạn rơi xuống nước và bơi vào bờ.');
     else if (actor.isPlayer) this.tell(actor, 'Đã tiếp đất. Tìm vũ khí trong nhà gần nhất!');
-    if (impact > DROP.safeLanding) this.damage(actor, (impact - DROP.safeLanding) * 3);
+    if (impact > DROP.safeLanding) this.damage(actor, (impact - DROP.safeLanding) * 3, undefined, { cause: 'fall' });
   }
 
   /** Pick a town (or a loose spot) the route passes within glide range of, and the moment to jump so the glide ends there. */
@@ -1850,7 +1932,7 @@ export class GameSimulation {
     v.health -= impact * impact * 0.35;
     const driver = this.vehicleDriver(v);
     const hurtAt = VEHICLES[kindOf(v)].hurtAt;
-    if (driver && impact > hurtAt) this.damage(driver, (impact - hurtAt) * 2.2);
+    if (driver && impact > hurtAt) this.damage(driver, (impact - hurtAt) * 2.2, undefined, { cause: 'vehicle' });
     if (v.health <= 0) this.explode(v);
   }
 
@@ -1858,13 +1940,13 @@ export class GameSimulation {
     v.health = 0;
     v.speed = 0;
     const driver = this.vehicleDriver(v);
-    if (driver) { this.exitVehicle(driver); this.damage(driver, 25); }
+    if (driver) { this.exitVehicle(driver); this.damage(driver, 25, undefined, { cause: 'vehicle' }); }
     v.driverId = null;
     this.events.push({ type: 'explosion', position: { ...v.position } });
     for (const actor of this.state.actors) {
       if (!actor.alive || actor.vehicleId || actor.air) continue;
       const d = distance2(actor.position, v.position);
-      if (d < 7) this.damage(actor, 70 * (1 - d / 7));
+      if (d < 7) this.damage(actor, 70 * (1 - d / 7), undefined, { cause: 'vehicle' });
     }
     const lengthwise = Math.abs(Math.sin(v.yaw)) > 0.7;
     const hull = HULLS[kindOf(v)], long = hull.length * 2, wide = hull.half * 2 + 0.3;
@@ -1879,7 +1961,7 @@ export class GameSimulation {
     if (!driver || Math.abs(v.speed) < 5 || v.hitTimer > 0) return;
     this.actorGrid.queryCircle(v.position.x, v.position.z, 2.6, other => {
       if (other === driver || !other.alive || other.vehicleId || distance2(other.position, v.position) > 2.3) return;
-      this.damage(other, Math.min(110, Math.abs(v.speed) * 5), driver.id);
+      this.damage(other, Math.min(110, Math.abs(v.speed) * 5), driver.id, { cause: 'vehicle' });
       v.hitTimer = 0.45;
       v.speed *= 0.82;
     });
@@ -1896,7 +1978,7 @@ export class GameSimulation {
     if (v.health <= 0) return;
     v.health -= amount * 0.55;
     const driver = this.vehicleDriver(v);
-    if (driver && driver.id !== sourceId) this.damage(driver, amount * 0.08, sourceId);
+    if (driver && driver.id !== sourceId) this.damage(driver, amount * 0.08, sourceId, { cause: 'vehicle' });
     if (v.health <= 0) this.explode(v);
   }
 
@@ -2095,6 +2177,7 @@ export class GameSimulation {
     }
     let anyHit = false;
     const damageByActor = new Map<Actor, number>();
+    const headshots = new Set<Actor>();
     let visualHit: Hit = { distance: weapon.range };
     let visualDirection = direction;
     const muzzleDirection = { x: Math.sin(actor.yaw), y: 0, z: Math.cos(actor.yaw) };
@@ -2116,6 +2199,7 @@ export class GameSimulation {
         const falloff = weapon.kind === 'shotgun' ? clamp(1 - Math.max(0, hit.distance - 12) / 45, 0.45, 1) : 1;
         const raw = weapon.damage * falloff * (hit.head ? 1.65 : 1);
         damageByActor.set(hit.actor, (damageByActor.get(hit.actor) ?? 0) + this.absorb(hit.actor, raw, !!hit.head));
+        if (hit.head) headshots.add(hit.actor);
       }
     }
     const to = visualHit.point ?? { x: from.x + visualDirection.x * visualHit.distance, y: from.y + visualDirection.y * visualHit.distance, z: from.z + visualDirection.z * visualHit.distance };
@@ -2123,7 +2207,8 @@ export class GameSimulation {
     // On the cramped arena everyone would hear everything; halve the range there.
     this.alertNearby(actor, gunshotLoudness(actor.weapon) * rig.loud * (this.openWorld ? 1 : 0.45));
     if (actor === this.player && anyHit) this.state.hits++;
-    for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id);
+    if (actor === this.player) { const drill = this.state.drill; if (drill && !drill.done) drill.shots++; }
+    for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id, { cause: actor.weapon, head: headshots.has(victim) });
     this.checkEnd();
     return true;
   }
@@ -2216,7 +2301,7 @@ export class GameSimulation {
       if (hit !== null && hit < closest.distance) closest = { distance: hit, vehicle: car };
     }
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.id === ignoreId || actor.air) continue;
+      if (!actor.alive || actor.id === ignoreId || actor.air || actor.hidden) continue;
       // Inside a car you are covered; on a bike or in a buggy nothing shields you.
       if (actor.vehicleId && !this.exposedRider(actor)) continue;
       const p = actor.position;
@@ -2230,16 +2315,18 @@ export class GameSimulation {
     return closest;
   }
 
-  private damage(actor: Actor, amount: number, sourceId?: string): void {
+  /** `how` says what did the harm and whether it was a headshot; it goes into the events for the match statistics. */
+  private damage(actor: Actor, amount: number, sourceId?: string, how: { cause?: string; head?: boolean } = {}): void {
     if (!actor.alive || amount <= 0) return;
     if (this.immortal && this.rangeMode && actor.isPlayer) return;
     const actual = Math.min(actor.health, amount);
     actor.health = Math.max(0, actor.health - actual);
     actor.hurtTimer = 0.45;
+    if (actor.dummy && sourceId === this.player.id) this.scoreDrill(actor, how.head === true, actor.health <= 1e-7);
     // Zone ticks are intentionally not emitted every frame; the HUD tracks health.
     if (sourceId) {
       this.cancelHeal(actor);
-      this.events.push({ type: 'damage', actorId: actor.id, amount: actual, sourceId });
+      this.events.push({ type: 'damage', actorId: actor.id, amount: actual, sourceId, ...(how.cause ? { cause: how.cause } : {}), ...(how.head ? { head: true } : {}) });
     }
     if (actor.health <= 1e-7) {
       if (actor.vehicleId) this.exitVehicle(actor);
@@ -2253,7 +2340,7 @@ export class GameSimulation {
       const killer = sourceId ? this.actorById(sourceId) : undefined;
       if (killer?.isPlayer && killer !== actor) killer.kills = (killer.kills ?? 0) + 1;
       if (sourceId === this.player.id && actor !== this.player) this.state.kills++;
-      this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}) });
+      this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}), ...(how.cause ? { cause: how.cause } : {}), ...(how.head ? { head: true } : {}), at: { ...actor.position }, ...(killer ? { from: { ...killer.position } } : {}) });
       // In a match with other people a fallen person drops their gear too.
       if ((!actor.isPlayer || this.options.humans > 1) && !this.rangeMode) {
         const dropPosition = (offset: number): Vec3 => {
@@ -3012,7 +3099,7 @@ export class GameSimulation {
       actor.ammo[actor.weapon] = Math.max(0, actor.ammo[actor.weapon] - used);
       this.runtime(actor).duelUntil = this.state.elapsed + 5 + this.random() * 5;
     }
-    this.damage(loser, loser.health + 1, winner.id);
+    this.damage(loser, loser.health + 1, winner.id, { cause: winner.weapon });
   }
 
   private clearPath(from: Vec2, to: Vec2): boolean {
