@@ -37,9 +37,13 @@ for (const device of [
     localStorage.setItem('lastlight.settings.v1',JSON.stringify({map,botCount:10,quality:'low'}));
     const steps: string[] = [];
     (window as any).__LOADING_STEPS__ = steps;
+    const timing = { start:0, end:0 };
+    (window as any).__LOADING_TIMING__ = timing;
     new MutationObserver(() => {
       const screen = document.getElementById('loading-screen');
       const count = document.getElementById('loading-step-count')?.textContent;
+      if (screen && !screen.hidden && !timing.start) timing.start = performance.now();
+      if (screen?.hidden && timing.start && !timing.end) timing.end = performance.now();
       if (screen && !screen.hidden && count && !steps.includes(count)) steps.push(count);
     }).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden']});
   }, { map:device.map });
@@ -68,7 +72,36 @@ for (const device of [
     release();
     await page.waitForFunction(() => document.getElementById('loading-screen')?.hidden,undefined,{timeout:45000});
     assert.deepEqual(await page.evaluate(() => (window as any).__LOADING_STEPS__),['01 / 03','02 / 03','03 / 03']);
+    const duration = await page.evaluate(() => { const timing = (window as any).__LOADING_TIMING__; return timing.end - timing.start; });
+    assert.ok(duration >= 3000, `loading remains visible for at least 3 seconds: ${duration} ms`);
     await page.waitForFunction(() => !!(window as any).__LASTLIGHT__,undefined,{timeout:45000});
     assert.deepEqual(errors,[]);
+  } finally { release(); await page.close(); }
+});
+
+
+test('a download longer than five seconds clears loading after setup without another hold', async () => {
+  const page = await browser.newPage({viewport:{width:1280,height:720}});
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/assets/free/swat.glb',async route => { await gate; await route.continue(); });
+  await page.addInitScript(() => {
+    localStorage.setItem('lastlight.settings.v1',JSON.stringify({map:'range',botCount:0,quality:'low'}));
+    const timing = {ready:0,hidden:0}; (window as any).__SLOW_LOADING__ = timing;
+    new MutationObserver(() => {
+      const screen = document.getElementById('loading-screen');
+      if (document.getElementById('loading-text')?.textContent?.startsWith('Chiến trường đã sẵn sàng') && !timing.ready) timing.ready=performance.now();
+      if (screen?.hidden && timing.ready && !timing.hidden) timing.hidden=performance.now();
+    }).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden']});
+  });
+  try {
+    await page.goto(url,{waitUntil:'commit'});
+    await page.waitForFunction(() => document.getElementById('loading-step-count')?.textContent==='02 / 03',undefined,{timeout:45000});
+    await page.waitForTimeout(5200);
+    assert.equal(await page.locator('#loading-screen').isVisible(),true,'still waits for the real asset download');
+    release();
+    await page.waitForFunction(() => document.getElementById('loading-screen')?.hidden,undefined,{timeout:45000});
+    const timing = await page.evaluate(() => (window as any).__SLOW_LOADING__);
+    assert.ok(timing.ready>0 && timing.hidden>=timing.ready && timing.hidden-timing.ready<500,JSON.stringify(timing));
   } finally { release(); await page.close(); }
 });

@@ -40,3 +40,8 @@ export const loadingScreen = `<section id="loading-screen" class="loading-screen
 export function paintLoadingScreen(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
+
+/** Start once when loading becomes visible; asset preparation runs during this hold. */
+export function holdLoadingScreen(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+}

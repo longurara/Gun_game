@@ -17,7 +17,7 @@ import './stats.css';
 import './free-assets.css';
 import './menu-assets.css';
 import './loading-screen.css';
-import { paintLoadingScreen } from './loading-screen';
+import { holdLoadingScreen, paintLoadingScreen } from './loading-screen';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
 import { instantiateAircraft, preloadAircraftAssets } from './aircraft-assets';
@@ -2437,6 +2437,7 @@ window.addEventListener('orientationchange', resizeGame);
 try {
   ui.setLoading('Đang dựng vùng sinh tồn…');
   await paintLoadingScreen();
+  const loadingHold = holdLoadingScreen();
   engine = new Engine(canvas, !touchDevice, { stencil: true, preserveDrawingBuffer: !touchDevice }, false);
   engine.renderEvenInBackground = false;
   scene = new Scene(engine);
@@ -2476,6 +2477,8 @@ try {
   ui.setLoading('Đang hoàn thiện chiến trường…', 2);
   await paintLoadingScreen();
   buildWorld(); applySettings();
+  ui.setLoading('Chiến trường đã sẵn sàng. Chuẩn bị xuất kích…', 2);
+  await loadingHold;
   ui.setLoading(null);
   engine.runRenderLoop(() => {
     const now = performance.now();
