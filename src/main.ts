@@ -38,6 +38,7 @@ import { isSupplyKind } from './game/supplies';
 import { isAttachKind, isPackKind, rigStats } from './game/gear';
 import { isMeleeKind } from './game/melee';
 import { kindOf, VEHICLES } from './game/vehicles';
+import type { VehicleKind } from './game/vehicles';
 import type { MeleeKind } from './game/melee';
 import type { AttachKind, AttachSlot, PackKind } from './game/gear';
 import type { SupplyKind, ThrowKind, UseKind } from './game/supplies';
@@ -916,10 +917,11 @@ function renderActors(dt: number) {
 }
 
 const CAR_COLORS = ['#b5483a', '#3f6f9a', '#d0a739', '#dcdcd2', '#52624f'];
+type CarModel = { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number };
 
-function createCarModel(v: Vehicle) {
-  if (kindOf(v) === 'bike') return createBikeModel(v);
-  if (kindOf(v) === 'buggy') return createBuggyModel(v);
+function createCarModel(v: Vehicle): CarModel {
+  const build = VEHICLE_MODELS[kindOf(v)];
+  if (build) return build(v);
   const root = new TransformNode(`car-${v.id}`, scene);
   const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
   const dark = material('car-tyre', '#1b1f21');
@@ -999,6 +1001,177 @@ function createBuggyModel(v: Vehicle) {
   return { root, wheels, bodies: parts, wrecked: false } as { root: TransformNode; wheels: TransformNode[]; bodies: Mesh[]; wrecked: boolean; lastYaw?: number };
 }
 
+/** The shared pieces of the simple box-built vehicles: paint, glass, lamps, and helpers to place parts and wheels. */
+function vehicleKit(v: Vehicle, name: string) {
+  const root = new TransformNode(`car-${v.id}`, scene);
+  const paint = material(`car-paint-${v.colorIndex % 5}`, CAR_COLORS[v.colorIndex % 5]);
+  const dark = material('car-tyre', '#1b1f21'), glass = material('car-glass', '#33454f', 0.15), lamp = material('car-lamp', '#fff2c4', 0.9);
+  const trim = material('buggy-cage', '#2f3a3d', 0.1), canvas = material('car-canvas', '#6f7a55', 0.05), chrome = material('bike-metal', '#8f9aa0', 0.1);
+  const parts: Mesh[] = [], wheels: TransformNode[] = [];
+  const part = (label: string, w: number, h: number, d: number, mat: StandardMaterial, x: number, y: number, z: number) => {
+    const mesh = box(`${name}-${label}`, w, h, d, mat, new Vector3(x, y, z), root);
+    mesh.metadata = { solid: true, car: true }; parts.push(mesh); return mesh;
+  };
+  const wheel = (x: number, z: number, diameter: number, width: number) => {
+    const pivot = new TransformNode('wheel-pivot', scene);
+    pivot.parent = root; pivot.position.set(x, diameter / 2, z);
+    const tyre = MeshBuilder.CreateCylinder('wheel', { diameter, height: width, tessellation: 12 }, scene);
+    tyre.rotation.z = Math.PI / 2; tyre.material = dark; tyre.parent = pivot; tyre.isPickable = false;
+    wheels.push(pivot);
+  };
+  const lamps = (z: number, y: number, x: number, w = 0.28) => { for (const side of [-1, 1]) part('lamp', w, 0.16, 0.06, lamp, side * x, y, z); };
+  const finish = (): CarModel => { for (const mesh of parts) { shadows.addShadowCaster(mesh); mesh.receiveShadows = true; } return { root, wheels, bodies: parts, wrecked: false }; };
+  return { paint, dark, glass, lamp, trim, canvas, chrome, part, wheel, lamps, finish };
+}
+
+/** A soft-top jeep: boxy, open at the sides, with a spare wheel on the back. */
+function createJeepModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'jeep');
+  k.part('body', 1.7, 0.5, 3.4, k.paint, 0, 0.72, 0);
+  k.part('hood', 1.5, 0.3, 1.1, k.paint, 0, 1.0, 1.25);
+  k.part('screen', 1.5, 0.5, 0.06, k.glass, 0, 1.28, 0.6);
+  for (const x of [-0.4, 0.4]) k.part('seat', 0.5, 0.12, 0.5, k.dark, x, 1.0, 0);
+  k.part('bench', 1.4, 0.12, 0.45, k.dark, 0, 1.0, -0.9);
+  for (const x of [-0.82, 0.82]) for (const z of [0.5, -1.35]) k.part('post', 0.06, 0.95, 0.06, k.trim, x, 1.45, z);
+  k.part('top', 1.75, 0.06, 1.95, k.canvas, 0, 1.95, -0.42);
+  k.part('spare', 0.8, 0.8, 0.25, k.dark, 0, 1.15, -1.85);
+  k.part('bumper', 1.8, 0.2, 0.14, k.trim, 0, 0.55, 1.82);
+  k.lamps(1.82, 0.9, 0.55);
+  for (const [x, z] of [[-0.95, 1.1], [0.95, 1.1], [-0.95, -1.1], [0.95, -1.1]]) k.wheel(x, z, 0.92, 0.32);
+  return k.finish();
+}
+
+/** A pickup truck: a cab at the front and an open bed behind it. */
+function createPickupModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'pickup');
+  k.part('chassis', 1.8, 0.3, 4.7, k.trim, 0, 0.55, 0);
+  k.part('cab', 1.8, 0.95, 1.5, k.paint, 0, 1.2, 0.65);
+  k.part('cab-glass', 1.84, 0.45, 1.2, k.glass, 0, 1.45, 0.62);
+  k.part('hood', 1.8, 0.45, 1.1, k.paint, 0, 0.85, 1.85);
+  k.part('bed', 1.85, 0.12, 2.3, k.paint, 0, 0.8, -1.3);
+  for (const x of [-0.89, 0.89]) k.part('side', 0.08, 0.5, 2.3, k.paint, x, 1.08, -1.3);
+  k.part('tailgate', 1.85, 0.5, 0.08, k.paint, 0, 1.08, -2.45);
+  k.part('bumper', 1.9, 0.22, 0.14, k.trim, 0, 0.6, 2.45);
+  k.lamps(2.42, 0.95, 0.6);
+  for (const [x, z] of [[-0.98, 1.6], [0.98, 1.6], [-0.98, -1.5], [0.98, -1.5]]) k.wheel(x, z, 0.96, 0.32);
+  return k.finish();
+}
+
+/** A tall delivery van. */
+function createVanModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'van');
+  k.part('body', 2.0, 1.8, 4.6, k.paint, 0, 1.2, -0.3);
+  k.part('nose', 1.9, 0.9, 0.8, k.paint, 0, 0.72, 2.3);
+  k.part('screen', 1.85, 0.75, 0.06, k.glass, 0, 1.6, 2.0);
+  for (const x of [-1.01, 1.01]) k.part('window', 0.04, 0.5, 0.9, k.glass, x, 1.65, 1.35);
+  k.part('stripe', 2.02, 0.16, 4.6, k.trim, 0, 0.85, -0.3);
+  k.part('bumper', 2.0, 0.22, 0.14, k.trim, 0, 0.55, 2.72);
+  k.part('bumper', 2.0, 0.22, 0.14, k.trim, 0, 0.55, -2.62);
+  k.lamps(2.72, 0.85, 0.6);
+  for (const [x, z] of [[-1.0, 1.7], [1.0, 1.7], [-1.0, -1.6], [1.0, -1.6]]) k.wheel(x, z, 0.86, 0.3);
+  return k.finish();
+}
+
+/** A minibus: long, with a band of windows down both sides. */
+function createMinibusModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'minibus');
+  k.part('body', 2.2, 1.9, 6.0, k.paint, 0, 1.25, 0);
+  for (const x of [-1.11, 1.11]) k.part('windows', 0.04, 0.6, 4.6, k.glass, x, 1.75, -0.25);
+  k.part('screen', 2.0, 0.85, 0.06, k.glass, 0, 1.65, 3.02);
+  k.part('roof', 2.1, 0.08, 5.8, k.trim, 0, 2.23, 0);
+  k.part('stripe', 2.22, 0.14, 6.0, k.trim, 0, 0.85, 0);
+  k.part('bumper', 2.2, 0.22, 0.14, k.trim, 0, 0.5, 3.05);
+  k.part('bumper', 2.2, 0.22, 0.14, k.trim, 0, 0.5, -3.05);
+  k.lamps(3.04, 0.85, 0.7);
+  for (const [x, z] of [[-1.1, 2.0], [1.1, 2.0], [-1.1, -2.0], [1.1, -2.0]]) k.wheel(x, z, 1.0, 0.34);
+  return k.finish();
+}
+
+/** A low sports coupe with a rear wing. */
+function createCoupeModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'coupe');
+  k.part('body', 1.9, 0.5, 4.3, k.paint, 0, 0.6, 0);
+  k.part('hood', 1.8, 0.2, 1.5, k.paint, 0, 0.92, 1.35);
+  k.part('cabin', 1.55, 0.42, 1.7, k.glass, 0, 1.08, -0.35);
+  k.part('roof', 1.5, 0.06, 1.35, k.paint, 0, 1.32, -0.4);
+  k.part('wing', 1.7, 0.07, 0.36, k.trim, 0, 1.12, -2.0);
+  for (const x of [-0.6, 0.6]) k.part('wing-post', 0.06, 0.3, 0.06, k.trim, x, 0.95, -1.95);
+  k.part('splitter', 1.95, 0.12, 0.2, k.trim, 0, 0.42, 2.18);
+  k.lamps(2.16, 0.78, 0.65, 0.34);
+  for (const [x, z] of [[-0.97, 1.4], [0.97, 1.4], [-0.97, -1.3], [0.97, -1.3]]) k.wheel(x, z, 0.74, 0.36);
+  return k.finish();
+}
+
+/** A small scooter: a step-through frame, a front shield and a bench seat. */
+function createScooterModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'scooter');
+  k.part('deck', 0.36, 0.08, 0.85, k.paint, 0, 0.3, 0.1);
+  k.part('rear', 0.34, 0.5, 0.7, k.paint, 0, 0.58, -0.5);
+  k.part('seat', 0.3, 0.1, 0.55, k.dark, 0, 0.88, -0.42);
+  k.part('shield', 0.4, 0.55, 0.14, k.paint, 0, 0.75, 0.6);
+  k.part('column', 0.07, 0.55, 0.07, k.chrome, 0, 1.0, 0.62);
+  k.part('bars', 0.62, 0.05, 0.05, k.dark, 0, 1.28, 0.6);
+  k.part('lamp', 0.16, 0.12, 0.08, k.lamp, 0, 0.98, 0.7);
+  k.wheel(0, 0.72, 0.52, 0.12); k.wheel(0, -0.68, 0.52, 0.14);
+  return k.finish();
+}
+
+/** A four-wheeled quad bike. */
+function createQuadModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'quad');
+  k.part('chassis', 0.9, 0.25, 1.4, k.paint, 0, 0.55, 0);
+  k.part('engine', 0.5, 0.3, 0.5, k.chrome, 0, 0.8, 0.0);
+  k.part('seat', 0.42, 0.12, 0.7, k.dark, 0, 0.9, -0.3);
+  k.part('fender', 1.2, 0.08, 0.5, k.paint, 0, 0.8, 0.62);
+  k.part('rack', 0.7, 0.06, 0.45, k.trim, 0, 0.98, -0.85);
+  k.part('column', 0.07, 0.5, 0.07, k.chrome, 0, 0.98, 0.42);
+  k.part('bars', 0.85, 0.05, 0.05, k.dark, 0, 1.2, 0.42);
+  k.lamps(0.88, 0.85, 0.3, 0.2);
+  for (const [x, z] of [[-0.62, 0.55], [0.62, 0.55], [-0.62, -0.55], [0.62, -0.55]]) k.wheel(x, z, 0.62, 0.3);
+  return k.finish();
+}
+
+/** A three-wheeled tuk-tuk with a canvas roof. */
+function createTuktukModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'tuktuk');
+  k.part('floor', 1.2, 0.12, 2.2, k.paint, 0, 0.5, -0.2);
+  k.part('nose', 0.7, 0.7, 0.5, k.paint, 0, 0.85, 0.95);
+  k.part('screen', 1.15, 0.55, 0.05, k.glass, 0, 1.4, 0.55);
+  k.part('seat', 1.0, 0.14, 0.6, k.dark, 0, 0.78, -0.75);
+  k.part('back', 1.0, 0.5, 0.1, k.dark, 0, 1.05, -1.1);
+  for (const x of [-0.6, 0.6]) for (const z of [0.5, -1.15]) k.part('post', 0.06, 1.2, 0.06, k.trim, x, 1.3, z);
+  k.part('roof', 1.4, 0.07, 1.95, k.canvas, 0, 1.92, -0.32);
+  k.part('bars', 0.6, 0.05, 0.05, k.dark, 0, 1.15, 0.9);
+  k.lamps(1.2, 0.95, 0.2, 0.16);
+  k.wheel(0, 1.0, 0.52, 0.14); k.wheel(-0.62, -0.8, 0.58, 0.16); k.wheel(0.62, -0.8, 0.58, 0.16);
+  return k.finish();
+}
+
+/** A motorbike with a sidecar bolted on its right. */
+function createSidecarModel(v: Vehicle): CarModel {
+  const k = vehicleKit(v, 'sidecar');
+  const bx = -0.45;
+  k.part('frame', 0.14, 0.32, 1.25, k.dark, bx, 0.62, 0);
+  k.part('engine', 0.26, 0.3, 0.45, k.chrome, bx, 0.46, 0.05);
+  k.part('tank', 0.3, 0.22, 0.5, k.paint, bx, 0.86, 0.22);
+  k.part('seat', 0.26, 0.1, 0.6, k.dark, bx, 0.86, -0.38);
+  k.part('fork', 0.07, 0.7, 0.07, k.chrome, bx, 0.7, 0.82);
+  k.part('bars', 0.7, 0.05, 0.05, k.dark, bx, 1.08, 0.7);
+  k.part('lamp', 0.16, 0.14, 0.08, k.lamp, bx, 0.98, 0.9);
+  k.part('tub', 0.7, 0.4, 1.25, k.paint, 0.6, 0.62, -0.05);
+  k.part('nose', 0.5, 0.28, 0.4, k.paint, 0.6, 0.56, 0.8);
+  k.part('screen', 0.5, 0.3, 0.05, k.glass, 0.6, 1.0, 0.45);
+  k.part('strut', 0.6, 0.06, 0.06, k.trim, 0.0, 0.55, 0.25);
+  k.part('strut', 0.6, 0.06, 0.06, k.trim, 0.0, 0.55, -0.4);
+  k.wheel(bx, 0.82, 0.72, 0.14); k.wheel(bx, -0.78, 0.72, 0.14); k.wheel(0.95, -0.1, 0.62, 0.14);
+  return k.finish();
+}
+
+const VEHICLE_MODELS: Partial<Record<VehicleKind, (v: Vehicle) => CarModel>> = {
+  bike: createBikeModel, buggy: createBuggyModel, jeep: createJeepModel, pickup: createPickupModel, van: createVanModel, minibus: createMinibusModel,
+  coupe: createCoupeModel, scooter: createScooterModel, quad: createQuadModel, tuktuk: createTuktukModel, sidecar: createSidecarModel,
+};
+
 function renderVehicles(dt: number) {
   const focus = focusPosition();
   for (const v of sim.state.vehicles) {
@@ -1013,7 +1186,7 @@ function renderVehicles(dt: number) {
     const roll = Math.atan2(sim.heightAt(v.position.x - cz * 1.2, v.position.z + sx * 1.2) - sim.heightAt(v.position.x + cz * 1.2, v.position.z - sx * 1.2), 2.4);
     // A motorbike leans into its turns.
     let lean = 0;
-    if (kindOf(v) === 'bike' && car.lastYaw !== undefined && dt > 0) lean = Math.max(-0.5, Math.min(0.5, Math.atan2(Math.sin(v.yaw - car.lastYaw), Math.cos(v.yaw - car.lastYaw)) / dt * v.speed * 0.012));
+    if ((kindOf(v) === 'bike' || kindOf(v) === 'scooter') && car.lastYaw !== undefined && dt > 0) lean = Math.max(-0.5, Math.min(0.5, Math.atan2(Math.sin(v.yaw - car.lastYaw), Math.cos(v.yaw - car.lastYaw)) / dt * v.speed * 0.012));
     car.lastYaw = v.yaw;
     car.root.rotation.set(pitch, v.yaw, roll - lean);
     for (const wheel of car.wheels) wheel.rotation.x += v.speed * dt / 0.42;

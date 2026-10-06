@@ -5,7 +5,7 @@ import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
 import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
 import { floorSurface, STEP_UP } from './buildings';
-import { kindOf, VEHICLES, vehicleKindFor } from './vehicles';
+import { HULLS, kindOf, VEHICLES, vehicleKindFor } from './vehicles';
 import { FISTS, isMeleeKind, MELEE } from './melee';
 import type { MeleeKind } from './melee';
 import { ATTACH, ATTACH_SLOTS, attachmentsOf, capacityOf, emptyParts, fits, isAttachKind, isPackKind, magazineOf, PACK_BASE, PACKS, rigStats, spaceOf, usedSpace } from './gear';
@@ -109,7 +109,6 @@ const AIRDROP_HEIGHT = 520;
 const AIRDROP_FALL = 9;
 const VEHICLE_REACH = 4.2;
 /** Shape of what a bullet hits on each kind of vehicle: half width, half length, bottom and top above the ground. */
-const HULLS = { car: { half: 0.95, length: 2.1, low: 0.25, high: 1.7 }, bike: { half: 0.35, length: 1.0, low: 0.15, high: 0.95 }, buggy: { half: 0.8, length: 1.3, low: 0.25, high: 0.95 } } as const;
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const distance2 = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 const clamp = (n: number, low: number, high: number) => Math.max(low, Math.min(high, n));
@@ -1659,8 +1658,9 @@ export class GameSimulation {
       if (d < 7) this.damage(actor, 70 * (1 - d / 7));
     }
     const lengthwise = Math.abs(Math.sin(v.yaw)) > 0.7;
+    const hull = HULLS[kindOf(v)], long = hull.length * 2, wide = hull.half * 2 + 0.3;
     this.world.obstacles.push({
-      id: `wreck-${v.id}`, x: v.position.x, z: v.position.z, width: lengthwise ? 4.2 : 2.2, depth: lengthwise ? 2.2 : 4.2,
+      id: `wreck-${v.id}`, x: v.position.x, z: v.position.z, width: lengthwise ? long : wide, depth: lengthwise ? wide : long,
       height: 1.4, kind: 'wreck', base: v.position.y,
     });
   }

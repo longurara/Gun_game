@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
 import { createIsland } from '../src/game/world.ts';
+import { VEHICLES } from '../src/game/vehicles.ts';
 import type { Actor, PlayerInput, Vehicle } from '../src/types.ts';
 
 const idle: PlayerInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
@@ -35,7 +36,7 @@ test('the island has cars on its roads and the arena has none', () => {
   const island = new GameSimulation({ seed: 1, botCount: 5, map: 'island' });
   island.start();
   assert.ok(island.state.vehicles.length >= 30);
-  for (const v of island.state.vehicles) assert.equal(v.health, v.kind === 'bike' ? 140 : v.kind === 'buggy' ? 220 : 300);
+  for (const v of island.state.vehicles) assert.equal(v.health, VEHICLES[v.kind].health);
   const arena = new GameSimulation({ seed: 1, botCount: 5 });
   arena.start();
   assert.equal(arena.state.vehicles.length, 0);
