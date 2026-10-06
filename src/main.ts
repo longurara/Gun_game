@@ -18,6 +18,7 @@ import './free-assets.css';
 import './menu-assets.css';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
+import { instantiateAircraft, preloadAircraftAssets } from './aircraft-assets';
 import { preloadEnemyAssets } from './enemy-assets';
 import { enemyDetailBudget } from './enemy-catalog';
 import { InventoryPreview } from './inventory-preview';
@@ -952,8 +953,10 @@ interface Character {
   soldier: Soldier; root: TransformNode; last: Vector3; stride: number; moving: number; chute?: TransformNode; lastStep?: number; crouch: number; prone: number;
 }
 
-/** A four-engined transport that crosses the island at the start of a match: round fuselage, high wing, blinking lights. */
+/** The original transport remains visible while the local aircraft loads or if loading fails. */
 let planeLights: Mesh[] = [];
+let planeFallback: Mesh[] = [];
+let planeAssetReady = false;
 function createPlaneModel(): TransformNode {
   const root = new TransformNode('transport-plane', scene);
   const hull = material('plane-hull', '#cfd5d3');
@@ -993,6 +996,8 @@ function createPlaneModel(): TransformNode {
   };
   planeLights = [light('red', '#ff3b30', new Vector3(-17, 1.2, 1.5)), light('green', '#34c759', new Vector3(17, 1.2, 1.5)), light('strobe', '#ffffff', new Vector3(0, 7.2, -16.5))];
   for (const mesh of parts) { mesh.isPickable = false; mesh.receiveShadows = false; }
+  planeFallback = parts.filter(mesh => !planeLights.includes(mesh));
+  void preloadAircraftAssets(scene);
   return root;
 }
 
@@ -1977,6 +1982,14 @@ function renderPlane() {
   const plane = sim.state.plane;
   if (!plane?.active || sim.state.phase === 'menu') { planeModel?.setEnabled(false); return; }
   planeModel ??= createPlaneModel();
+  if (!planeAssetReady) {
+    const asset = instantiateAircraft(scene, planeModel);
+    if (asset) {
+      planeAssetReady = true;
+      planeFallback.forEach(mesh => mesh.setEnabled(false));
+      [asset.lights.left, asset.lights.right, asset.lights.tail].forEach((position, index) => planeLights[index].position.copyFrom(position));
+    }
+  }
   planeModel.setEnabled(true);
   // Navigation lights: steady red and green, a short white strobe once a second.
   planeLights[2]?.setEnabled(performance.now() % 1000 < 120);

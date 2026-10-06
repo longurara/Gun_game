@@ -1,0 +1,13 @@
+{
+  "file": "airplane.glb",
+  "title": "Airplane",
+  "author": "Poly by Google",
+  "license": "CC-BY 3.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+  "page": "https://poly.pizza/m/2eG17I-VDiG",
+  "sourceUrl": "https://static.poly.pizza/ecd6c1f3-1aa9-4927-abce-53ebac9ed3f6.glb.br",
+  "bytes": 158364,
+  "sha256": "2f16bf0ee65537fe45ac2685493b6d20afc29af7b3110c7d7afbe58ebe8f4280",
+  "processing": "Original GLB unchanged; runtime aligns nose to +Z, scales to 34 m wingspan and adapts materials for game lighting",
+  "verified": "2026-10-06"
+}

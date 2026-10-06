@@ -67,6 +67,7 @@ export function installMenuAssets(root: HTMLElement, audio: GameAudio): void {
       <li><a href="https://quaternius.com/packs/ultimatemodularwomen.html" target="_blank" rel="noopener noreferrer">Ultimate Modular Women Pack — Punk</a><span>Quaternius · CC0 1.0</span></li>
       <li><a href="https://poly.pizza/m/oAArCNHjFB" target="_blank" rel="noopener noreferrer">Soldier — nữ đặc nhiệm</a><span>Quaternius · <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a></span><small>Theo giấy phép bản GLB trên Poly Pizza. Đã bỏ clip dư, thu gọn buffer; chỉnh chiều cao và pose trong game.</small></li>
       <li><a href="https://kenney.nl/assets/animated-characters-survivors" target="_blank" rel="noopener noreferrer">Animated Characters Survivors</a><span>Kenney · CC0 1.0 · bốn ngoại hình quân địch</span><small>Đã chuyển FBX sang GLB và ghép clip idle/run/jump; giữ texture gốc.</small></li>
+      <li><a href="https://poly.pizza/m/2eG17I-VDiG" target="_blank" rel="noopener noreferrer">Airplane</a><span>Poly by Google · <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a></span><small>Model GLB gốc; chỉnh hướng, sải cánh 34 m, material và đèn dẫn đường trong game.</small></li>
     </ul><button id="asset-credits-close" class="button button-secondary" type="button">ĐÓNG</button>`;
   root.querySelector('.lobby-foot')?.appendChild(creditsButton);
   root.appendChild(dialog);
