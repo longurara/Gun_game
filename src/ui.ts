@@ -856,7 +856,7 @@ export class GameUI {
   public get armouryOpen(): boolean { return !this.el('range-armoury').hidden; }
 
   /** The armoury window: every gun in the game, by class, and a click takes one. */
-  public toggleArmoury(show?: boolean): void {
+  public toggleArmoury(show?: boolean, quiet = false): void {
     const open = show ?? !this.armouryOpen;
     if (open === this.armouryOpen) return;
     if (open && this.phase !== 'playing') return;
@@ -866,7 +866,8 @@ export class GameUI {
       this.renderArmoury(true);
       (this.el('armoury-search') as HTMLInputElement).focus({ preventScroll: true });
     }
-    this.callbacks.onArmouryChange?.(open);
+    // `quiet` closes the window without handing the mouse back (the game is pausing and has just let go of it).
+    if (!quiet) this.callbacks.onArmouryChange?.(open);
   }
 
   private renderArmoury(rebuildTabs = false): void {

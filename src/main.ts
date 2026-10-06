@@ -793,7 +793,7 @@ function pause() {
   if (sim.state.phase !== 'playing') return;
   // Online the world cannot be paused (other people are in it): the menu just opens over the running game.
   if (net) { if (!mpMenuOpen) { mpMenuOpen = true; releaseInput(); ui.setMpMenu(true); } return; }
-  sim.setPaused(true); ui.toggleInventory(false); releaseInput(); audio.pause();
+  sim.setPaused(true); ui.toggleInventory(false); ui.toggleArmoury(false, true); releaseInput(); audio.pause();
 }
 
 function applySettings() {
@@ -2230,6 +2230,11 @@ window.addEventListener('keydown', event => {
   }
   if (ui.inventoryOpen) {
     if (event.code === 'Escape' && !event.repeat) { event.preventDefault(); ui.toggleInventory(false); }
+    return;
+  }
+  // With the armoury open, Esc and B close it wherever the focus is (not only while the search box or a card has it).
+  if (ui.armouryOpen && sim.state.phase === 'playing') {
+    if ((event.code === 'Escape' || event.code === 'KeyB') && !event.repeat) { event.preventDefault(); ui.toggleArmoury(false); }
     return;
   }
   if (event.code === 'Escape' && !event.repeat) {
