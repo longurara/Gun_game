@@ -41,8 +41,8 @@ test('the island has apartment blocks, hospitals, warehouses and towers you can 
   assert.ok(floors.some(f => f.id.startsWith('tower-')), 'no watch tower');
   const blocks = new Set(floors.filter(f => /-h\d+-r0$/.test(f.id)).map(f => f.id));
   assert.ok(blocks.size >= 8, `${blocks.size} apartment blocks`);
-  // No solid, unenterable blocks are left in the cities.
-  assert.equal(world.obstacles.filter(o => o.kind === 'building').length, 0);
+  // No solid, unenterable blocks are left in the cities (the silos and chimney of an industrial estate are solid on purpose).
+  assert.equal(world.obstacles.filter(o => o.kind === 'building' && !o.id.startsWith('hot-')).length, 0);
   assert.ok(createValley().world.floors!.length > 0, 'the valley has climbable buildings too');
 });
 

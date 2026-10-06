@@ -21,6 +21,8 @@ function hash(text: string): () => number {
 const FRIEND_COLORS: Rgb[] = [[0.9, 0.35, 0.3], [0.3, 0.55, 0.95], [0.95, 0.75, 0.2], [0.65, 0.4, 0.9], [0.95, 0.5, 0.75], [0.95, 0.95, 0.95]];
 
 export function outfitFor(id: string, isPlayer: boolean, friend = false, skinId?: string): Outfit {
+  // A practice target on the shooting range is bright orange with a white cap.
+  if (id.startsWith('dummy')) return { camo: false, fabric: [0.95, 0.5, 0.14], skin: [0.92, 0.72, 0.56], hair: [0.2, 0.2, 0.2], hat: [0.97, 0.97, 0.97], headgear: 'cap', pack: 0 };
   const def = skinById(skinId);
   if (def && isPlayer && !friend) return { pack: 0, ...def.outfit };
   if (friend) {

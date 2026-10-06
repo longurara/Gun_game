@@ -6,6 +6,7 @@
  */
 import type { Actor, AirMode, GameEvent, LootKind, Stance } from '../types';
 import type { GameSimulation } from '../game/simulation';
+import { BREATH_SECONDS } from '../game/breath';
 import { AMMO_ORDER, emptyAmmo, emptyReserve, WEAPON_ORDER } from '../game/weapons';
 import { placePlane } from '../game/drop';
 import { SUPPLY_ORDER, THROW_ORDER, USE_CODES } from '../game/supplies';
@@ -57,6 +58,8 @@ export interface PrivateRow {
   pk?: number; ps?: number[]; att?: Array<[number, number]>;
   /** The close-combat weapon (1 + index in MELEE_ORDER, 0 none). */
   ml?: number;
+  /** Held breath as a percentage, and flags: 1 holding, 2 winded. */
+  br?: number; hb?: number;
   /** Free-fall / canopy velocity and time, and the jump velocity: what a client needs to predict its own movement. */
   air?: [number, number, number, number]; vy: number; speed: number;
 }
@@ -166,6 +169,7 @@ function privateRow(sim: GameSimulation, actor: Actor): PrivateRow {
     reload: r2(actor.reloading), heal: r2(actor.healing), vy: r2(motion.vy), speed: r2(motion.speed),
     sup: SUPPLY_ORDER.map(kind => actor.supplies[kind]), boost: Math.round(actor.boost), hk: Math.max(0, USE_CODES.indexOf(actor.healKind ?? null)),
     tk: sim.selectedThrow(actor) ? THROW_ORDER.indexOf(sim.selectedThrow(actor)!) + 1 : 0, bl: r2(actor.blind ?? 0),
+    br: Math.round((actor.breath ?? BREATH_SECONDS) / BREATH_SECONDS * 100), hb: (actor.holding ? 1 : 0) | (actor.winded ? 2 : 0),
     ml: actor.melee ? MELEE_ORDER.indexOf(actor.melee) + 1 : 0, pk: actor.pack, ps: ATTACH_ORDER.map(kind => actor.parts[kind]), att: actor.ownedWeapons.map(weapon => [WEAPON_INDEX.get(weapon) ?? 0, attachCode(attachmentsOf(actor, weapon))] as [number, number]),
   };
   if (actor.air) row.air = [r2(actor.air.vx), r2(actor.air.vy), r2(actor.air.vz), r2(actor.air.time)];
@@ -336,6 +340,8 @@ function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protec
   if (typeof row.pk === 'number') actor.pack = Math.max(0, Math.min(3, Math.floor(row.pk)));
   if (Array.isArray(row.ps)) ATTACH_ORDER.forEach((kind, i) => { const n = row.ps![i]; actor.parts[kind] = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; });
   if (Array.isArray(row.att)) { actor.attach = {}; for (const [weapon, code] of row.att) { const id = WEAPON_ORDER[weapon]; if (id && code) actor.attach[id] = attachFromCode(code); } }
+  if (typeof row.br === 'number' && Number.isFinite(row.br)) actor.breath = Math.max(0, Math.min(100, row.br)) / 100 * BREATH_SECONDS;
+  actor.holding = typeof row.hb === 'number' && (row.hb & 1) === 1; actor.winded = typeof row.hb === 'number' && (row.hb & 2) === 2;
   actor.blind = typeof row.bl === 'number' && Number.isFinite(row.bl) ? Math.max(0, row.bl) : 0;
   // The stage and its velocity/time must agree: a pre-jump plane payload would otherwise stop a predicted fall.
   if (!keepFlight && row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }

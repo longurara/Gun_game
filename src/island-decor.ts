@@ -405,7 +405,7 @@ export class IslandDecor {
       // A stable patch distribution avoids selection/rotation correlation and moving density rings.
       const meadow = groundNoise(x, z);
       const density = 0.42 + meadow * 0.42;
-      if (grassHash(gx, gz, 5) > density) continue;
+      if (grassHash(gx, gz, 5) > density * (this.world.theme?.grass ?? 1)) continue;
       const y = terrain(x, z);
       if (y < 2.6 || this.nearTown(x, z) || this.onRoadOrRiver(x, z)) continue;
       if (lakes.some(l => Math.hypot(x - l.x, z - l.z) < l.r * 1.2)) continue;

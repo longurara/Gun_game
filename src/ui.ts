@@ -5,12 +5,13 @@ import { MELEE } from './game/melee';
 import { DEFAULT_SKIN, isUnlocked, lockText, SKINS, skinById, usableSkin } from './skins';
 import type { PlayerStats } from './skins';
 import type { SupplyKind } from './game/supplies';
-import type { Actor, Loot, LootKind, AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponType, WorldConfig } from './types';
+import type { Actor, Loot, LootKind, AirMode, GyroMode, AmmoType, ArmorSlot, GameSettings, GameState, MapId, Vec2, WeaponClass, WeaponType, WorldConfig } from './types';
 import { mapData } from './game/world';
+import { createRangeWorld } from './game/range';
 import { remainingGlide } from './game/drop';
 import { ZERO_DISTANCE } from './game/ballistics';
 import { SCOPE_FROM } from './optics';
-import { ARMOR_DURABILITY, ARMOR_NAMES, isSidearm, slotOrder, WEAPONS } from './game/weapons';
+import { AMMO_LABEL, ARMOR_DURABILITY, ARMOR_NAMES, CLASS_BASE, GUNS_BY_CLASS, isSidearm, slotOrder, WEAPON_ORDER, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
 
 type Callbacks = {
@@ -30,6 +31,11 @@ type Callbacks = {
   onReplay?: () => void;
   onReplayStop?: () => void;
   onSelectWeapon?: (weapon: WeaponType) => void;
+  /** The shooting range: take this gun, and the armoury window opened or closed. */
+  onRangeEquip?: (weapon: WeaponType) => void;
+  onArmouryChange?: (open: boolean) => void;
+  /** The breath button on a phone was pressed or let go. */
+  onBreath?: (held: boolean) => void;
   /** Change the scope's magnification: +1 zooms in, -1 out. */
   onZoomStep?: (direction: number) => void;
   onTouchOverlayChange?: (open: boolean) => void;
@@ -44,15 +50,19 @@ type Callbacks = {
   onInventoryChange?: (open: boolean) => void;
 };
 type BestRecord = { wins: number; kills: number; survival: number; /** Every hạ gục so far (kills is the best single match). */ killsTotal: number };
-const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false, skin: 'default' };
-const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7] };
-const defaultBots = (map: MapId): number => map === 'island' ? 100 : map === 'valley' ? 30 : 5;
+const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, map: 'island', volume: 0.6, quality: 'high', sensitivity: 1, gyro: 'off', gyroSensitivity: 1, gyroInvertY: false, tips: true, showFps: false, aimAssist: 'off', recoilScale: 1, soundIndicator: false, skin: 'default', immortal: false };
+const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7], desert: [25, 50, 100], pines: [25, 50, 100], metro: [25, 50, 100], range: [0, 3, 6, 10] };
+const defaultBots = (map: MapId): number => map === 'valley' ? 30 : map === 'arena' ? 5 : map === 'range' ? 3 : 100;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
   island: { title: 'ĐẢO LASTLIGHT', blurb: 'Sông, hồ, thị trấn và rừng. Lục nhà tìm súng, giáp; lái xe vượt đảo trước khi bo khép lại.', size: '4 × 4 KM', time: '≈ 10 PHÚT' },
   valley: { title: 'ĐẤU TRƯỜNG THUNG LŨNG', blurb: 'Một thung lũng khép kín, đông bot, bo thu nhanh. Giao tranh liên tục từ giây đầu tiên.', size: '1 × 1 KM', time: '≈ 6 PHÚT' },
   arena: { title: 'SÂN TẬP', blurb: 'Bản đồ nhỏ có sẵn đủ 8 loại súng quanh điểm xuất phát. Hợp để thử súng và luyện ngắm.', size: '200 M', time: '≈ 7 PHÚT' },
+  range: { title: 'TRƯỜNG BẮN', blurb: 'Năm làn bia từ 15 đến 250 m, bia di động, khu bot bắn trả và kệ đủ mọi loại vũ khí. Đạn vô hạn, có thể bật bất tử để luyện thoải mái.', size: '400 M', time: 'KHÔNG GIỚI HẠN' },
+  desert: { title: 'SA MẠC ĐỎ', blurb: 'Cồn cát và cao nguyên đá, vài ốc đảo, thị trấn cách xa nhau. Tìm xe để vượt sa mạc trước khi bo khép lại, và đừng để lộ mình giữa trời trống.', size: '5 × 5 KM', time: '≈ 20 PHÚT' },
+  pines: { title: 'RỪNG THÔNG', blurb: 'Cao nguyên phủ rừng thông dày, hồ rải rác và những con dốc. Chỗ nấp khắp nơi, tầm nhìn chẳng được bao xa.', size: '4,5 × 4,5 KM', time: '≈ 20 PHÚT' },
+  metro: { title: 'ĐÔ THỊ', blurb: 'Năm thành phố sát nhau, nhà cao tầng và công viên xen giữa. Giao tranh liên miên trong phố, chiếm tầng cao để làm chủ.', size: '3 × 3 KM', time: '≈ 20 PHÚT' },
 };
-const readMap = (value: unknown): MapId => value === 'arena' ? 'arena' : value === 'valley' ? 'valley' : 'island';
+const readMap = (value: unknown): MapId => typeof value === 'string' && Object.hasOwn(MAP_INFO, value) ? value as MapId : 'island';
 const SETTINGS_KEY = 'lastlight.settings.v1';
 const BEST_KEY = 'lastlight.best.v1';
 const TIPS_KEY = 'lastlight.tips.v1';
@@ -112,6 +122,7 @@ function readSettings(): GameSettings {
     recoilScale: clamp(raw.recoilScale, 0.3, 1.5, defaults.recoilScale),
     soundIndicator: typeof raw.soundIndicator === 'boolean' ? raw.soundIndicator : defaults.soundIndicator,
     skin: skinById(raw.skin) ? raw.skin as string : DEFAULT_SKIN,
+    immortal: raw.immortal === true,
   };
 }
 function readBest(): BestRecord {
@@ -172,7 +183,11 @@ export class GameUI {
               <div id="map-choice" class="map-tabs" role="radiogroup" aria-label="Bản đồ">
                 <button type="button" role="radio" data-value="island"><b>ĐẢO</b><small>4 × 4 km</small></button>
                 <button type="button" role="radio" data-value="valley"><b>ĐẤU TRƯỜNG</b><small>1 × 1 km</small></button>
+                <button type="button" role="radio" data-value="desert"><b>SA MẠC</b><small>5 × 5 km · 20 phút</small></button>
+                <button type="button" role="radio" data-value="pines"><b>RỪNG THÔNG</b><small>4,5 × 4,5 km · 20 phút</small></button>
+                <button type="button" role="radio" data-value="metro"><b>ĐÔ THỊ</b><small>3 × 3 km · 20 phút</small></button>
                 <button type="button" role="radio" data-value="arena"><b>SÂN TẬP</b><small>200 m</small></button>
+                <button type="button" role="radio" data-value="range"><b>TRƯỜNG BẮN</b><small>Bia · bot · bất tử</small></button>
               </div>
               <div class="mode-card">
                 <div class="mode-map"><canvas id="menu-map" width="320" height="320" aria-label="Bản đồ chiến trường"></canvas></div>
@@ -185,6 +200,7 @@ export class GameUI {
               <div class="panel-row">
                 <div class="setting-group"><span class="group-label">SỐ ĐỐI THỦ</span><div id="bot-choice" class="seg seg-compact" role="radiogroup" aria-label="Số lượng bot"></div></div>
                 <div class="setting-group"><span class="group-label">ĐỘ KHÓ</span><div id="difficulty-choice" class="seg seg-compact" role="radiogroup" aria-label="Độ khó"><button type="button" role="radio" data-value="normal"><b>Tiêu chuẩn</b></button><button type="button" role="radio" data-value="easy"><b>Dễ</b></button></div></div>
+                <div id="immortal-group" class="setting-group" hidden><span class="group-label">BẤT TỬ</span><div id="immortal-choice" class="seg seg-compact" role="radiogroup" aria-label="Bất tử"><button type="button" role="radio" data-value="off"><b>Tắt</b></button><button type="button" role="radio" data-value="on"><b>Bật</b></button></div></div>
               </div>
               <button id="start-button" class="start-button" type="button"><span class="start-label">${icon('target')}<span><b>BẮT ĐẦU TRẬN</b><small id="start-sub">100 đối thủ · ≈ 10 phút</small></span></span>${icon('arrow')}</button>
               <button id="multi-button" class="button button-secondary multi-button" type="button">CHƠI VỚI BẠN BÈ · ONLINE ${icon('arrow')}</button>
@@ -247,13 +263,32 @@ export class GameUI {
           <circle cx="500" cy="500" r="1.6" fill="#050605"/>
         </svg>
         <div class="scope-readout"><span>Điểm zero</span><strong id="scope-zero">100 m</strong></div>
+        <div id="scope-breath" class="scope-breath"><span id="scope-breath-label">NÍN THỞ · SHIFT</span><i><b id="scope-breath-fill"></b></i></div>
+        <button id="scope-breath-btn" class="scope-breath-btn" type="button" aria-label="Giữ để nín thở">NÍN THỞ</button>
         <div class="scope-zoombar"><button id="scope-zoom-out" type="button" aria-label="Giảm độ phóng đại">−</button><div><strong id="scope-zoom">6×</strong><small>Lăn chuột để đổi</small></div><button id="scope-zoom-in" type="button" aria-label="Tăng độ phóng đại">+</button></div>
+      </div>
+      <div id="range-armoury" class="armoury" role="dialog" aria-modal="true" aria-label="Kho vũ khí" hidden>
+        <div class="armoury-card">
+          <header class="armoury-head"><h2>KHO VŨ KHÍ</h2><input id="armoury-search" type="search" placeholder="Tìm súng…" autocomplete="off" aria-label="Tìm súng"><button id="armoury-close" type="button" aria-label="Đóng">✕</button></header>
+          <nav id="armoury-classes" class="armoury-classes" aria-label="Loại súng"></nav>
+          <div id="armoury-grid" class="armoury-grid" role="listbox" aria-label="Danh sách súng"></div>
+          <footer class="armoury-foot">Bấm vào một khẩu để lấy ngay · đạn, phụ kiện và đồ hồi máu đều vô hạn · B hoặc Esc để đóng</footer>
+        </div>
       </div>
       <section id="hud" class="hud" aria-label="Thông tin trận đấu" hidden>
         <button id="inventory-toggle" class="inventory-toggle" type="button" aria-label="Mở kho đồ" aria-controls="inventory-screen" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7V5a4 4 0 0 1 8 0v2M5 8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12H5zM5 14h14M9 17h6"/></svg><span>KHO ĐỒ</span><kbd>Tab</kbd></button>
         <div class="hud-brand"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>SOLO</small></span></div>
         <div class="compass"><div class="compass-needle"></div><div id="compass-labels" class="compass-labels"></div><span id="compass-degrees" class="compass-degrees">000°</span></div>
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
+        <div id="range-panel" class="range-panel" hidden>
+          <div class="range-title">TRƯỜNG BẮN</div>
+          <div id="range-last" class="range-last">Chưa bắn trúng bia</div>
+          <div id="range-stats" class="range-stats">—</div>
+          <div class="range-actions">
+            <button id="range-immortal" type="button" aria-pressed="false">BẤT TỬ: <b id="range-immortal-state">TẮT</b> <kbd>K</kbd></button>
+            <button id="range-armoury-btn" type="button">KHO VŨ KHÍ <kbd>B</kbd></button>
+          </div>
+        </div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
         <div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="sound-dirs" class="sound-dirs" aria-hidden="true">${[0, 1, 2, 3].map(i => `<div id="sound-dir-${i}" class="sound-dir"><i></i></div>`).join('')}</div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
         <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
@@ -295,6 +330,7 @@ export class GameUI {
     });
     choose('difficulty-choice', value => this.changeSettings({ difficulty: value === 'easy' ? 'easy' : 'normal' }));
     choose('bot-choice', value => this.changeSettings({ botCount: Number(value) }));
+    choose('immortal-choice', value => this.changeSettings({ immortal: value === 'on' }));
     choose('assist-choice', value => this.changeSettings({ aimAssist: value === 'high' ? 'high' : value === 'low' ? 'low' : 'off' }));
     this.el('recoil-scale').addEventListener('input', () => this.changeSettings({ recoilScale: Number((this.el('recoil-scale') as HTMLInputElement).value) }));
     choose('gyro-choice', value => this.changeSettings({ gyro: value === 'always' ? 'always' : value === 'aim' ? 'aim' : 'off' }));
@@ -326,6 +362,29 @@ export class GameUI {
     this.el('back-play').addEventListener('click', () => this.showSettings(false));
     root.querySelector('.wordmark')?.addEventListener('click', event => { event.preventDefault(); this.showSettings(false); });
     this.el('scope-zoom-in').addEventListener('click', () => this.callbacks.onZoomStep?.(1));
+    const breathButton = this.el('scope-breath-btn');
+    for (const type of ['pointerdown']) breathButton.addEventListener(type, event => { event.preventDefault(); this.callbacks.onBreath?.(true); });
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) breathButton.addEventListener(type, () => this.callbacks.onBreath?.(false));
+    this.el('range-immortal').addEventListener('click', () => this.toggleImmortal());
+    this.el('range-armoury-btn').addEventListener('click', () => this.toggleArmoury());
+    this.el('armoury-close').addEventListener('click', () => this.toggleArmoury(false));
+    this.el('armoury-search').addEventListener('input', () => this.renderArmoury());
+    this.el('armoury-classes').addEventListener('click', event => {
+      const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-class]');
+      if (!tab) return;
+      this.armouryClass = tab.dataset.class ?? 'all';
+      this.renderArmoury();
+    });
+    this.el('armoury-grid').addEventListener('click', event => {
+      const card = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-weapon]');
+      if (!card) return;
+      this.armouryPicked = card.dataset.weapon as WeaponType;
+      this.callbacks.onRangeEquip?.(this.armouryPicked);
+      this.renderArmoury();
+    });
+    this.el('range-armoury').addEventListener('keydown', event => {
+      if (event.key === 'Escape' || (event.code === 'KeyB' && (event.target as HTMLElement).id !== 'armoury-search')) { event.preventDefault(); event.stopPropagation(); this.toggleArmoury(false); }
+    });
     this.el('scope-zoom-out').addEventListener('click', () => this.callbacks.onZoomStep?.(-1));
     this.el('start-button').addEventListener('click', () => { this.hide('error-banner', true); this.callbacks.onStart({ ...this.settings }); });
     this.el('resume-button').addEventListener('click', callbacks.onResume);
@@ -395,7 +454,7 @@ export class GameUI {
   /** A click on the big map plants the flag there; a click on the flag removes it. */
   private placeFlag(event: MouseEvent): void {
     const world = this.lastWorld;
-    if (!world || world.id === 'arena') return;
+    if (!world || world.id === 'arena' || world.id === 'range') return;
     const canvas = this.el('bigmap') as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0) return;
@@ -439,6 +498,8 @@ export class GameUI {
       bots.innerHTML = choices.map(n => `<button type="button" role="radio" data-value="${n}"><b>${n}</b><small>bot</small></button>`).join('');
     }
     mark('map-choice', this.settings.map);
+    mark('immortal-choice', this.settings.immortal ? 'on' : 'off');
+    this.hide('immortal-group', this.settings.map !== 'range');
     mark('bot-choice', `${this.settings.botCount}`);
     mark('difficulty-choice', this.settings.difficulty);
     mark('gyro-choice', this.settings.gyro);
@@ -584,6 +645,10 @@ export class GameUI {
     this.el('hit-marker').classList.toggle('visible', now < this.hitUntil);
     this.text('alive-count', `${state.actors.filter(actor => actor.alive).length}`);
     this.text('kill-count', `${state.kills}`);
+    const onRange = world.id === 'range';
+    this.root.classList.toggle('on-range', onRange);
+    this.hide('range-panel', !onRange);
+    if (onRange) this.updateRangePanel(state);
     this.text('match-time', formatTime(state.elapsed));
     this.text('health-number', `${Math.ceil(Math.max(0, player.health))}`);
     this.el('health-bar').style.transform = `scaleX(${Math.max(0, Math.min(1, player.health / 100))})`;
@@ -661,6 +726,83 @@ export class GameUI {
       this.el('scope-zoom-out').toggleAttribute('disabled', zoom <= 1 + 1e-6);
       this.el('scope-overlay').setAttribute('aria-label', `Ống ngắm ${config.label}, độ phóng đại ${label}`);
     }
+  }
+
+  // ---- The shooting range -------------------------------------------------------------------------------------
+
+  private rangeLastText = '';
+  private rangeLastUntil = 0;
+  private armouryClass = 'all';
+  private armouryPicked: WeaponType | null = null;
+  private breathKey = '';
+
+  /** What the last shot that hit a target did: damage, how far away it was, and whether it was a headshot. */
+  public rangeHit(damage: number, distance: number, head: boolean): void {
+    this.rangeLastText = `${head ? 'ĐẦU · ' : ''}−${Math.round(damage)} máu · ${Math.round(distance)} m`;
+    this.rangeLastUntil = performance.now() + 6000;
+  }
+
+  private updateRangePanel(state: GameState): void {
+    const fresh = performance.now() < this.rangeLastUntil;
+    this.text('range-last', this.rangeLastText ? this.rangeLastText : 'Chưa bắn trúng bia');
+    this.el('range-last').classList.toggle('fresh', fresh);
+    this.text('range-stats', state.shots ? `Chính xác ${Math.round(state.hits / state.shots * 100)}% · ${state.hits}/${state.shots} phát · hạ ${state.kills} bia` : 'Chưa bắn phát nào');
+    this.text('range-immortal-state', this.settings.immortal ? 'BẬT' : 'TẮT');
+    this.el('range-immortal').setAttribute('aria-pressed', String(this.settings.immortal));
+    this.el('range-immortal').classList.toggle('on', this.settings.immortal);
+  }
+
+  /** Switch immortality on the range (the K key and the button on the panel). */
+  public toggleImmortal(): void { this.changeSettings({ immortal: !this.settings.immortal }); this.notify(this.settings.immortal ? 'Bất tử: BẬT' : 'Bất tử: TẮT'); }
+
+  public get armouryOpen(): boolean { return !this.el('range-armoury').hidden; }
+
+  /** The armoury window: every gun in the game, by class, and a click takes one. */
+  public toggleArmoury(show?: boolean): void {
+    const open = show ?? !this.armouryOpen;
+    if (open === this.armouryOpen) return;
+    if (open && this.phase !== 'playing') return;
+    this.hide('range-armoury', !open);
+    if (open) {
+      this.armouryPicked = null;
+      this.renderArmoury(true);
+      (this.el('armoury-search') as HTMLInputElement).focus({ preventScroll: true });
+    }
+    this.callbacks.onArmouryChange?.(open);
+  }
+
+  private renderArmoury(rebuildTabs = false): void {
+    const tabs = this.el('armoury-classes');
+    if (rebuildTabs || !tabs.children.length) {
+      const classes = (Object.keys(GUNS_BY_CLASS) as WeaponClass[]).filter(cls => GUNS_BY_CLASS[cls].length);
+      tabs.innerHTML = [`<button type="button" data-class="all">TẤT CẢ <small>${WEAPON_ORDER.length}</small></button>`,
+        ...classes.map(cls => `<button type="button" data-class="${cls}">${CLASS_BASE[cls].label.toUpperCase()} <small>${GUNS_BY_CLASS[cls].length}</small></button>`)].join('');
+    }
+    for (const tab of tabs.querySelectorAll<HTMLButtonElement>('button')) tab.classList.toggle('on', tab.dataset.class === this.armouryClass);
+    const query = (this.el('armoury-search') as HTMLInputElement).value.trim().toLowerCase();
+    const current = this.armouryPicked ?? this.inventoryPlayer?.weapon;
+    const list = WEAPON_ORDER.filter(id => {
+      const gun = WEAPONS[id];
+      return (this.armouryClass === 'all' || gun.kind === this.armouryClass) && (!query || gun.label.toLowerCase().includes(query) || gun.category.toLowerCase().includes(query) || AMMO_LABEL[gun.ammoType].toLowerCase().includes(query));
+    });
+    this.el('armoury-grid').innerHTML = list.map(id => {
+      const gun = WEAPONS[id];
+      return `<button type="button" role="option" class="armoury-gun${id === current ? ' on' : ''}" data-weapon="${id}" data-tier="${gun.tier}" aria-selected="${id === current}" style="--weapon-color:${gun.color}">${weaponHudIcon(id)}<b>${gun.label}</b><small>${gun.category} · ${AMMO_LABEL[gun.ammoType]}</small></button>`;
+    }).join('') || '<p class="armoury-empty">Không có khẩu nào khớp.</p>';
+  }
+
+  /** The held-breath meter in the scope: how much is left, and whether it is being held or has run out. */
+  public setBreath(fraction: number, holding: boolean, winded: boolean): void {
+    const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+    const key = `${percent}:${holding}:${winded}`;
+    if (key === this.breathKey) return;
+    this.breathKey = key;
+    const meter = this.el('scope-breath');
+    meter.classList.toggle('holding', holding);
+    meter.classList.toggle('winded', winded);
+    meter.classList.toggle('low', !winded && fraction < 0.9);
+    this.el('scope-breath-fill').style.transform = `scaleX(${percent / 100})`;
+    this.text('scope-breath-label', winded ? 'HẾT HƠI · ĐỢI LẤY LẠI' : holding ? 'ĐANG NÍN THỞ' : this.touchMode ? 'GIỮ NÚT NÍN THỞ' : 'NÍN THỞ · GIỮ SHIFT');
   }
 
   private updateCompass(yaw: number): void {
@@ -867,6 +1009,26 @@ export class GameUI {
   private lastWorld: WorldConfig | null = null;
 
   /** The menu's preview of the chosen battleground. */
+  /** The range at a glance: five lanes with their targets, the firing line, and the bots' yard. */
+  private drawRangePreview(ctx: CanvasRenderingContext2D, size: number): void {
+    const world = createRangeWorld(), layout = world.range!, pad = 9, scale = (size - pad * 2) / (world.halfSize * 2);
+    const mapX = (x: number) => size / 2 + x * scale, mapY = (z: number) => size / 2 - z * scale;
+    ctx.fillStyle = '#26382b'; ctx.fillRect(0, 0, size, size);
+    const longest = Math.max(...layout.distances);
+    ctx.fillStyle = '#7f8579';
+    for (const x of layout.laneX) ctx.fillRect(mapX(x - 10), mapY(layout.firingZ + longest + 8), 20 * scale, (longest + 8) * scale);
+    ctx.fillStyle = '#e2b53c'; ctx.fillRect(mapX(-110), mapY(layout.firingZ) - 1.5, 220 * scale, 3);
+    for (const o of world.obstacles) {
+      ctx.fillStyle = o.kind === 'building' ? '#8c978d' : o.kind === 'rock' ? '#4b5f52' : '#a58f68';
+      ctx.fillRect(mapX(o.x - o.width / 2), mapY(o.z + o.depth / 2), Math.max(1.5, o.width * scale), Math.max(1.5, o.depth * scale));
+    }
+    ctx.fillStyle = '#f0a04a';
+    for (const d of layout.dummies) ctx.fillRect(mapX(d.x) - 1.6, mapY(d.z) - 1.6, 3.2, 3.2);
+    ctx.fillStyle = '#d65a4a';
+    for (const spot of layout.botSpawns) { ctx.beginPath(); ctx.arc(mapX(spot.x), mapY(spot.z), 3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#e8f0e0'; ctx.beginPath(); ctx.arc(mapX(layout.playerSpawn.x), mapY(layout.playerSpawn.z), 4, 0, Math.PI * 2); ctx.fill();
+  }
+
   private drawMenuMap(): void {
     const canvas = this.el('menu-map') as HTMLCanvasElement;
     const ctx = canvas.getContext('2d');
@@ -874,6 +1036,7 @@ export class GameUI {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const data = mapData(this.settings.map);
     if (data) { ctx.drawImage(this.islandBackdrop(canvas.width, data.world, data.terrain), 0, 0); return; }
+    if (this.settings.map === 'range') { this.drawRangePreview(ctx, canvas.width); return; }
     ctx.fillStyle = '#1a2a24'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = '#ffffff14';
     for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i * canvas.width / 8, 0); ctx.lineTo(i * canvas.width / 8, canvas.height); ctx.moveTo(0, i * canvas.height / 8); ctx.lineTo(canvas.width, i * canvas.height / 8); ctx.stroke(); }
@@ -881,11 +1044,11 @@ export class GameUI {
     for (const [x, y, w, h] of [[60, 70, 70, 50], [190, 60, 60, 60], [40, 150, 65, 80], [200, 160, 72, 52], [120, 230, 76, 52]]) ctx.fillRect(x, y, w, h);
   }
 
-  private islandMaps = new Map<number, HTMLCanvasElement>();
+  private islandMaps = new Map<string, HTMLCanvasElement>();
 
   /** Shaded relief, roads and towns of the island, rendered once and reused for every minimap frame. */
-  private islandBackdrop(size: number, world: Pick<WorldConfig, 'id' | 'halfSize' | 'roads' | 'towns' | 'water'>, terrain: (x: number, z: number) => number): HTMLCanvasElement {
-    const cacheKey = size * 10 + (world.id === 'valley' ? 1 : 0);
+  private islandBackdrop(size: number, world: Pick<WorldConfig, 'id' | 'halfSize' | 'roads' | 'towns' | 'water' | 'theme' | 'hotAreas'>, terrain: (x: number, z: number) => number): HTMLCanvasElement {
+    const cacheKey = `${world.id}:${size}`;
     const cached = this.islandMaps.get(cacheKey);
     if (cached) return cached;
     const sea = world.water?.seaLevel ?? 0;
@@ -910,7 +1073,9 @@ export class GameUI {
         } else if (h < sea + 3.4) {
           image.data[i] = 196 * shade; image.data[i + 1] = 180 * shade; image.data[i + 2] = 130 * shade;
         } else {
-          image.data[i] = (70 + t * 90) * shade; image.data[i + 1] = (98 + t * 55) * shade; image.data[i + 2] = (68 + t * 70) * shade;
+          const sand = world.theme?.sand ?? 0, tint = world.theme?.tint ?? [1, 1, 1];
+          const r = (70 + t * 90) * (1 - sand) + (190 + t * 30) * sand, g = (98 + t * 55) * (1 - sand) + (160 + t * 30) * sand, b = (68 + t * 70) * (1 - sand) + (110 + t * 30) * sand;
+          image.data[i] = r * tint[0] * shade; image.data[i + 1] = g * tint[1] * shade; image.data[i + 2] = b * tint[2] * shade;
         }
         image.data[i + 3] = 255;
       }
@@ -928,6 +1093,12 @@ export class GameUI {
       const r = town.tier === 'city' ? 4 : town.tier === 'town' ? 3 : 2;
       ctx.fillStyle = '#f1e8c8'; ctx.strokeStyle = '#151b17'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.rect(toX(town.x) - r, toY(town.z) - r, r * 2, r * 2); ctx.fill(); ctx.stroke();
+    }
+    // Hot areas: a red square over the compound, the best loot on the map.
+    ctx.strokeStyle = '#ff5a4a'; ctx.fillStyle = '#ff5a4a22'; ctx.lineWidth = 1.5;
+    for (const hot of world.hotAreas ?? []) {
+      const r = hot.radius * 0.8 / cell;
+      ctx.beginPath(); ctx.rect(toX(hot.x) - r, toY(hot.z) - r * 0.8, r * 2, r * 1.6); ctx.fill(); ctx.stroke();
     }
     this.islandMaps.set(cacheKey, canvas);
     return canvas;
@@ -959,20 +1130,33 @@ export class GameUI {
       ctx.fillRect(mapX(obstacle.x - obstacle.width / 2), mapY(obstacle.z + obstacle.depth / 2), obstacle.width * scale, obstacle.depth * scale);
     }
     }
+    if (world.range) {
+      // Lanes and the firing line; the targets that are standing show as small orange marks.
+      ctx.fillStyle = '#ffffff12';
+      for (const x of world.range.laneX) ctx.fillRect(mapX(x - 10), mapY(world.range.firingZ + Math.max(...world.range.distances) + 8), 20 * scale, (Math.max(...world.range.distances) + 8) * scale);
+      ctx.fillStyle = '#e2b53c'; ctx.fillRect(mapX(-110), mapY(world.range.firingZ) - 1, 220 * scale, 2);
+      ctx.fillStyle = '#f0a04a';
+      for (const actor of state.actors) if (actor.dummy && actor.alive) ctx.fillRect(mapX(actor.position.x) - 1.2, mapY(actor.position.z) - 1.2, 2.4, 2.4);
+    }
     // Tint terrain outside the safe circle. Enemy positions are deliberately omitted.
     ctx.fillStyle = '#4898ce25';
     ctx.beginPath(); ctx.rect(0, 0, size, size);
     ctx.moveTo(mapX(state.zone.center.x) + state.zone.radius * scale, mapY(state.zone.center.z));
     ctx.arc(mapX(state.zone.center.x), mapY(state.zone.center.z), state.zone.radius * scale, 0, Math.PI * 2);
-    ctx.fill('evenodd');
+    if (world.id !== 'range') ctx.fill('evenodd');
     ctx.strokeStyle = '#b7dbc3'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(mapX(state.zone.center.x), mapY(state.zone.center.z), state.zone.radius * scale, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = '#eef0d88a'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.arc(mapX(state.zone.nextCenter.x), mapY(state.zone.nextCenter.z), state.zone.nextRadius * scale, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
+    if (world.id !== 'range') {
+      ctx.beginPath(); ctx.arc(mapX(state.zone.center.x), mapY(state.zone.center.z), state.zone.radius * scale, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#eef0d88a'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.arc(mapX(state.zone.nextCenter.x), mapY(state.zone.nextCenter.z), state.zone.nextRadius * scale, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (big && world.id !== 'arena') {
       ctx.font = '600 15px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#0b100dcc'; ctx.fillStyle = '#f4efd8';
       for (const town of world.towns) { const x = mapX(town.x), y = mapY(town.z) - (town.tier === 'city' ? 12 : 9); ctx.strokeText(town.name, x, y); ctx.fillText(town.name, x, y); }
+      ctx.fillStyle = '#ff8a7a';
+      for (const hot of world.hotAreas ?? []) { const x = mapX(hot.x), y = mapY(hot.z); ctx.strokeText(hot.name, x, y); ctx.fillText(hot.name, x, y); }
+      ctx.fillStyle = '#f4efd8';
     }
     const player = state.actors.find(actor => actor.id === state.localId) ?? state.actors.find(actor => actor.isPlayer);
     const plane = state.plane;

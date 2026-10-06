@@ -16,7 +16,7 @@ export type AmmoKind = `${AmmoType}Ammo`;
 export type ArmorSlot = 'helmet' | 'vest';
 export type ArmorKind = `${ArmorSlot}${1 | 2 | 3}`;
 export type LootKind = WeaponType | AmmoKind | 'medkit' | ArmorKind | SupplyKind | PackKind | AttachKind | MeleeKind;
-export type MapId = 'arena' | 'island' | 'valley';
+export type MapId = 'arena' | 'island' | 'valley' | 'desert' | 'pines' | 'metro' | 'range';
 /** Gyroscope aiming: off, only while aiming or firing, or always. */
 export type GyroMode = 'off' | 'aim' | 'always';
 export interface GameSettings {
@@ -40,12 +40,32 @@ export interface GameSettings {
   soundIndicator: boolean;
   /** Which outfit the player wears (see src/skins.ts). */
   skin: string;
+  /** On the shooting range: nothing can hurt the player. */
+  immortal: boolean;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck' | 'floor';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */
 export interface Obstacle {
   id: string; x: number; z: number; width: number; depth: number; height: number;
   kind: ObstacleKind; base?: number; bottom?: number;
+}
+/** A stairwell: step up to it and press E to come out at `to`. Bunkers are reached and left this way. */
+export interface Portal { id: string; x: number; y: number; z: number; to: Vec3; label: string; /** True: it leads down into a bunker. */ down: boolean }
+/** A huge fenced compound with the best loot on the surface and a bunker beneath it. */
+export interface HotArea { id: string; name: string; kind: 'base' | 'factory'; x: number; z: number; radius: number }
+/** How an open map looks (rendering only): sand over the meadow, how much grass grows, a tint on the ground, the haze in the distance. */
+export interface MapTheme {
+  /** 0..1: how much of the meadow is bare sand (1 is a desert). */ sand: number;
+  /** Multiplier on the density of grass tufts. */ grass: number;
+  /** Multiplied into the ground colour. */ tint: [number, number, number];
+  /** Fog and sky colour (0..1 per channel) and the fog density. */ haze: [number, number, number]; fogDensity: number;
+}
+/** A practice target: where it stands, how far from the firing line, and (if it moves) how it slides sideways. */
+export interface RangeDummySpec { id: string; x: number; z: number; distance: number; sway?: { amp: number; period: number; phase: number } }
+/** The layout of the shooting range. */
+export interface RangeLayout {
+  playerSpawn: Vec3; firingZ: number; dummies: RangeDummySpec[]; botSpawns: Vec3[]; laneX: number[]; distances: number[];
+  yard: { x0: number; x1: number; z0: number; z1: number };
 }
 export interface ZoneProfile { start: number; radii: number[]; waits: number[]; shrinks: number[] }
 export interface Town { id: string; name: string; x: number; z: number; radius: number; tier: 'city' | 'town' | 'hamlet' }
@@ -70,6 +90,12 @@ export interface WorldConfig {
   terrain?: (x: number, z: number) => number;
   zone: ZoneProfile; towns: Town[]; roads: RoadSegment[]; vehicleSpawns: VehicleSpawn[]; lootSpots: LootSpot[];
   water?: WaterFeatures; fields?: Field[];
+  /** Absent on the original island, the valley and the arena. */
+  theme?: MapTheme;
+  /** Present only on the shooting range. */
+  range?: RangeLayout;
+  /** Stairs between the surface and the bunkers, and the hot areas (absent on maps without them). */
+  portals?: Portal[]; hotAreas?: HotArea[];
   /** Slabs and stair ramps in multi-storey buildings; absent where there are none. */
   floors?: Floor[];
   /** Solid stand-ins for tall buildings, drawn only from a distance (never collided with). */
@@ -124,6 +150,10 @@ export interface Actor {
   stance?: Stance;
   /** Opponents (and people) this actor has put down, and the place and time of its own death. */
   kills?: number; rank?: number; diedAt?: number;
+  /** Seconds of held breath left (absent is full), and whether it is being held or has run out. */
+  breath?: number; holding?: boolean; winded?: boolean;
+  /** A practice target on the shooting range: it stands still (or slides), never shoots, and stands back up after a few seconds. */
+  dummy?: boolean;
 }
 export interface Loot {
   id: string; kind: LootKind; position: Vec3; active: boolean;
@@ -178,6 +208,7 @@ export type GameEvent =
   | { type: 'explosion'; position: Vec3; /** Set for a grenade: how far the blast reaches. */ radius?: number }
   | { type: 'throw'; actorId: string; kind: ThrowKind; from: Vec3; to: Vec3 }
   | { type: 'smoke'; position: Vec3 }
+  | { type: 'portal'; actorId: string; down: boolean }
   | { type: 'melee'; actorId: string; at: Vec3; hitId?: string; weapon: MeleeKind | 'fists' }
   | { type: 'flash'; position: Vec3 }
   | { type: 'fire'; position: Vec3 }

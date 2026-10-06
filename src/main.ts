@@ -11,6 +11,8 @@ import './settings.css';
 import './lobby-polish.css';
 import './supplies.css';
 import './optics.css';
+import './breath.css';
+import './range.css';
 import { InventoryPreview } from './inventory-preview';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import { Scene } from '@babylonjs/core/scene.js';
@@ -18,11 +20,15 @@ import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
+import { DEEP } from './game/underground';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
+import { BREATH_SECONDS } from './game/breath';
 import { Ray } from '@babylonjs/core/Culling/ray.js';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js';
 import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js';
@@ -90,6 +96,10 @@ let engine: Engine;
 let scene: Scene;
 let camera: FreeCamera;
 let shadows: ShadowGenerator;
+let mobileBreath = false;
+/** How much the scope drifts: 1 normally, a little with the breath held, more when winded. */
+let scopeSway = 1;
+let wasHolding = false;
 let yaw = 0, pitch = -0.12, recoil = 0, aiming = false, shooting = false, triggerPending = false, hadLock = false;
 let snapCamera = true, lastPhase = sim.state.phase, footsteps = 0;
 let clock = performance.now();
@@ -160,10 +170,14 @@ const ui = new GameUI({
   onSettings: (next) => {
     const outfitChanged = settings?.skin !== next.skin;
     settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro();
+    sim?.setImmortal(settings.immortal);
     // A new outfit: rebuild the player's soldier (in the lobby it is the one on show).
     if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.root.dispose(false, true); models.delete(sim.localId); } }
   },
   onSelectWeapon: selectWeapon,
+  onRangeEquip: weapon => doRangeEquip(weapon),
+  onArmouryChange: open => { if (open) { shooting = false; aiming = false; if (document.pointerLockElement) document.exitPointerLock(); } else { void audio.unlock(); lockPointer(); } },
+  onBreath: held => { mobileBreath = held; },
   onZoomStep: direction => changeZoom(direction),
   onInventoryPickup: pickupInventory,
   onInventoryDrop: dropInventory,
@@ -387,12 +401,16 @@ function dropInventory(kind: LootKind, amount: number): void {
 function doInteract(): boolean {
   const choice = refreshLootChoice();
   if (net?.client) {
-    // The host decides who gets the item; the pickup arrives in the next snapshot.
-    if (!choice) return false;
+    // The host decides who gets the item (or takes the stairs); the result arrives in the next snapshot.
+    if (!choice) {
+      if (!sim.portalNear()) return false;
+      net.client.queueCommand('stairs');
+      return true;
+    }
     net.client.queueCommand('inventory-pickup', choice.id);
     return true;
   }
-  return choice ? sim.pickupLoot(choice.id) : false;
+  return choice ? sim.pickupLoot(choice.id) : sim.useStairs();
 }
 function doVehicle(): boolean {
   if (net?.client) {
@@ -419,7 +437,8 @@ const lobbyView = new LobbyView(uiRoot, {
 });
 const social = new SocialStore(new SupabaseSocialApi(SUPABASE, createClient as unknown as ConstructorParameters<typeof SupabaseSocialApi>[1]));
 const mp = new MultiplayerController(lobbyView, {
-  config: () => ({ map: settings.map, botCount: settings.botCount, difficulty: settings.difficulty }),
+  // The range is for one player: a room on it plays on the island instead.
+  config: () => ({ map: settings.map === 'range' ? 'island' : settings.map, botCount: settings.map === 'range' ? 100 : settings.botCount, difficulty: settings.difficulty }),
   begin: beginMultiplayer,
   skin: () => ui.currentSkin(),
   identity: () => social.signedIn && social.displayName ? { name: social.displayName, uid: social.state.account!.id } : null,
@@ -534,7 +553,7 @@ function start() {
   void audio.unlock();
   audio.pause();
   releaseInput();
-  sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena', humans: 1, localId: '', names: [], remote: false });
+  sim.start({ botCount: settings.botCount, difficulty: settings.difficulty, seed: Date.now(), map: settings.map, drop: settings.map !== 'arena' && settings.map !== 'range', immortal: settings.immortal, humans: 1, localId: '', names: [], remote: false });
   audio.localId = sim.localId;
   configureWorld();
   stopReplay(); recorder.clear();
@@ -548,13 +567,76 @@ function start() {
   clock = performance.now();
   const mapId: string = sim.world.id;
   if (sim.state.plane) ui.notify('Máy bay đang bay qua đảo. Mở bản đồ, chọn điểm đáp rồi nhảy!');
-  else ui.notify(mapId === 'island' ? 'Bạn đã đáp xuống đảo. Tìm vũ khí và vào vùng an toàn!' : mapId === 'valley' ? 'Thung lũng đông đúc. Lục nhà tìm súng, bo thu rất nhanh!' : 'Tìm trang bị. Giữ vùng an toàn. Sống sót cuối cùng.');
+  else ui.notify(({ island: 'Bạn đã đáp xuống đảo. Tìm vũ khí và vào vùng an toàn!', valley: 'Thung lũng đông đúc. Lục nhà tìm súng, bo thu rất nhanh!', desert: 'Sa mạc mênh mông. Tìm xe và vào vùng an toàn trước khi bo khép lại!', pines: 'Rừng thông dày đặc. Tìm vũ khí, dùng cây làm chỗ nấp.', metro: 'Thành phố đông đúc. Lục tòa nhà, chiếm tầng cao.' } as Record<string, string>)[mapId] ?? 'Tìm trang bị. Giữ vùng an toàn. Sống sót cuối cùng.');
 }
 
 /** Switch the scene between the small arena and the streamed island to match the simulation's world. */
+let rangeMeshes: Mesh[] = [];
+
+/** A board with a distance painted on it. */
+function signBoard(text: string): StandardMaterial {
+  const name = `range-sign-${text}`;
+  const cached = sharedMaterials.get(name);
+  if (cached) return cached;
+  const texture = new DynamicTexture(name, { width: 256, height: 128 }, scene, false);
+  const context = texture.getContext() as unknown as CanvasRenderingContext2D;
+  context.fillStyle = '#f2efe2'; context.fillRect(0, 0, 256, 128);
+  context.fillStyle = '#c63d2f'; context.fillRect(0, 0, 256, 14); context.fillRect(0, 114, 256, 14);
+  context.fillStyle = '#1b1f1c'; context.font = 'bold 64px "Segoe UI", Arial, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
+  context.fillText(text, 128, 66);
+  texture.update();
+  const board = new StandardMaterial(name, scene);
+  board.diffuseTexture = texture; board.emissiveColor = new Color3(0.34, 0.34, 0.32); board.specularColor = Color3.Black();
+  sharedMaterials.set(name, board);
+  return board;
+}
+
+/** The shooting range's scenery: concrete lanes with distance marks and boards, the firing line under a shelter, racks, berms, and the yard. */
+function buildRangeScene() {
+  if (rangeMeshes.length || !sim.world.range) return;
+  const layout = sim.world.range, half = sim.world.halfSize;
+  const known = new Set<unknown>(scene.meshes);
+  const grass = material('range-grass', '#6f8456'), concrete = material('range-concrete', '#9b9d94'), paint = material('range-paint', '#ece8d4'), yellow = material('range-yellow', '#e2b53c');
+  const earth = material('range-earth', '#76603f'), dark = material('range-dark', '#2e3733');
+  const wood = material('wood', '#927758'), plaster = material('plaster', '#a7afa1'), roofMat = material('roof', '#475951'), rockMat = material('stone', '#777e73'), trim = material('trim', '#67796d');
+  const ground = MeshBuilder.CreateGround('range-ground', { width: half * 2.8, height: half * 2.8 }, scene);
+  ground.material = grass; ground.receiveShadows = true; ground.metadata = { solid: true };
+  const z0 = layout.firingZ, far = z0 + Math.max(...layout.distances), length = far - z0 + 16, middle = (z0 + far) / 2 + 2;
+  const flat = (name: string, w: number, d: number, mat: StandardMaterial, x: number, y: number, z: number) => { const mesh = box(name, w, 0.04, d, mat, new Vector3(x, y, z)); mesh.isPickable = false; return mesh; };
+  for (const x of layout.laneX) {
+    flat('lane', 20, length, concrete, x, 0.02, middle);
+    for (const side of [-1, 1]) flat('lane-edge', 0.25, length, paint, x + side * 10, 0.03, middle);
+    for (const d of layout.distances) flat('lane-mark', 20, 0.45, paint, x, 0.035, z0 + d);
+  }
+  flat('firing-line', 220, 0.7, yellow, 0, 0.045, z0);
+  flat('rack-floor', 70, 44, concrete, 0, 0.02, z0 - 36);
+  for (const d of layout.distances) for (const side of [-1, 1]) {
+    const pole = box('sign-pole', 0.14, 3, 0.14, dark, new Vector3(side * 112, 1.5, z0 + d)); pole.isPickable = false;
+    const board = box('sign', 3.2, 1.6, 0.1, signBoard(`${d} M`), new Vector3(side * 112, 3.1, z0 + d)); board.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2; board.isPickable = false;
+  }
+  // Low dividers between the lanes at the firing line (nothing overhead: the camera sits behind the player).
+  for (let x = -100; x <= 100; x += 40) box('stall-divider', 0.25, 1.0, 5, dark, new Vector3(x, 0.5, z0 - 2.5)).isPickable = false;
+  box('berm-back', half * 2.1, 8, 12, earth, new Vector3(0, 4, half + 4)).isPickable = false;
+  for (const side of [-1, 1]) box('berm-side', 12, 7, half * 2.1, earth, new Vector3(side * (half + 4), 3.5, 0)).isPickable = false;
+  for (const obstacle of sim.world.obstacles) {
+    const mat = obstacle.kind === 'building' ? plaster : obstacle.kind === 'crate' ? wood : rockMat;
+    const body = box(obstacle.id, obstacle.width, obstacle.height, obstacle.depth, mat, new Vector3(obstacle.x, obstacle.height / 2, obstacle.z));
+    body.metadata = { solid: true };
+    shadows.addShadowCaster(body);
+    if (obstacle.kind === 'building') {
+      box(`${obstacle.id}-roof`, obstacle.width + 0.5, 0.26, obstacle.depth + 0.55, roofMat, new Vector3(obstacle.x, obstacle.height + 0.08, obstacle.z)).isPickable = false;
+      box('house-trim', obstacle.width + 0.04, 0.3, obstacle.depth + 0.04, trim, new Vector3(obstacle.x, 0.3, obstacle.z)).isPickable = false;
+    }
+  }
+  for (const mesh of scene.meshes) if (!known.has(mesh)) { mesh.freezeWorldMatrix(); rangeMeshes.push(mesh as Mesh); }
+}
+
 function configureWorld() {
-  const island = sim.world.id !== 'arena';
-  for (const mesh of arenaMeshes) mesh.setEnabled(!island);
+  const range = sim.world.id === 'range';
+  const island = sim.world.id !== 'arena' && !range;
+  for (const mesh of arenaMeshes) mesh.setEnabled(!island && !range);
+  if (range) buildRangeScene();
+  for (const mesh of rangeMeshes) mesh.setEnabled(range);
   for (const car of carModels.values()) car.root.dispose(false, true);
   carModels.clear();
   for (const entry of lootMeshes.values()) entry.node.dispose();
@@ -566,25 +648,54 @@ function configureWorld() {
     islandRenderer = new IslandRenderer(scene, sim.world, touchDevice ? 5 : 6, touchDevice, shadows);
     islandRenderer.update(focusPosition().x, focusPosition().z, 100000);
   }
-  scene.fogDensity = island ? 0.0024 : 0.0045;
-  // Hazy sky-blue distance on the island; the arena keeps its olive dusk.
-  scene.fogColor = island ? new Color3(0.78, 0.84, 0.88) : new Color3(0.64, 0.71, 0.65);
-  scene.clearColor = island ? new Color4(0.78, 0.84, 0.88, 1) : new Color4(0.68, 0.74, 0.68, 1);
+  underground = false; surfaceLook = null; lamp?.setEnabled(false);
+  // Each open map has its own haze; the arena keeps its olive dusk.
+  const haze = sim.world.theme?.haze ?? [0.78, 0.84, 0.88];
+  scene.fogDensity = island ? sim.world.theme?.fogDensity ?? 0.0024 : range ? 0.0011 : 0.0045;
+  scene.fogColor = island ? new Color3(haze[0], haze[1], haze[2]) : range ? new Color3(0.76, 0.82, 0.86) : new Color3(0.64, 0.71, 0.65);
+  scene.clearColor = island ? new Color4(haze[0], haze[1], haze[2], 1) : range ? new Color4(0.74, 0.82, 0.9, 1) : new Color4(0.68, 0.74, 0.68, 1);
   ambient.diffuse = island ? new Color3(0.9, 0.95, 1) : Color3.White();
   ambient.groundColor = Color3.FromHexString(island ? '#6a7048' : '#636449');
   ambient.intensity = island ? 0.95 : 0.7;
   sunlight.intensity = island ? 1.25 : 0.85;
-  camera.maxZ = island ? 800 : 450;
+  camera.maxZ = island ? 800 : range ? 700 : 450;
   // The arena fits one shadow map; on the island the sun's frustum follows the player instead.
   sunlight.autoUpdateExtends = !island;
+  if (range) {
+    // A long field: the shadow box follows the player like on the big maps.
+    sunlight.autoUpdateExtends = false;
+    sunlight.orthoLeft = -70; sunlight.orthoRight = 70; sunlight.orthoTop = 70; sunlight.orthoBottom = -70;
+    sunlight.shadowMinZ = 1; sunlight.shadowMaxZ = 300;
+  }
   if (island) {
     sunlight.orthoLeft = -85; sunlight.orthoRight = 85; sunlight.orthoTop = 85; sunlight.orthoBottom = -85;
     sunlight.shadowMinZ = 1; sunlight.shadowMaxZ = 330;
   }
 }
 
+/** In a bunker the sky and the sun are gone: dim ambient light, thick dark fog and a lamp on the player's head. */
+let underground = false;
+let lamp: PointLight | null = null;
+let surfaceLook: { fog: number; fogColor: Color3; clear: Color4; ambient: number; sun: number; shadows: boolean; maxZ: number } | null = null;
+function setUnderground(on: boolean) {
+  if (on === underground) return;
+  underground = on;
+  if (on) {
+    surfaceLook = { fog: scene.fogDensity, fogColor: scene.fogColor.clone(), clear: scene.clearColor.clone(), ambient: ambient.intensity, sun: sunlight.intensity, shadows: scene.shadowsEnabled, maxZ: camera.maxZ };
+    scene.fogDensity = 0.035; scene.fogColor = new Color3(0.03, 0.035, 0.04); scene.clearColor = new Color4(0.03, 0.035, 0.04, 1);
+    ambient.intensity = 0.4; sunlight.intensity = 0; scene.shadowsEnabled = false; camera.maxZ = 150;
+    if (!lamp) { lamp = new PointLight('headlamp', new Vector3(0, 0, 0), scene); lamp.diffuse = Color3.FromHexString('#ffe9c4'); lamp.specular = Color3.Black(); lamp.range = 26; }
+    lamp.intensity = 1.1; lamp.setEnabled(true);
+  } else {
+    const look = surfaceLook;
+    if (look) { scene.fogDensity = look.fog; scene.fogColor = look.fogColor; scene.clearColor = look.clear; ambient.intensity = look.ambient; sunlight.intensity = look.sun; scene.shadowsEnabled = look.shadows; camera.maxZ = look.maxZ; }
+    surfaceLook = null;
+    lamp?.setEnabled(false);
+  }
+}
+
 function gameplayInputBlocked(): boolean {
-  return mpMenuOpen || ui.mapOpen || ui.touchOverlayOpen;
+  return mpMenuOpen || ui.mapOpen || ui.touchOverlayOpen || ui.armouryOpen;
 }
 
 function lockPointer() {
@@ -1479,7 +1590,7 @@ function renderLoot(time: number) {
 
 function renderZone() {
   const zone = sim.state.zone;
-  const show = sim.state.phase !== 'menu';
+  const show = sim.state.phase !== 'menu' && sim.world.id !== 'range';
   currentZone.setEnabled(show); currentRing.setEnabled(show); nextRing.setEnabled(show);
   // The wall must clear the island's mountains, so it is taller there.
   const wallHeight = sim.world.id !== 'arena' ? 170 : 8;
@@ -1639,9 +1750,13 @@ function updateCamera(dt: number) {
   eyeHeight += (STANCE[actor.stance ?? 'stand'].eye - eyeHeight) * Math.min(1, dt * 10);
   const pivot = ridden ? new Vector3(ridden.position.x, ridden.position.y + 1.9, ridden.position.z) : new Vector3(actor.position.x, actor.position.y + eyeHeight, actor.position.z);
   if (aiming && isScope() && sim.state.phase === 'playing') {
-    // Down the scope: the camera sits at the eye and the scope overlay stands in for the gun.
+    // Down the scope: the camera sits at the eye and the scope overlay stands in for the gun. The crosshair drifts a little unless the breath is held.
     camera.position.copyFrom(pivot);
-    camera.setTarget(pivot.add(forward.scale(200)));
+    scopeSway += ((sim.player.holding ? 0.15 : sim.player.winded ? 1.7 : 1) - scopeSway) * Math.min(1, dt * 5);
+    const t = performance.now() * 0.001, amplitude = 0.0017 * scopeSway;
+    const swayYaw = (Math.sin(t * 0.83) + 0.45 * Math.sin(t * 2.1 + 1.3)) * amplitude, swayPitch = (Math.cos(t * 1.07) + 0.4 * Math.sin(t * 2.6)) * amplitude;
+    const drifted = new Vector3(Math.sin(yaw + swayYaw) * Math.cos(viewPitch + swayPitch), Math.sin(viewPitch + swayPitch), Math.cos(yaw + swayYaw) * Math.cos(viewPitch + swayPitch));
+    camera.setTarget(pivot.add(drifted.scale(200)));
     camera.fov += (fovFor(activeZoom()) - camera.fov) * Math.min(1, dt * 16);
     models.get(actor.id)?.root.setEnabled(false);
     snapCamera = true;
@@ -1683,7 +1798,7 @@ function airCamera(dt: number, actor: Actor) {
 /** Fog and view distance suit the height: thin and long up high, the normal island haze near the ground. */
 function applyAirView(mode: string | null) {
   if (sim.world.id === 'arena') return;
-  scene.fogDensity = mode === 'plane' || mode === 'freefall' ? 0.0004 : mode === 'chute' ? 0.0009 : 0.0024;
+  scene.fogDensity = mode === 'plane' || mode === 'freefall' ? 0.0004 : mode === 'chute' ? 0.0009 : sim.world.theme?.fogDensity ?? 0.0024;
   camera.maxZ = mode ? 2800 : 800;
   islandRenderer?.setHighView(!!mode);
 }
@@ -1743,6 +1858,34 @@ function renderFlag() {
   }
 }
 
+/** Stairwells to and from the bunkers: a glowing pad with a faint column over it, for the few that are near. */
+const portalMarkers: Array<{ pad: Mesh; column: Mesh }> = [];
+function renderPortals() {
+  const portals = sim.world.portals;
+  let used = 0;
+  if (portals?.length && sim.state.phase !== 'menu') {
+    const at = focusPosition();
+    for (const portal of portals) {
+      if (Math.abs(portal.y - at.y) > 6 || Math.abs(portal.x - at.x) > 40 || Math.abs(portal.z - at.z) > 40) continue;
+      let marker = portalMarkers[used];
+      if (!marker) {
+        const pad = MeshBuilder.CreateCylinder('portal-pad', { diameter: 1.7, height: 0.06, tessellation: 20 }, scene);
+        const column = MeshBuilder.CreateCylinder('portal-column', { diameter: 1.5, height: 2.6, tessellation: 16, cap: 0 }, scene);
+        for (const mesh of [pad, column]) { mesh.isPickable = false; mesh.material = material(mesh === pad ? 'portal-down' : 'portal-glow', '#ffffff', 1); }
+        marker = { pad, column }; portalMarkers.push(marker);
+      }
+      const tint = portal.down ? '#ffb43a' : '#6fe0ff';
+      const pad = material(`portal-pad-${portal.down ? 'd' : 'u'}`, tint, 1), glow = material(`portal-glow-${portal.down ? 'd' : 'u'}`, tint, 1);
+      pad.disableLighting = true; glow.disableLighting = true; glow.alpha = 0.22; glow.backFaceCulling = false;
+      marker.pad.material = pad; marker.column.material = glow;
+      marker.pad.position.set(portal.x, portal.y + 0.06, portal.z); marker.column.position.set(portal.x, portal.y + 1.3, portal.z);
+      marker.pad.setEnabled(true); marker.column.setEnabled(true);
+      used++;
+    }
+  }
+  for (let i = used; i < portalMarkers.length; i++) { portalMarkers[i].pad.setEnabled(false); portalMarkers[i].column.setEnabled(false); }
+}
+
 function renderPlane() {
   const plane = sim.state.plane;
   if (!plane?.active || sim.state.phase === 'menu') { planeModel?.setEnabled(false); return; }
@@ -1779,6 +1922,16 @@ function useVehicle() {
   if (!doVehicle()) return;
   aiming = false; shooting = false; triggerPending = false; recoil = 0;
   mobile?.cancelFire();
+}
+
+/** The shooting range: take any gun. */
+function doRangeEquip(weapon: WeaponType) {
+  if (!sim.rangeEquip(weapon)) return;
+  void audio.unlock();
+  aiming = false; shooting = false; triggerPending = false; recoil = 0;
+  mobile?.cancelFire();
+  const old = models.get(sim.localId);
+  old?.soldier.setWeapon(weapon);
 }
 
 function selectWeapon(weapon: WeaponType) {
@@ -1822,6 +1975,7 @@ function changeZoom(direction: number): boolean {
 function beginAim() {
   aimZoom = rememberedZoom.get(sim.player.weapon);
   if (isScope()) {
+    ui.tip('breath', touchDevice ? 'Giữ nút NÍN THỞ khi ngắm ống nhắm: tâm ổn định, đạn đi thẳng hơn, nhưng chỉ được vài giây.' : 'Giữ Shift (đứng yên) khi ngắm ống nhắm để nín thở: tâm ổn định hơn và đường đạn thẳng hơn, nhưng chỉ được vài giây. Lăn chuột để đổi độ phóng đại.');
     const range = WEAPONS[sim.player.weapon].range;
     const ray = camera.getForwardRay(range);
     const pick = scene.pickWithRay(ray, mesh => mesh.isEnabled() && !!mesh.metadata && mesh.metadata.actorId !== sim.localId && (!!mesh.metadata.solid || !!sim.state.actors.find(actor => actor.id === mesh.metadata.actorId)?.alive));
@@ -1933,6 +2087,13 @@ function events(dt: number) {
     if (event.type === 'kill' && event.killerId === sim.localId) {
       const victim = sim.state.actors.find(a => a.id === event.actorId); ui.notify(`Đã hạ ${victim?.name ?? 'đối thủ'}`);
     }
+    if (event.type === 'damage' && event.sourceId === sim.localId && sim.rangeMode && event.actorId !== sim.localId) {
+      const target = sim.actorById(event.actorId), gun = WEAPONS[sim.player.weapon];
+      if (target) {
+        const distance = Math.hypot(target.position.x - sim.player.position.x, target.position.z - sim.player.position.z);
+        ui.rangeHit(event.amount, distance, event.amount > gun.damage * 1.3 && gun.kind !== 'shotgun');
+      }
+    }
     if (event.type === 'damage' && event.actorId === sim.localId) {
       recoil = Math.min(0.13, recoil + 0.005);
       const source = event.sourceId ? sim.state.actors.find(a => a.id === event.sourceId) : undefined;
@@ -1993,6 +2154,10 @@ window.addEventListener('keydown', event => {
   }
   if (sim.state.phase !== 'playing') return;
   if (event.code === 'KeyM' && !event.repeat && !mpMenuOpen) { ui.toggleMap(); return; }
+  if (sim.rangeMode && !event.repeat && !mpMenuOpen && !ui.mapOpen) {
+    if (event.code === 'KeyB') { event.preventDefault(); ui.toggleArmoury(); return; }
+    if (event.code === 'KeyK') { ui.toggleImmortal(); return; }
+  }
   if (gameplayInputBlocked()) return;
   if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
   if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
@@ -2109,7 +2274,7 @@ try {
       const rawSide = gameplayInputBlocked() ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
       const length = Math.max(1, Math.hypot(rawForward, rawSide));
       const forward = rawForward / length, side = rawSide / length;
-      const sprint = !gameplayInputBlocked() && (keys.has('ShiftLeft') || keys.has('ShiftRight') || !!mobile?.movement.sprint);
+      const sprint = !gameplayInputBlocked() && (keys.has('ShiftLeft') || keys.has('ShiftRight') || !!mobile?.movement.sprint || mobileBreath);
       const jump = !gameplayInputBlocked() && (keys.has('Space') || mobileJump || pendingJump);
       const car = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
       if (car) {
@@ -2170,7 +2335,7 @@ try {
     renderVehicles(sim.state.phase === 'paused' ? 0 : dt);
     renderLoot(sim.state.elapsed);
     renderGrenades(performance.now() * 0.001);
-    renderPlane(); renderFlag(); renderAirdrops();
+    renderPlane(); renderFlag(); renderAirdrops(); renderPortals();
     if (islandRenderer && sim.state.phase !== 'menu') {
       const p = focusPosition();
       islandRenderer.update(p.x, p.z, 3, dt);
@@ -2186,7 +2351,13 @@ try {
       lastAirMode = airMode;
       applyAirView(airMode);
     }
-    if (sim.state.phase === 'playing') {
+    {
+      const at = focusPosition();
+      const below = sim.state.phase !== 'menu' && !!islandRenderer && at.y < sim.heightAt(at.x, at.z) - DEEP;
+      setUnderground(below);
+      if (below && lamp) lamp.position.set(camera.position.x, camera.position.y + 0.3, camera.position.z);
+    }
+    if (sim.state.phase === 'playing' && !underground) {
       const shadowsOn = shadowsAllowed && !(airMode && sim.heightAboveGround(sim.player) > 150);
       if (scene.shadowsEnabled !== shadowsOn) scene.shadowsEnabled = shadowsOn;
     }
@@ -2219,12 +2390,15 @@ try {
     if (loot) ui.tip('loot', touchDevice ? 'Chạm nút Nhặt để lấy đồ. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.' : 'Nhấn E để nhặt đồ; có nhiều món gần nhau thì ↑/↓ (hoặc Alt + lăn chuột) để chọn món. Bạn mang tối đa 2 súng thường và 1 súng lục; hầu hết đồ nằm trong nhà.');
     if (nearbyCar) ui.tip('car', touchDevice ? 'Chạm nút Nhặt để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.' : 'Nhấn F để lên xe: đi xa rất nhanh nhưng bạn không bắn được khi đang lái.');
     if (sim.player.alive && sim.player.health < 50 && (sim.player.medkits > 0 || sim.player.supplies.bandage > 0 || sim.player.supplies.firstaid > 0)) ui.tip('heal', touchDevice ? 'Chạm nút Hồi máu và đứng yên khoảng 3 giây để dùng túi cứu thương.' : 'Nhấn H và đứng yên khoảng 3 giây để dùng túi cứu thương.');
-    const hint = sim.player.air ? '' : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}${nearLoot.length > 1 ? ` (${nearLoot.indexOf(loot) + 1}/${nearLoot.length}) · ${touchDevice ? 'chạm để đổi món' : '↑↓ chọn món'}` : ''}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên ${VEHICLES[kindOf(nearbyCar)].label.toLowerCase()}` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
+    const stairs = !loot && !sim.player.vehicleId && !sim.player.air ? sim.portalNear() : null;
+    const hint = sim.player.air ? '' : stairs ? `${touchDevice ? 'Chạm Nhặt' : '[E]'} để ${stairs.down ? stairs.label.charAt(0).toLowerCase() + stairs.label.slice(1) : 'lên mặt đất'}` : sim.player.vehicleId ? `${touchDevice ? 'Chạm Nhặt' : '[F]'} để xuống xe` : loot ? `${touchDevice ? '' : '[E] '}Nhặt ${lootLabel(loot.kind)}${nearLoot.length > 1 ? ` (${nearLoot.indexOf(loot) + 1}/${nearLoot.length}) · ${touchDevice ? 'chạm để đổi món' : '↑↓ chọn món'}` : ''}` : nearbyCar ? `${touchDevice ? '' : '[F] '}Lên ${VEHICLES[kindOf(nearbyCar)].label.toLowerCase()}` : sim.player.healing > 0 ? 'Đang hồi máu…' : sim.player.reloading > 0 ? 'Đang nạp đạn…' : !touchDevice && document.pointerLockElement !== canvas && sim.state.phase === 'playing' ? 'Nhấp vào màn hình để điều khiển chuột' : '';
     if (!touchDevice || now - lastHudTime >= 90 || hudPhase !== sim.state.phase || hudWeapon !== sim.player.weapon) {
       ui.update(sim.state, sim.world, hint);
       ui.updateInventory(sim.player, ui.inventoryOpen ? sim.nearbyLoot() : [], !!net);
       lastHudTime = now; hudPhase = sim.state.phase; hudWeapon = sim.player.weapon;
     }
+    ui.setBreath((sim.player.breath ?? BREATH_SECONDS) / BREATH_SECONDS, !!sim.player.holding, !!sim.player.winded);
+    if (!!sim.player.holding !== wasHolding) { wasHolding = !!sim.player.holding; if (aiming) audio.breath(wasHolding); }
     ui.setAim(aiming && sim.state.phase === 'playing' && !gameplayInputBlocked(), sim.player.weapon, { zoom: activeZoom(), max: rigStats(sim.player, sim.player.weapon).zoom });
     mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;

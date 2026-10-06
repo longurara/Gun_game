@@ -380,7 +380,13 @@ export class IslandRenderer {
       // A darker hedge row around the edge, as in real farmland.
       color = mix(color, Math.min(ex, ez) < 2.2 ? PALETTE.hedge : crop, 0.92);
     }
-    return { color, weights: terrainWeights({ height: h, seaLevel, slope, noise, forest, town, lakeSand, riverWet, field: fieldKind }) };
+    const theme = this.world.theme;
+    if (theme) {
+      // A map's own look: sand over the meadow (not under towns or fields), and a tint over everything.
+      if (theme.sand > 0) color = mix(color, PALETTE.sand, theme.sand * 0.8 * (1 - town) * (fieldKind === undefined ? 1 : 0.2));
+      color = [color[0] * theme.tint[0], color[1] * theme.tint[1], color[2] * theme.tint[2]];
+    }
+    return { color, weights: terrainWeights({ height: h, seaLevel, slope, noise, forest, town, lakeSand, riverWet, field: fieldKind, sand: theme && fieldKind === undefined ? theme.sand : 0 }) };
   }
 
   /** Curvature occlusion: hollows read darker and crests lighter, which makes the relief legible under flat light. */

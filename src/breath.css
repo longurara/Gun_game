@@ -1,0 +1,22 @@
+/* The held-breath meter in the scope, and the breath button on a phone. */
+.scope-breath {
+  position: absolute; left: calc(50% - var(--lens) * .27); top: calc(50% + var(--lens) * .235); width: calc(var(--lens) * .21);
+  display: flex; flex-direction: column; gap: 3px; color: rgba(246, 243, 232, .92); text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 6px rgba(0, 0, 0, .6);
+  font: 600 calc(var(--lens) * .011 + 4px) / 1 "Segoe UI", Arial, sans-serif; letter-spacing: .6px;
+}
+.scope-breath i { display: block; height: 4px; background: rgba(0, 0, 0, .5); border-radius: 2px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+.scope-breath b { display: block; width: 100%; height: 100%; background: #cfe3c6; transform-origin: left center; transition: transform .1s linear, background .15s; }
+.scope-breath.holding b { background: #8fe0a0; }
+.scope-breath.low b { background: #e8c36a; }
+.scope-breath.winded b { background: #e0705a; }
+.scope-breath.winded { animation: breath-pulse .45s ease-in-out infinite alternate; }
+@keyframes breath-pulse { from { opacity: .55; } to { opacity: 1; } }
+.scope-breath-btn { display: none; }
+html[data-input="touch"] .scope-breath-btn {
+  display: flex; pointer-events: auto; position: absolute; right: 16px; bottom: 96px; width: 64px; height: 64px; border-radius: 50%; align-items: center; justify-content: center; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .35); background: rgba(10, 14, 11, .7); color: #fff; font: 700 9px/1.1 "Segoe UI", Arial, sans-serif; letter-spacing: .5px; text-align: center; touch-action: none;
+}
+html[data-input="touch"] .scope-breath-btn:active { background: rgba(60, 120, 80, .85); }
+html[data-input="touch"] .scope-breath { left: auto; right: 12px; top: auto; bottom: 70px; width: 72px; align-items: center; }
+/* The range panel would sit on top of the scope view. */
+#ui-root[data-aim="scope"] .range-panel { display: none; }

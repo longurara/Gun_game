@@ -26,7 +26,7 @@ export interface LobbyCallbacks {
   onInvite?(friendId: string): void;
 }
 
-const MAP_NAMES: Record<RoomConfig['map'], string> = { island: 'Đảo 4 × 4 km', valley: 'Đấu trường 1 × 1 km', arena: 'Sân tập 200 m' };
+const MAP_NAMES: Record<RoomConfig['map'], string> = { island: 'Đảo 4 × 4 km', valley: 'Đấu trường 1 × 1 km', arena: 'Sân tập 200 m', desert: 'Sa mạc 5 × 5 km', pines: 'Rừng thông 4,5 × 4,5 km', metro: 'Đô thị 3 × 3 km', range: 'Trường bắn' };
 const NAME_KEY = 'lastlight.name.v1';
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));

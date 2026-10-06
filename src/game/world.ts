@@ -1,7 +1,9 @@
-import type { Field, Floor, Lake, LootSpot, MapId, Obstacle, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
+import type { Field, Floor, HotArea, Lake, LootSpot, MapId, MapTheme, Obstacle, Portal, River, RoadSegment, Town, Vec2, VehicleSpawn, Vec3, WorldConfig, ZoneProfile } from '../types';
 import { buildHangar, buildTower, DOOR_HEIGHT, DOOR_WIDTH, HOUSE_HEIGHT, placeParts, WALL_THICKNESS, wallPieces } from './buildings';
 import type { Parts } from './buildings';
 import { SpatialGrid } from './spatial';
+import { planBase, planFactory, shedObstacles } from './hot';
+import { buildBunker, buildShed, linkShed } from './underground';
 
 /** The island is generated from a fixed seed so every match is played on the same map. */
 export const ISLAND_SEED = 20260;
@@ -24,6 +26,25 @@ export const VALLEY_ZONE: ZoneProfile = {
   shrinks: [50, 45, 40, 35, 30, 25],
 };
 
+/**
+ * The long maps: about twenty minutes from the drop to the last circle (see `zoneSeconds`). Eight circles, with long waits for
+ * looting and driving early on and a slow squeeze at the end.
+ */
+const LONG_WAITS = [130, 110, 95, 80, 65, 50, 35, 20];
+const LONG_SHRINKS = [130, 115, 100, 85, 70, 55, 45, 30];
+/** Seconds from the start of a match to the end of the last circle. */
+export const zoneSeconds = (zone: ZoneProfile): number => zone.waits.reduce((a, b) => a + b, 0) + zone.shrinks.reduce((a, b) => a + b, 0);
+
+export const DESERT_SEED = 31415;
+export const DESERT_HALF = 2500;
+export const DESERT_ZONE: ZoneProfile = { start: 3600, radii: [2700, 2000, 1450, 1000, 640, 360, 160, 0], waits: LONG_WAITS, shrinks: LONG_SHRINKS };
+export const PINES_SEED = 52717;
+export const PINES_HALF = 2250;
+export const PINES_ZONE: ZoneProfile = { start: 3250, radii: [2450, 1800, 1300, 900, 580, 330, 150, 0], waits: LONG_WAITS, shrinks: LONG_SHRINKS };
+export const METRO_SEED = 90210;
+export const METRO_HALF = 1500;
+export const METRO_ZONE: ZoneProfile = { start: 2150, radii: [1600, 1180, 850, 580, 360, 190, 80, 0], waits: LONG_WAITS, shrinks: LONG_SHRINKS };
+
 /** Everything that differs between the big island and the compact 1 km valley. */
 export interface WorldSpec {
   id: MapId; half: number; seed: number; zone: ZoneProfile;
@@ -39,6 +60,12 @@ export interface WorldSpec {
   spawnStep: number; spawnEdge: number; carStart: [number, number]; carStep: [number, number];
   /** Stair towers in the wild. */
   towers: number;
+  /** Trees per forest patch relative to the island (1). */
+  treeDensity?: number;
+  /** Huge fenced compounds with the best loot, each with a bunker beneath it; and whether the cities have bunkers too. */
+  hot?: Array<'base' | 'factory'>; bunkers?: boolean;
+  /** How the map looks; absent keeps the original look. */
+  theme?: MapTheme;
 }
 
 const ISLAND_SPEC: WorldSpec = {
@@ -50,6 +77,7 @@ const ISLAND_SPEC: WorldSpec = {
   rivers: { count: 3, edge: 700, start: 48 },
   forestScale: 1, fieldScale: 1, rocks: 520, rockEdge: 120, wildCaches: 90, wildEdge: 200,
   spawnStep: 190, spawnEdge: 260, carStart: [90, 80], carStep: [260, 120], towers: 8,
+  hot: ['base', 'factory'], bunkers: true,
 };
 
 /** A 1 x 1 km valley ringed by hills: a few settlements, lakes, forest and a bot-heavy fight. */
@@ -63,6 +91,51 @@ const VALLEY_SPEC: WorldSpec = {
   forestScale: 2.6, fieldScale: 0.55, rocks: 120, rockEdge: 50, wildCaches: 60, wildEdge: 70,
   spawnStep: 70, spawnEdge: 100, carStart: [50, 40], carStep: [150, 60], towers: 3,
 };
+
+/** A sun-baked red desert: dunes and mesas, a few oases, scrub instead of forest, towns far apart and long roads between them. */
+const DESERT_SPEC: WorldSpec = {
+  id: 'desert', half: DESERT_HALF, seed: DESERT_SEED, zone: DESERT_ZONE, sea: false,
+  hills: { wavelength: 900, amplitude: 34, base: 22, ridgeWavelength: 1300, maskWavelength: 1800, mountains: 70 },
+  towns: [{ tier: 'city', radius: 190, count: 2 }, { tier: 'town', radius: 120, count: 5 }, { tier: 'hamlet', radius: 65, count: 9 }],
+  townEdge: 450, townGap: 320, roadJitter: 220, extraRoads: 5, extraRoadReach: 1700,
+  lakes: { count: 4, edge: 600, radius: [30, 30], height: [10, 60], gap: 300 },
+  rivers: { count: 0, edge: 700, start: 48 },
+  forestScale: 1, fieldScale: 0.35, rocks: 1400, rockEdge: 150, wildCaches: 110, wildEdge: 250,
+  spawnStep: 230, spawnEdge: 300, carStart: [100, 90], carStep: [280, 130], towers: 12,
+  treeDensity: 0.12, hot: ['base', 'factory', 'base'], bunkers: true,
+  theme: { sand: 0.9, grass: 0.08, tint: [1.08, 0.98, 0.84], haze: [0.87, 0.79, 0.64], fogDensity: 0.0026 },
+};
+
+/** Pine highlands: steep, forested, laced with rivers and lakes. Cover everywhere, long sight lines nowhere. */
+const PINES_SPEC: WorldSpec = {
+  id: 'pines', half: PINES_HALF, seed: PINES_SEED, zone: PINES_ZONE, sea: false,
+  hills: { wavelength: 640, amplitude: 70, base: 34, ridgeWavelength: 900, maskWavelength: 1200, mountains: 120 },
+  towns: [{ tier: 'city', radius: 170, count: 1 }, { tier: 'town', radius: 115, count: 5 }, { tier: 'hamlet', radius: 65, count: 11 }],
+  townEdge: 420, townGap: 260, roadJitter: 200, extraRoads: 4, extraRoadReach: 1500,
+  lakes: { count: 9, edge: 500, radius: [45, 50], height: [8, 70], gap: 150 },
+  rivers: { count: 0, edge: 600, start: 55 },
+  forestScale: 1.6, fieldScale: 0.7, rocks: 700, rockEdge: 130, wildCaches: 100, wildEdge: 220,
+  spawnStep: 210, spawnEdge: 280, carStart: [100, 90], carStep: [300, 140], towers: 10,
+  treeDensity: 1.5, hot: ['base', 'factory'], bunkers: true,
+  theme: { sand: 0, grass: 1, tint: [0.8, 0.92, 0.82], haze: [0.7, 0.79, 0.83], fogDensity: 0.0034 },
+};
+
+/** A dense metropolis: five cities close together, tall blocks, parks between them. Short sight lines and constant fighting. */
+const METRO_SPEC: WorldSpec = {
+  id: 'metro', half: METRO_HALF, seed: METRO_SEED, zone: METRO_ZONE, sea: false,
+  hills: { wavelength: 600, amplitude: 20, base: 24, ridgeWavelength: 700, maskWavelength: 900, mountains: 14 },
+  towns: [{ tier: 'city', radius: 210, count: 5 }, { tier: 'town', radius: 120, count: 4 }, { tier: 'hamlet', radius: 60, count: 3 }],
+  townEdge: 260, townGap: 70, roadJitter: 90, extraRoads: 7, extraRoadReach: 1200,
+  lakes: { count: 3, edge: 350, radius: [40, 30], height: [8, 40], gap: 120 },
+  rivers: { count: 0, edge: 400, start: 30 },
+  forestScale: 1.8, fieldScale: 0.4, rocks: 160, rockEdge: 80, wildCaches: 50, wildEdge: 120,
+  spawnStep: 140, spawnEdge: 200, carStart: [60, 50], carStep: [180, 80], towers: 14,
+  treeDensity: 0.5, hot: ['factory', 'base'], bunkers: true,
+  theme: { sand: 0, grass: 0.4, tint: [0.92, 0.95, 0.92], haze: [0.74, 0.77, 0.8], fogDensity: 0.003 },
+};
+
+/** Every open map's recipe, by id. */
+const SPECS: Partial<Record<MapId, WorldSpec>> = { island: ISLAND_SPEC, valley: VALLEY_SPEC, desert: DESERT_SPEC, pines: PINES_SPEC, metro: METRO_SPEC };
 
 export { WALL_THICKNESS, HOUSE_HEIGHT, DOOR_WIDTH, DOOR_HEIGHT };
 
@@ -208,7 +281,8 @@ function generate(spec: WorldSpec): IslandData {
   const proxies: Obstacle[] = [];
   const lootSpots: LootSpot[] = [];
   const roads: RoadSegment[] = [];
-  const nearTown = (x: number, z: number, margin: number) => towns.some(t => distance(x, z, t.x, t.z) < t.radius + margin);
+  const hots: HotArea[] = [];
+  const nearTown = (x: number, z: number, margin: number) => towns.some(t => distance(x, z, t.x, t.z) < t.radius + margin) || hots.some(h => distance(x, z, h.x, h.z) < h.radius + margin);
 
   // Roads: link every town to its nearest already-linked neighbour, then add a few extra loops.
   const linked = [towns[0]];
@@ -231,6 +305,36 @@ function generate(spec: WorldSpec): IslandData {
   for (let i = 0; i < spec.extraRoads; i++) {
     const a = towns[Math.floor(random() * towns.length)], b = towns[Math.floor(random() * towns.length)];
     if (a !== b && distance(a.x, a.z, b.x, b.z) < spec.extraRoadReach) addRoad(a, b);
+  }
+  // Hot areas: huge fenced compounds on level ground away from the towns, each joined to the nearest town by a road. They use their
+  // own random stream, so adding them leaves the rest of the map where it was.
+  const hotRandom = mulberry32(spec.seed ^ 0x5eed5);
+  const HOT_NAMES = { base: ['Căn cứ Đại Bàng', 'Căn cứ Thiết Giáp', 'Căn cứ Sắt Đá', 'Căn cứ Hắc Ưng'], factory: ['Khu công nghiệp Thép', 'Nhà máy Hóa Chất', 'Khu kho vận Cảng', 'Nhà máy Điện'] };
+  const hotUsed = { base: 0, factory: 0 };
+  for (const kind of spec.hot ?? []) {
+    const radius = kind === 'base' ? 132 : 112;
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const x = (hotRandom() * 2 - 1) * (half - spec.townEdge - radius * 0.4), z = (hotRandom() * 2 - 1) * (half - spec.townEdge - radius * 0.4);
+      if (coast(x, z) < 0.995 || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ox, oz]) => coast(x + ox * radius, z + oz * radius) < 0.99)) continue;
+      if (towns.some(t => distance(x, z, t.x, t.z) < t.radius + radius + 90) || hots.some(h => distance(x, z, h.x, h.z) < h.radius + radius + 180)) continue;
+      const level = rawHeight(x, z);
+      if (level < 6 || [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]].some(([ox, oz]) => Math.abs(rawHeight(x + ox * radius * 0.8, z + oz * radius * 0.8) - level) > 14)) continue;
+      const names = HOT_NAMES[kind];
+      hots.push({ id: `hot-${hots.length}`, name: names[hotUsed[kind]++ % names.length], kind, x, z, radius });
+      break;
+    }
+  }
+  for (const hot of hots) {
+    const gate = hot.kind === 'base' ? 100 : 90;
+    let nearest = towns[0];
+    for (const t of towns) if (distance(hot.x, hot.z, t.x, t.z) < distance(hot.x, hot.z, nearest.x, nearest.z)) nearest = t;
+    const dir = nearest.x < hot.x ? -1 : 1;
+    // The road runs straight through the gate and well clear of the fence before it turns towards the town.
+    const inside = { x: hot.x + dir * (gate - 5), z: hot.z }, from = { x: hot.x + dir * (gate + 26), z: hot.z };
+    // The bend never doubles back past the gate, so the road cannot cut across the compound's fence.
+    const bend = (from.x + nearest.x) / 2 + (hotRandom() - 0.5) * spec.roadJitter, mz = (from.z + nearest.z) / 2 + (hotRandom() - 0.5) * spec.roadJitter;
+    const mx = dir > 0 ? Math.max(bend, from.x + 8) : Math.min(bend, from.x - 8);
+    roads.push({ a: inside, b: from, width: 7 }, { a: from, b: { x: mx, z: mz }, width: 7 }, { a: { x: mx, z: mz }, b: { x: nearest.x, z: nearest.z }, width: 7 });
   }
   const roadDistance = (x: number, z: number): number => {
     let best = Infinity;
@@ -257,7 +361,7 @@ function generate(spec: WorldSpec): IslandData {
     const r = spec.lakes.radius[0] + random() * spec.lakes.radius[1];
     const h = rawHeight(x, z);
     if (coast(x, z) < 0.99 || h > spec.lakes.height[1] || h < spec.lakes.height[0]) continue;
-    if (towns.some(t => distance(x, z, t.x, t.z) < t.radius * 1.9 + r * 1.6)) continue;
+    if (towns.some(t => distance(x, z, t.x, t.z) < t.radius * 1.9 + r * 1.6) || hots.some(h => distance(x, z, h.x, h.z) < h.radius * 1.5 + r * 1.6)) continue;
     if (lakes.some(l => distance(x, z, l.x, l.z) < l.r + r + spec.lakes.gap)) continue;
     if (roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < r * 1.9 + 14)) continue;
     lakes.push({ x, z, r, level: h - 0.4 });
@@ -284,7 +388,7 @@ function generate(spec: WorldSpec): IslandData {
       if (Math.abs(x) > half - 40 || Math.abs(z) > half - 40) break;
     }
     if (!reachedSea) continue;
-    const blocked = points.some(p => towns.some(t => distance(p.x, p.z, t.x, t.z) < t.radius * 1.75 + 25) || lakes.some(l => distance(p.x, p.z, l.x, l.z) < l.r * 1.9 + 30));
+    const blocked = points.some(p => towns.some(t => distance(p.x, p.z, t.x, t.z) < t.radius * 1.75 + 25) || hots.some(h => distance(p.x, p.z, h.x, h.z) < h.radius * 1.5 + 25) || lakes.some(l => distance(p.x, p.z, l.x, l.z) < l.r * 1.9 + 30));
     if (blocked) continue;
     rivers.push({ points, width: 9 + random() * 6 });
   }
@@ -326,9 +430,9 @@ function generate(spec: WorldSpec): IslandData {
   };
 
   // Towns sit on flattened plateaus so houses, streets and floors share one level.
-  const plateaus: Plateau[] = towns.map(town => ({
+  const plateaus: Plateau[] = [...towns.map(town => ({
     x: town.x, z: town.z, height: rawHeight(town.x, town.z), inner: town.radius * 0.95, outer: town.radius * 1.7,
-  }));
+  })), ...hots.map(hot => ({ x: hot.x, z: hot.z, height: rawHeight(hot.x, hot.z), inner: hot.radius * 0.95, outer: hot.radius * 1.55 }))];
   const analytic = (x: number, z: number): number => {
     let height = carve(x, z, rawHeight(x, z));
     for (const plateau of plateaus) {
@@ -460,6 +564,33 @@ function generate(spec: WorldSpec): IslandData {
       }
     }
   }
+  // The hot areas' buildings and the sheds over their bunker stairs; the cities get a pair of sheds too.
+  interface BunkerSite { id: string; x: number; z: number; width: number; depth: number; hall: number; label: string; sheds: Array<{ x: number; z: number; base: number; door: 'n' | 's' | 'e' | 'w' }> }
+  const bunkerSites: BunkerSite[] = [];
+  const hotCars: Array<{ x: number; z: number; yaw: number }> = [];
+  for (const hot of hots) {
+    const level = terrain(hot.x, hot.z);
+    const plan = hot.kind === 'base' ? planBase(hot.id, hot.x, hot.z, level) : planFactory(hot.id, hot.x, hot.z, level);
+    addParts(plan.parts);
+    obstacles.push(...shedObstacles(hot.id, plan, level));
+    hotCars.push(...plan.vehicles);
+    bunkerSites.push({ id: `bunker-${hot.id}`, x: hot.x, z: hot.z, width: hot.kind === 'base' ? 96 : 72, depth: hot.kind === 'base' ? 64 : 48, hall: hot.kind === 'base' ? 12 : 9, label: `hầm ${hot.name}`, sheds: plan.sheds.map(shed => ({ ...shed, base: level })) });
+  }
+  if (spec.bunkers) for (const town of towns) {
+    if (town.tier !== 'city') continue;
+    const sheds: BunkerSite['sheds'] = [];
+    for (const turn of [0.5, 0.5 + Math.PI]) for (let attempt = 0; attempt < 60 && sheds.length < (turn === 0.5 ? 1 : 2); attempt++) {
+      const angle = turn + (hotRandom() - 0.5) * 1.4, r = town.radius * (0.5 + hotRandom() * 0.35);
+      const x = town.x + Math.cos(angle) * r, z = town.z + Math.sin(angle) * r, level = terrain(x, z);
+      if (!flat(x, z, 6, 6, level, 0.6) || !clearFor(x, z, 6, 6, 5) || roads.some(road => segmentDistance(x, z, road.a.x, road.a.z, road.b.x, road.b.z) < road.width / 2 + 7)) continue;
+      const dx = town.x - x, dz = town.z - z;
+      const door = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 'e' : 'w') : (dz > 0 ? 'n' : 's');
+      obstacles.push(...buildShed(`${town.id}-shed${sheds.length}`, x, z, level, door));
+      sheds.push({ x, z, base: level, door });
+    }
+    if (sheds.length >= 2) bunkerSites.push({ id: `bunker-${town.id}`, x: town.x, z: town.z, width: 64, depth: 44, hall: 9, label: `hầm ${town.name}`, sheds });
+  }
+
   // Watch towers: stair towers out in the wild, on level ground, for sniping and a view.
   for (let made = 0, tries = 0; made < spec.towers && tries < 400; tries++) {
     const x = (random() * 2 - 1) * (half - spec.wildEdge), z = (random() * 2 - 1) * (half - spec.wildEdge);
@@ -501,7 +632,7 @@ function generate(spec: WorldSpec): IslandData {
   for (let gx = -half + 60; gx < half - 60; gx += spacing) {
     for (let gz = -half + 60; gz < half - 60; gz += spacing) {
       const forest = fbm(gx * spec.forestScale / 420, gz * spec.forestScale / 420, 203, 3);
-      if (forest < 0.5 || random() > (forest - 0.5) * 3.2) continue;
+      if (forest < 0.5 || random() > (forest - 0.5) * 3.2 * (spec.treeDensity ?? 1)) continue;
       const x = gx + (random() - 0.5) * spacing, z = gz + (random() - 0.5) * spacing;
       if (nearTown(x, z, 25) || roadDistance(x, z) < 7 || !landOk(x, z, 4) || riverNear(x, z, 4) || inField(x, z, 6)) continue;
       const height = 7 + random() * 7;
@@ -538,11 +669,23 @@ function generate(spec: WorldSpec): IslandData {
     }
   }
   for (const town of towns) vehicleSpawns.push({ x: town.x + 4, z: town.z + 4, yaw: random() * Math.PI * 2 });
+  for (const car of hotCars) vehicleSpawns.push(car);
+
+  // The bunkers go in last, deep underground: nothing above them has to make room, and nothing else is placed by them.
+  const portals: Portal[] = [];
+  for (const site of bunkerSites) {
+    const ends: Array<'e' | 'w' | 'n' | 's'> = site.sheds.length >= 4 ? ['e', 'w', 'n', 's'] : site.sheds.length === 3 ? ['e', 'w', 'n'] : ['e', 'w'];
+    const bunker = buildBunker({ id: site.id, width: site.width, depth: site.depth, hall: site.hall, ends });
+    addParts(placeParts(bunker, site.x, site.z, false, false));
+    site.sheds.forEach((shed, i) => portals.push(...linkShed(`${site.id}-s${i}`, shed, bunker.ends[i % bunker.ends.length], site, site.label)));
+  }
 
   return {
     terrain,
     world: {
       id: spec.id, halfSize: half, obstacles, spawns, terrain, zone: spec.zone, towns, roads, vehicleSpawns, lootSpots, floors, proxies,
+      ...(spec.theme ? { theme: spec.theme } : {}),
+      ...(portals.length ? { portals, hotAreas: hots } : {}),
       // Without a sea, put the waterline far below any terrain so no shore, beach or open water is ever drawn.
       water: { seaLevel: spec.sea ? SEA_LEVEL : -60, lakes, rivers }, fields,
     },
@@ -558,7 +701,9 @@ function dataFor(spec: WorldSpec): IslandData {
 export function createIsland(): IslandData { return dataFor(ISLAND_SPEC); }
 export function createValley(): IslandData { return dataFor(VALLEY_SPEC); }
 /** Generated map data for the open-world maps; the flat arena has none. */
-export function mapData(map: MapId): IslandData | null { return map === 'island' ? createIsland() : map === 'valley' ? createValley() : null; }
+export function mapData(map: MapId): IslandData | null { const spec = SPECS[map]; return spec ? dataFor(spec) : null; }
+/** The maps that are generated rather than built by hand, with the time their circles take. */
+export const OPEN_MAPS = Object.keys(SPECS) as MapId[];
 
 
 
@@ -570,6 +715,11 @@ function freshWorld(data: IslandData, forestScale: number): WorldConfig {
 }
 export function createIslandWorld(): WorldConfig { return freshWorld(createIsland(), ISLAND_SPEC.forestScale); }
 export function createValleyWorld(): WorldConfig { return freshWorld(createValley(), VALLEY_SPEC.forestScale); }
+/** A fresh world of any generated map (undefined for the arena). */
+export function createMapWorld(map: MapId): WorldConfig | null {
+  const spec = SPECS[map];
+  return spec ? freshWorld(dataFor(spec), spec.forestScale) : null;
+}
 
 export function heightAtWorld(world: WorldConfig, x: number, z: number): number {
   return world.terrain ? world.terrain(x, z) : 0;

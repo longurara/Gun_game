@@ -199,6 +199,13 @@ export class GameAudio {
     this.tone(this.stepSide ? 76 : 88, 0.065, sprint ? 0.07 : 0.045, 'sine', 0, 42);
   }
 
+  /** Drawing a breath to hold it, and letting it go. */
+  breath(inhale: boolean): void {
+    if (!this.ready()) return;
+    this.noise(inhale ? 0.42 : 0.6, inhale ? 0.05 : 0.07, 'bandpass', inhale ? 1100 : 700);
+    if (!inhale) this.noise(0.25, 0.03, 'lowpass', 500, 0.18);
+  }
+
   /** Engine note for the car being driven: short pulses whose pitch climbs with speed. */
   engine(speed: number, throttle: number): void {
     if (!this.ready()) return;

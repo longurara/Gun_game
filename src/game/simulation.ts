@@ -1,14 +1,19 @@
-import type { Actor, Airdrop, AmmoType, Stance, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Fire, Floor, Loot, LootKind, MapId, Obstacle, Projectile, Smoke, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
+import type { RangeDummySpec } from '../types';
+import type { Actor, Airdrop, AmmoType, Stance, ArmorSlot, Difficulty, Vehicle, GameEvent, GamePhase, GameState, Fire, Floor, Loot, LootKind, MapId, Obstacle, Portal, Projectile, Smoke, PlayerInput, Town, Vec2, Vec3, WeaponClass, WeaponType, WorldConfig, ZoneState } from '../types';
 import { ACTOR_HEIGHT, ACTOR_RADIUS, createArenaWorld, HEAL_AMOUNT, HEAL_TIME, INTERACTION_RANGE, WEAPONS } from './config';
 import { AMMO_PICKUP, ammoKindFor, ammoKindOf, ammoTypeOf, AMMO_ORDER, ARMOR_DURABILITY, ARMOR_NAMES, ARMOR_REDUCTION, armorKind, CORE_WEAPONS, emptyAmmo, emptyReserve, GUNS_BY_CLASS, isArmorKind, isSidearm, isWeaponKind, parseArmor, PRIMARY_SLOTS, WEAPON_ORDER } from './weapons';
 import { SpatialGrid } from './spatial';
 import { chooseWeapon, duelPower, gunshotLoudness, lootUtility, weakestWeapon } from './bot-logic';
-import { createIslandWorld, createValleyWorld, obstacleBottom, obstacleTop } from './world';
+import { createMapWorld, obstacleBottom, obstacleTop } from './world';
+import { createRangeWorld } from './range';
+import { DEEP } from './underground';
+import { BREATH_RECOVER, BREATH_RESUME, BREATH_SECONDS, BREATH_SPREAD, BREATH_VELOCITY } from './breath';
+import { SCOPE_FROM } from '../optics';
 import { floorSurface, STEP_UP } from './buildings';
 import { HULLS, kindOf, VEHICLES, vehicleKindFor } from './vehicles';
-import { FISTS, isMeleeKind, MELEE } from './melee';
+import { FISTS, isMeleeKind, MELEE, MELEE_ORDER } from './melee';
 import type { MeleeKind } from './melee';
-import { ATTACH, ATTACH_SLOTS, attachmentsOf, capacityOf, emptyParts, fits, isAttachKind, isPackKind, magazineOf, PACK_BASE, PACKS, rigStats, spaceOf, usedSpace } from './gear';
+import { ATTACH, ATTACH_ORDER, ATTACH_SLOTS, attachmentsOf, capacityOf, emptyParts, fits, isAttachKind, isPackKind, magazineOf, PACK_BASE, PACK_ORDER, PACKS, rigStats, spaceOf, usedSpace } from './gear';
 import type { AttachKind, AttachSlot, PackKind } from './gear';
 import { BOOST_DRAIN, BOOST_MAX, boostRegen, boostSpeed, emptySupplies, HEAL_CAP, isSupplyKind, isThrowKind, isUseKind, SUPPLIES, SUPPLY_ORDER, THROW_ORDER } from './supplies';
 import type { SupplyKind, ThrowKind, UseKind } from './supplies';
@@ -18,6 +23,7 @@ import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './
 
 interface Options {
   seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean;
+  /** On the shooting range: nothing hurts the player. */ immortal?: boolean;
   /** Multiplayer: how many of the first actors are people (default 1), which of them is on this machine, their names. */
   humans?: number; localId?: string; names?: string[];
   /** A mirror of someone else's match: it never steps the world itself, it is told what happened. */
@@ -53,6 +59,18 @@ interface Runtime {
   speedNow: number;
 }
 interface Hit { distance: number; actor?: Actor; head?: boolean; vehicle?: Vehicle; /** Where a bullet that followed an arc ended up. */ point?: Vec3 }
+/** What the player is told on landing, by map. */
+const ARRIVAL_MESSAGE: Partial<Record<MapId, string>> = {
+  island: 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!',
+  valley: 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!',
+  range: 'Trường bắn: bia ở mọi cự ly, bot ở khu phía đông. Nhấn B để lấy bất kỳ vũ khí nào, K để bật/tắt bất tử.',
+  desert: 'Sa mạc mênh mông. Tìm nhà, tìm xe, và tìm bóng râm trước khi bo khép lại.',
+  pines: 'Rừng thông dày đặc. Dùng cây làm chỗ nấp và coi chừng những con dốc.',
+  metro: 'Thành phố đông đúc. Lục tòa nhà, chiếm tầng cao, đừng để bị bao vây.',
+};
+/** Zone stages at which a supply crate drops: the long maps get three, the island two, the valley and the rest one early and one later. */
+const airdropStages = (world: WorldConfig): number[] => world.zone.radii.length >= 8 ? [1, 3, 5] : world.id === 'island' ? [1, 3] : [1, 2];
+
 /** A bullet's flight: how fast it leaves the muzzle and the distance its sights are zeroed at. */
 interface Arc { velocity: number; zero: number }
 
@@ -175,23 +193,42 @@ export class GameSimulation {
   private lootCount = -1;
 
   constructor(options: Options = {}) {
-    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false, humans: Math.max(1, options.humans ?? 1), localId: options.localId ?? '', names: options.names ?? [], remote: options.remote ?? false };
+    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false, immortal: options.immortal ?? false, humans: Math.max(1, options.humans ?? 1), localId: options.localId ?? '', names: options.names ?? [], remote: options.remote ?? false };
+    this.immortal = !!options.immortal;
     this.world = this.makeWorld();
     this.state = this.makeState('menu');
   }
 
   private makeWorld(): WorldConfig {
-    switch (this.options.map) {
-      case 'island': return createIslandWorld();
-      case 'valley': return createValleyWorld();
-      default: return createArenaWorld();
-    }
+    if (this.options.map === 'range') return createRangeWorld();
+    return createMapWorld(this.options.map) ?? createArenaWorld();
   }
 
   /** The island and the valley are open maps (terrain, loot in houses, vehicles); only the small arena is not. */
   private get openWorld(): boolean {
-    return this.world.id !== 'arena';
+    return this.world.id !== 'arena' && this.world.id !== 'range';
   }
+
+  /** Shift, standing still, with a magnifying scope in hand holds the breath: it drains while held and comes back when let go. */
+  private stepBreath(human: Actor, dt: number): void {
+    const input = this.inputs.get(human.id) ?? ZERO_INPUT;
+    const scoped = rigStats(human, human.weapon).zoom >= SCOPE_FROM;
+    const want = !!input.sprint && Math.hypot(input.moveX, input.moveZ) < 0.1 && scoped && !human.vehicleId && !human.air;
+    let breath = human.breath ?? BREATH_SECONDS;
+    if (human.winded && breath >= BREATH_RESUME) human.winded = false;
+    const holding = want && !human.winded && breath > 0;
+    breath = holding ? Math.max(0, breath - dt) : Math.min(BREATH_SECONDS, breath + dt * BREATH_RECOVER);
+    if (holding && breath <= 0) human.winded = true;
+    human.breath = breath;
+    human.holding = holding && breath > 0;
+  }
+
+  /** The shooting range: practice targets, bots that come back, no circle and no end. */
+  get rangeMode(): boolean { return this.world.id === 'range'; }
+  /** On the range: nothing can hurt the player. */
+  immortal = false;
+  setImmortal(on: boolean): void { this.immortal = on; }
+  private dummySpecs = new Map<string, RangeDummySpec>();
 
   /** The person at this machine. */
   get player(): Actor { return this.localActor ?? this.state.actors[0]; }
@@ -223,15 +260,17 @@ export class GameSimulation {
    * above their feet), or the ground. Floors far above are overhead, not underfoot.
    */
   supportHeight(x: number, z: number, feetY: number): number {
-    let best = this.heightAt(x, z);
+    const ground = this.heightAt(x, z);
+    // Someone deep underground (in a bunker) stands on the bunker's floor, not on the terrain far above their head.
+    let best = feetY < ground - DEEP ? -Infinity : ground;
     const grid = this.floors();
-    if (!grid) return best;
+    if (!grid) return best === -Infinity ? ground : best;
     grid.queryBox(x, z, x, z, floor => {
       if (x < floor.x - floor.width / 2 || x > floor.x + floor.width / 2 || z < floor.z - floor.depth / 2 || z > floor.z + floor.depth / 2) return;
       const y = floorSurface(floor, x, z);
       if (y <= feetY + STEP_UP && y > best) best = y;
     });
-    return best;
+    return best === -Infinity ? ground : best;
   }
 
   private obstacles(): SpatialGrid<Obstacle> {
@@ -287,11 +326,12 @@ export class GameSimulation {
 
   start(options: Options = {}): void {
     this.options = { ...this.options, ...options };
+    if (options.immortal !== undefined) this.immortal = options.immortal;
     this.world = this.makeWorld();
     this.events = [];
     this.state = this.makeState('playing');
     if (this.state.plane) this.events.push({ type: 'message', text: 'Máy bay đang bay qua đảo. Nhảy khi bạn đã chọn được điểm đáp!' });
-    else this.events.push({ type: 'message', text: this.options.map === 'island' ? 'Bạn đã đáp xuống đảo. Tìm vũ khí, đừng để bo bắt kịp!' : this.options.map === 'valley' ? 'Bạn đã vào thung lũng. Lục nhà tìm súng, bo thu rất nhanh!' : 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
+    else this.events.push({ type: 'message', text: ARRIVAL_MESSAGE[this.options.map] ?? 'Nhặt trang bị gần điểm xuất phát. Người sống cuối cùng chiến thắng!' });
   }
 
   returnToMenu(options: Options = {}): void {
@@ -319,7 +359,7 @@ export class GameSimulation {
     const player = this.player;
     const weapon = WEAPONS[player.weapon];
     const grounded = player.position.y <= this.heightAt(player.position.x, player.position.z) + 0.05;
-    return (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(player).spread + movementSpread(this.runtime(player).speedNow, !grounded, aimed);
+    return (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(player).spread * (aimed && player.holding ? BREATH_SPREAD : 1) + movementSpread(this.runtime(player).speedNow, !grounded, aimed);
   }
 
   /** Can the player see this actor right now (nothing solid between them)? Used by touch aim assist. */
@@ -496,7 +536,33 @@ export class GameSimulation {
 
   interact(actor: Actor = this.player): boolean {
     const loot = this.lootNear(actor);
-    return loot ? this.takeLoot(actor, loot) : false;
+    if (loot) return this.takeLoot(actor, loot);
+    return this.useStairs(actor);
+  }
+
+  /** The stairwell (to or from a bunker) within reach of this actor, if any. */
+  portalNear(actor: Actor = this.player): Portal | null {
+    const portals = this.world.portals;
+    if (!portals?.length || this.state.phase !== 'playing' || actor.vehicleId || actor.air || !actor.alive) return null;
+    let best: Portal | null = null, bestDistance = INTERACTION_RANGE;
+    for (const portal of portals) {
+      if (Math.abs(portal.y - actor.position.y) > 2.5) continue;
+      const d = Math.hypot(portal.x - actor.position.x, portal.z - actor.position.z);
+      if (d <= bestDistance) { best = portal; bestDistance = d; }
+    }
+    return best;
+  }
+
+  /** Take the stairs in reach: the actor comes out at the other end. */
+  useStairs(actor: Actor = this.player): boolean {
+    const portal = this.portalNear(actor);
+    if (!portal) return false;
+    actor.position = { x: portal.to.x, y: portal.to.y, z: portal.to.z };
+    const runtime = this.runtime(actor);
+    runtime.velocityY = 0; runtime.vault = null;
+    this.cancelHeal(actor);
+    this.events.push({ type: 'portal', actorId: actor.id, down: portal.down });
+    return true;
   }
 
   /**
@@ -994,7 +1060,7 @@ export class GameSimulation {
         [spawns[i], spawns[j]] = [spawns[j], spawns[i]];
       }
     }
-    const actors: Actor[] = spawns.slice(0, count).map((spawn, index) => {
+    const actors: Actor[] = this.rangeMode ? this.makeRangeActors() : spawns.slice(0, count).map((spawn, index) => {
       const botWeapons: WeaponType[] = island
         ? ['pistol']
         : ['rifle', 'smg', 'shotgun', 'dmr', this.options.seed % 2 === 0 ? 'heavySniper' : 'sniper', 'pistol', 'lmg'];
@@ -1023,6 +1089,7 @@ export class GameSimulation {
     this.lootState = (this.options.seed ^ 0x2f6e2b1) | 0;
     this.throwState = (this.options.seed ^ 0x51ed270b) | 0;
     if (island) this.scatterIslandLoot(add);
+    else if (this.rangeMode) this.scatterRangeLoot(add);
     else this.scatterArenaLoot(add);
     const profile = this.world.zone;
     const zone: ZoneState = {
@@ -1104,6 +1171,126 @@ export class GameSimulation {
     }
   }
 
+  // -------------------------------------------------------------------------------------------------------------
+  // The shooting range.
+  // -------------------------------------------------------------------------------------------------------------
+
+  private rangeBotWeapon(): WeaponType {
+    const pool = WEAPON_ORDER.filter(id => WEAPONS[id].kind !== 'bow' && WEAPONS[id].kind !== 'launcher');
+    return pool[Math.floor(this.random() * pool.length)];
+  }
+
+  private blankActor(id: string, name: string, isPlayer: boolean, x: number, z: number, yaw: number, weapon: WeaponType): Actor {
+    const ammo = emptyAmmo(), reserve = emptyReserve();
+    ammo[weapon] = WEAPONS[weapon].magazine;
+    reserve[WEAPONS[weapon].ammoType] = WEAPONS[weapon].ammoPickup * 3;
+    return {
+      id, name, isPlayer, position: { x, y: 0, z }, yaw, health: 100, alive: true, weapon, ownedWeapons: [weapon], helmet: 0, vest: 0, helmetHp: 0, vestHp: 0,
+      ammo, reserve, reloading: 0, healing: 0, medkits: 1, hurtTimer: 0, supplies: emptySupplies(), boost: 0, healKind: null, throwKind: null, blind: 0, pack: 0,
+      attach: {}, parts: emptyParts(), melee: null,
+    };
+  }
+
+  /** You at the firing line, bots in the yard (they shoot back), and a target in every lane. */
+  private makeRangeActors(): Actor[] {
+    const layout = this.world.range!;
+    const actors: Actor[] = [this.blankActor('player', this.options.names[0] ?? 'Bạn', true, layout.playerSpawn.x, layout.playerSpawn.z, 0, 'rifle')];
+    for (let i = 0; i < this.options.botCount; i++) {
+      const spawn = layout.botSpawns[i % layout.botSpawns.length];
+      actors.push(this.blankActor(`bot-${i + 1}`, `Đối thủ ${i + 1}`, false, spawn.x, spawn.z, this.random() * Math.PI * 2, this.rangeBotWeapon()));
+    }
+    this.dummySpecs.clear();
+    for (const spec of layout.dummies) {
+      const dummy = this.blankActor(spec.id, 'Bia', false, spec.x, spec.z, Math.PI, 'pistol');
+      dummy.dummy = true;
+      this.dummySpecs.set(spec.id, spec);
+      actors.push(dummy);
+    }
+    for (const actor of actors) this.runtime(actor);
+    return actors;
+  }
+
+  /** Every gun racked behind the firing line, class by class, with ammunition, parts, supplies and armour in front of the racks. */
+  private scatterRangeLoot(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
+    const base = (this.world.range?.firingZ ?? -150) - 12;
+    let row = 0;
+    for (const guns of Object.values(GUNS_BY_CLASS)) {
+      for (let i = 0; i < guns.length; i += 24) {
+        guns.slice(i, i + 24).forEach((gun, j) => add(gun, (j - 11.5) * 2.1, base - row * 1.9));
+        row++;
+      }
+    }
+    const extras: LootKind[] = [...AMMO_ORDER.map(ammoKindOf), ...ATTACH_ORDER, ...SUPPLY_ORDER, 'medkit', 'helmet1', 'helmet2', 'helmet3', 'vest1', 'vest2', 'vest3', ...PACK_ORDER, ...MELEE_ORDER];
+    extras.forEach((kind, i) => add(kind, (i % 22 - 10.5) * 2.2, base + 3.2 - Math.floor(i / 22) * 1.9));
+  }
+
+  /** Put someone back on their feet where they stood. */
+  private revive(actor: Actor, at: Vec3): void {
+    actor.alive = true; actor.health = 100; actor.hurtTimer = 0; actor.reloading = 0; actor.healing = 0; actor.blind = 0;
+    actor.position = { x: at.x, y: this.heightAt(at.x, at.z), z: at.z };
+    delete actor.diedAt; delete actor.rank;
+    if (actor.isPlayer) { delete this.state.playerRank; delete this.state.diedAt; }
+  }
+
+  /** A bot that fell comes back with a different gun, from any of the yard's spawn points. */
+  private reviveBot(actor: Actor): void {
+    const weapon = this.rangeBotWeapon();
+    actor.weapon = weapon; actor.ownedWeapons = [weapon];
+    actor.ammo = emptyAmmo(); actor.reserve = emptyReserve(); actor.attach = {};
+    actor.ammo[weapon] = WEAPONS[weapon].magazine;
+    actor.reserve[WEAPONS[weapon].ammoType] = WEAPONS[weapon].ammoPickup * 3;
+    const spots = this.world.range!.botSpawns;
+    this.revive(actor, spots[Math.floor(this.random() * spots.length)]);
+    this.runtimes.delete(actor.id);
+    this.runtime(actor);
+  }
+
+  /** The range keeps the player supplied (ammunition, parts, supplies), stands targets and bots back up, and sends the player back to the line. */
+  private stepRange(dt: number): void {
+    if (!this.rangeMode) return;
+    void dt;
+    const layout = this.world.range!, now = this.state.elapsed, player = this.player;
+    if (player.alive) {
+      for (const type of AMMO_ORDER) player.reserve[type] = Math.max(player.reserve[type], 400);
+      for (const kind of ATTACH_ORDER) player.parts[kind] = Math.max(player.parts[kind], 2);
+      for (const kind of SUPPLY_ORDER) player.supplies[kind] = Math.max(player.supplies[kind], 3);
+      player.medkits = Math.max(player.medkits, 3);
+      player.pack = 3;
+    } else if (now - (player.diedAt ?? now) > 2) this.revive(player, layout.playerSpawn);
+    for (const actor of this.state.actors) {
+      if (actor.isPlayer) continue;
+      if (!actor.alive) {
+        if (now - (actor.diedAt ?? now) < (actor.dummy ? 2.5 : 6)) continue;
+        const spec = this.dummySpecs.get(actor.id);
+        if (spec) this.revive(actor, { x: spec.x, y: 0, z: spec.z }); else this.reviveBot(actor);
+        continue;
+      }
+      const spec = actor.dummy ? this.dummySpecs.get(actor.id) : undefined;
+      if (spec?.sway) actor.position.x = spec.x + Math.sin(now * Math.PI * 2 / spec.sway.period + spec.sway.phase) * spec.sway.amp;
+    }
+  }
+
+  /** Take any gun in the game, with a full magazine and plenty in reserve; it replaces the one in hand (or the sidearm for a pistol). */
+  rangeEquip(weapon: unknown, actor: Actor = this.player): boolean {
+    if (!this.rangeMode || !actor.alive || typeof weapon !== 'string' || !isWeaponKind(weapon)) return false;
+    if (!actor.ownedWeapons.includes(weapon)) {
+      const sidearm = isSidearm(weapon);
+      const same = actor.ownedWeapons.filter(w => isSidearm(w) === sidearm);
+      if (same.length >= (sidearm ? 1 : PRIMARY_SLOTS)) {
+        const out = sidearm || !same.includes(actor.weapon) ? same[0] : actor.weapon;
+        actor.ownedWeapons.splice(actor.ownedWeapons.indexOf(out), 1);
+      }
+      actor.ownedWeapons.push(weapon);
+    }
+    actor.weapon = weapon;
+    actor.reloading = 0;
+    actor.ammo[weapon] = magazineOf(actor, weapon);
+    const type = WEAPONS[weapon].ammoType;
+    actor.reserve[type] = Math.max(actor.reserve[type], 400);
+    this.tell(actor, `Đã lấy ${WEAPONS[weapon].label}.`);
+    return true;
+  }
+
   private runtime(actor: Actor): Runtime {
     let runtime = this.runtimes.get(actor.id);
     if (!runtime) {
@@ -1172,9 +1359,11 @@ export class GameSimulation {
       if (human.air) this.flyPlayer(human, dt, held, pressed.has(human.id));
       else if (!human.vehicleId) this.walkPlayer(human, dt, held, pressed.has(human.id));
     }
+    for (const human of this.humanList) if (human.alive) this.stepBreath(human, dt);
     this.rebuildActorGrid();
     this.pathBudget = 3;
     this.updateBots(dt);
+    this.stepRange(dt);
     this.stepVehicles(dt);
     this.stepGrenades(dt);
     this.applyZone(dt);
@@ -1255,6 +1444,7 @@ export class GameSimulation {
   }
 
   private applyZone(dt: number): void {
+    if (this.rangeMode) return;
     for (const actor of this.state.actors) {
       if (!actor.alive || actor.air || this.state.phase !== 'playing') continue;
       if (distance2(actor.position, this.state.zone.center) > this.state.zone.radius) {
@@ -1448,7 +1638,7 @@ export class GameSimulation {
 
   private onZoneStage(stage: number): void {
     if (!this.options.drop || !this.openWorld) return;
-    if ((this.world.id === 'island' ? [1, 3] : [1, 2]).includes(stage)) this.releaseAirdrop();
+    if (airdropStages(this.world).includes(stage)) this.releaseAirdrop();
   }
 
   private releaseAirdrop(): void {
@@ -1769,7 +1959,7 @@ export class GameSimulation {
     const watchers = this.humanList.filter(human => human.alive);
     if (!watchers.length) watchers.push(this.player);
     for (const actor of this.state.actors) {
-      if (actor.isPlayer || !actor.alive || this.state.phase !== 'playing') continue;
+      if (actor.isPlayer || actor.dummy || !actor.alive || this.state.phase !== 'playing') continue;
       if (actor.air) { this.updateBotAir(actor, dt); continue; }
       if (!lod) { this.updateBot(actor, dt); continue; }
       const runtime = this.runtime(actor);
@@ -1893,10 +2083,11 @@ export class GameSimulation {
     this.obstacles().queryCircle(chest.x, chest.z, 1, obstacle => {
       if (obstacleHit(chest, muzzleDirection, obstacle, 0.45) !== null) { muzzleBlocked = true; return true; }
     });
-    // Bullets fall over distance in open worlds; the small arena keeps flat shots.
-    const arc: Arc | undefined = this.openWorld ? { velocity: weapon.velocity, zero: ZERO_DISTANCE[weapon.kind] } : undefined;
+    // Bullets fall over distance in open worlds and on the range; the small arena keeps flat shots. Held breath flattens the path.
+    const held = aimed && !!actor.holding;
+    const arc: Arc | undefined = this.openWorld || this.rangeMode ? { velocity: weapon.velocity * (held ? BREATH_VELOCITY : 1), zero: ZERO_DISTANCE[weapon.kind] } : undefined;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
-      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread * rig.spread + extraSpread);
+      const ray = this.spreadDirection(direction, (aimed ? weapon.aimSpread : weapon.spread) * stanceOf(actor).spread * rig.spread * (held ? BREATH_SPREAD : 1) + extraSpread);
       const hit = muzzleBlocked ? { distance: 0 } : this.raycast(from, ray, weapon.range, actor.id, arc);
       if (pellet === 0 || (!visualHit.actor && hit.actor)) { visualHit = hit; visualDirection = ray; }
       if (hit.vehicle) this.damageVehicle(hit.vehicle, weapon.damage, actor.id);
@@ -1937,6 +2128,8 @@ export class GameSimulation {
   private terrainHit(origin: Vec3, direction: Vec3, range: number): number | null {
     const terrain = this.world.terrain;
     if (!terrain) return null;
+    // From deep underground (a bunker) the ground overhead is not in the way: walls and the ceiling do the stopping.
+    if (origin.y < terrain(origin.x, origin.z) - DEEP) return null;
     const horizontal = Math.hypot(direction.x, direction.z);
     // A ray climbing steeply from above the surface cannot re-enter it within a short range.
     const step = 3;
@@ -2020,6 +2213,7 @@ export class GameSimulation {
 
   private damage(actor: Actor, amount: number, sourceId?: string): void {
     if (!actor.alive || amount <= 0) return;
+    if (this.immortal && this.rangeMode && actor.isPlayer) return;
     const actual = Math.min(actor.health, amount);
     actor.health = Math.max(0, actor.health - actual);
     actor.hurtTimer = 0.45;
@@ -2042,7 +2236,7 @@ export class GameSimulation {
       if (sourceId === this.player.id && actor !== this.player) this.state.kills++;
       this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}) });
       // In a match with other people a fallen person drops their gear too.
-      if (!actor.isPlayer || this.options.humans > 1) {
+      if ((!actor.isPlayer || this.options.humans > 1) && !this.rangeMode) {
         const dropPosition = (offset: number): Vec3 => {
           const x = actor.position.x + offset;
           const position = { x, y: this.supportHeight(x, actor.position.z, actor.position.y), z: actor.position.z };
@@ -2061,7 +2255,8 @@ export class GameSimulation {
   }
 
   private checkEnd(): void {
-    if (this.state.phase !== 'playing') return;
+    // The shooting range never ends: the player is stood back up instead.
+    if (this.state.phase !== 'playing' || this.rangeMode) return;
     if (this.options.humans > 1) {
       // With several people the match goes on without any one of them, and ends when one actor is left or nobody human is.
       const alive = this.state.actors.filter(actor => actor.alive);
@@ -2100,7 +2295,7 @@ export class GameSimulation {
   private advanceZone(dt: number): void {
     const zone = this.state.zone;
     const profile = this.world.zone;
-    if (zone.stage >= profile.radii.length) return;
+    if (this.rangeMode || zone.stage >= profile.radii.length) return;
     zone.timeRemaining = Math.max(0, zone.timeRemaining - dt);
     if (zone.isShrinking && this.shrinkStart) {
       const progress = clamp(1 - zone.timeRemaining / profile.shrinks[zone.stage], 0, 1);
@@ -2266,7 +2461,7 @@ export class GameSimulation {
     let closest = null as Actor | null;
     let closestDistance = detection;
     this.actorGrid.queryCircle(actor.position.x, actor.position.z, detection, enemy => {
-      if (!enemy.alive || enemy.id === actor.id) return;
+      if (!enemy.alive || enemy.id === actor.id || enemy.dummy) return;
       // Crouching and lying down shrink the distance at which a bot notices you.
       const distance = distance2(actor.position, enemy.position) / stanceOf(enemy).stealth;
       if (distance >= closestDistance) return;
@@ -2669,7 +2864,7 @@ export class GameSimulation {
     let best = null as Actor | null;
     let bestDistance = radius;
     this.actorGrid.queryCircle(actor.position.x, actor.position.z, radius, other => {
-      if (other === actor || !other.alive || other.isPlayer) return;
+      if (other === actor || !other.alive || other.isPlayer || other.dummy) return;
       const runtime = this.runtime(other);
       if (runtime.lodTier < 2 || runtime.duelUntil > now) return;
       const d = distance2(actor.position, other.position);

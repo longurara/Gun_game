@@ -78,7 +78,7 @@ export class Lobby {
   start(nowMs = 0): MatchSetup | null {
     if (this.role !== 'host' || this.phase !== 'waiting') return null;
     const seed = Math.floor(this.random() * 2 ** 31);
-    const setup: MatchSetup = { seed, map: this.config.map, botCount: this.config.botCount, difficulty: this.config.difficulty, drop: this.config.map !== 'arena', players: this.players.map(player => ({ clientId: player.id, name: player.name, ...(player.skin ? { skin: player.skin } : {}) })) };
+    const setup: MatchSetup = { seed, map: this.config.map, botCount: this.config.botCount, difficulty: this.config.difficulty, drop: this.config.map !== 'arena' && this.config.map !== 'range', players: this.players.map(player => ({ clientId: player.id, name: player.name, ...(player.skin ? { skin: player.skin } : {}) })) };
     this.setup = setup;
     this.phase = 'starting';
     this.startedAt = nowMs;

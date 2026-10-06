@@ -35,7 +35,7 @@ test('roads are never cut: no house, crate or field lies on a road, and a river 
   for (const map of ['island', 'valley'] as const) {
     const { world, terrain } = map === 'island' ? createIsland() : createValley();
     for (const o of world.obstacles) {
-      if (o.kind === 'tree' || o.kind === 'floor') continue;
+      if (o.kind === 'tree' || o.kind === 'floor' || (o.base ?? 0) < -30) continue;
       for (const road of world.roads) assert.ok(segDist(o.x, o.z, road.a, road.b) >= road.width / 2 + Math.min(o.width, o.depth) / 2 - 0.5, `${map}: ${o.id} sits on a road`);
     }
     for (const f of world.fields!) for (const road of world.roads) assert.ok(segDist(f.x, f.z, road.a, road.b) > road.width / 2, `${map}: a field is on a road`);
@@ -89,7 +89,10 @@ test('houses can be entered: each has a doorway at least as wide as a walker nee
   const share = game.state.loot.filter(l => inside(l.position.x, l.position.z)).length / game.state.loot.length;
   assert.ok(share > 0.65, `only ${(share * 100).toFixed(0)}% of pickups are indoors`);
   // Heavy weapons are kept inside, not scattered in the open.
-  const heavy = game.state.loot.filter(l => isWeaponKind(l.kind) && (WEAPONS[l.kind].kind === 'sniper' || WEAPONS[l.kind].kind === 'amr'));
+  // (The hot areas and the bunkers are the exception: their crates hold the heaviest guns in the open or underground.)
+  const hot = game.world.hotAreas ?? [];
+  const special = (l: { position: { x: number; y: number; z: number } }) => l.position.y < -30 || hot.some(h => Math.hypot(l.position.x - h.x, l.position.z - h.z) < h.radius);
+  const heavy = game.state.loot.filter(l => isWeaponKind(l.kind) && (WEAPONS[l.kind].kind === 'sniper' || WEAPONS[l.kind].kind === 'amr') && !special(l));
   assert.ok(heavy.length > 10 && heavy.every(l => inside(l.position.x, l.position.z)), 'sniper rifles are only found in houses');
   // Armour exists at every tier.
   for (const kind of ['helmet1', 'helmet2', 'helmet3', 'vest1', 'vest2', 'vest3']) assert.ok(game.state.loot.some(l => l.kind === kind), `no ${kind} on the map`);

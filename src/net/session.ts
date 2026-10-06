@@ -3,7 +3,7 @@
  * runs a mirror, predicts its own movement so controls feel immediate, and draws everybody else a moment in the past,
  * blended between snapshots. Neither knows about Supabase: they talk through a `Transport`.
  */
-import type { Actor, GameEvent, LootKind, PlayerInput, Projectile, Stance, Vec3, WeaponType } from '../types';
+import type { Actor, GameEvent, LootKind, MapId, PlayerInput, Projectile, Stance, Vec3, WeaponType } from '../types';
 import type { GameSimulation } from '../game/simulation';
 import { WEAPON_ORDER } from '../game/weapons';
 import { applySnapshot, netRates, PROTOCOL_VERSION, SnapshotBuilder } from './protocol';
@@ -13,7 +13,7 @@ import type { NetMessage, Transport } from './transport';
 
 /** Everything both sides need to build the same match. */
 export interface MatchSetup {
-  seed: number; map: 'island' | 'valley' | 'arena'; botCount: number; difficulty: 'easy' | 'normal'; drop: boolean;
+  seed: number; map: MapId; botCount: number; difficulty: 'easy' | 'normal'; drop: boolean;
   /** In join order: index 0 is the host. */
   players: Array<{ clientId: string; name: string; skin?: string }>;
 }
@@ -202,6 +202,7 @@ export class HostSession {
         break;
       }
       case 'vehicle': sim.useVehicle(actor); break;
+      case 'stairs': sim.useStairs(actor); break;
       case 'switch': sim.switchWeapon(String(argument) as WeaponType, actor); break;
       case 'stance': if (argument === 'stand' || argument === 'crouch' || argument === 'prone') sim.setStance(argument as Stance, actor); break;
     }
