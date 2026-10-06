@@ -198,3 +198,23 @@ test('backpacks and parts turn up on the island, and bots never go for them', ()
   const kinds = new Set(game.state.loot.map(l => l.kind));
   for (const kind of ['pack1', 'pack2', 'scope2', 'scope4', 'suppressor', 'compensator', 'vgrip', 'agrip', 'extmag']) assert.ok(kinds.has(kind as never), `no ${kind} on the map`);
 });
+
+test('a kind sent over the network must be one of ours: names inherited from Object are not parts, packs, supplies or melee weapons', async () => {
+  const { isAttachKind, isPackKind } = await import('../src/game/gear.ts');
+  const { isSupplyKind, isUseKind, isThrowKind } = await import('../src/game/supplies.ts');
+  const { isMeleeKind } = await import('../src/game/melee.ts');
+  const { isWeaponKind } = await import('../src/game/weapons.ts');
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    assert.equal(isAttachKind(name), false, `attach ${name}`);
+    assert.equal(isPackKind(name), false, `pack ${name}`);
+    assert.equal(isSupplyKind(name), false, `supply ${name}`);
+    assert.equal(isUseKind(name), false, `use ${name}`);
+    assert.equal(isThrowKind(name), false, `throw ${name}`);
+    assert.equal(isMeleeKind(name), false, `melee ${name}`);
+    assert.equal(isWeaponKind(name), false, `weapon ${name}`);
+  }
+  assert.equal(isAttachKind('scope4'), true);
+  assert.equal(isSupplyKind('frag'), true);
+  assert.equal(isMeleeKind('pan'), true);
+  assert.equal(isPackKind('pack2'), true);
+});

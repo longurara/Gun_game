@@ -9,4 +9,4 @@ export const MELEE: Record<MeleeKind, MeleeConfig> = {
 };
 export const FISTS: MeleeConfig = { label: 'Nắm đấm', damage: 14, range: 1.8, interval: 0.5 };
 export const MELEE_ORDER: MeleeKind[] = ['pan', 'machete', 'crowbar', 'sickle'];
-export const isMeleeKind = (value: unknown): value is MeleeKind => typeof value === 'string' && value in MELEE;
+export const isMeleeKind = (value: unknown): value is MeleeKind => typeof value === 'string' && Object.hasOwn(MELEE, value);

@@ -27,3 +27,8 @@ html[data-input="mouse"] .supply-row { position: absolute; left: calc(100% + 62p
 html[data-input="mouse"] .supply-chip { padding: 2px 6px 2px 4px; background: #0b121480; backdrop-filter: blur(3px); }
 
 .supply-chip.melee { border-color: #ffffff30; }
+
+/* On a phone the health panel hugs the bottom edge, so the chips would fall off the screen: lift them above the weapon slots. */
+html[data-input="touch"] .supply-row { position: absolute; left: 0; bottom: calc(100% + 78px); margin: 0; width: 100%; flex-wrap: wrap-reverse; gap: 4px; }
+html[data-input="touch"] .supply-chip { background: #0b121499; font-size: 10px; }
+html[data-input="touch"] .boost-track { margin: 3px 0 0; }

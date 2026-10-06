@@ -137,6 +137,8 @@ html[data-input="touch"] .touch-utility-actions > .touch-button { position: abso
 html[data-input="touch"] #touch-reload { right: calc(25% - 22px + var(--safe-right)); }
 html[data-input="touch"] #touch-weapon { right: calc(11% - 22px + var(--safe-right)); }
 html[data-input="touch"] #touch-heal { left: calc(8px + var(--safe-left)); }
+/* The grenade button sits just above the heal button, clear of the joystick. */
+html[data-input="touch"] #touch-throw { left: calc(8px + var(--safe-left)); bottom: calc(64px + var(--safe-bottom)); }
 html[data-input="touch"] #touch-interact { right: calc(28% - 22px + var(--safe-right)); bottom: calc(100px + var(--safe-bottom)); }
 html[data-input="touch"] .touch-top-actions { right: calc(20px + var(--touch-map-size) + var(--safe-right)); top: calc(7px + var(--safe-top)); gap: 5px; }
 html[data-input="touch"] .touch-top-actions > .touch-button { width: 44px; height: 44px; }
@@ -160,6 +162,7 @@ html[data-input="touch"] .map-card-head small { display: none; }
   html[data-input="touch"] #touch-weapon { left: calc(50% + 26px); right: auto; bottom: calc(115px + var(--safe-bottom)); }
   html[data-input="touch"] #touch-interact { left: calc(50% - 70px); right: auto; bottom: calc(115px + var(--safe-bottom)); }
   html[data-input="touch"] #touch-heal { left: calc(18px + var(--safe-left)); bottom: calc(115px + var(--safe-bottom)); }
+  html[data-input="touch"] #touch-throw { left: calc(18px + 52px + var(--safe-left)); bottom: calc(115px + var(--safe-bottom)); }
   html[data-input="touch"] .orientation-hint { display: block; top: calc(128px + var(--safe-top)); left: calc(8px + var(--safe-left)); font-size: 9px; max-width: 180px; }
   html[data-input="touch"] .interaction-hint { bottom: calc(178px + var(--safe-bottom)); }
   html[data-input="touch"] .action-progress { bottom: calc(198px + var(--safe-bottom)); }

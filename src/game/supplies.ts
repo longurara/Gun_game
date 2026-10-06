@@ -32,7 +32,7 @@ export const SUPPLIES: Record<SupplyKind, SupplyConfig> = {
 };
 export const SUPPLY_ORDER: SupplyKind[] = ['bandage', 'firstaid', 'painkiller', 'energy', 'frag', 'smoke', 'flash', 'molotov'];
 export const THROW_ORDER: ThrowKind[] = ['frag', 'smoke', 'flash', 'molotov'];
-export const isSupplyKind = (value: unknown): value is SupplyKind => typeof value === 'string' && value in SUPPLIES;
+export const isSupplyKind = (value: unknown): value is SupplyKind => typeof value === 'string' && Object.hasOwn(SUPPLIES, value);
 export const isThrowKind = (value: unknown): value is ThrowKind => typeof value === 'string' && THROW_ORDER.includes(value as ThrowKind);
 export const isUseKind = (value: unknown): value is UseKind => value === 'medkit' || (isSupplyKind(value) && SUPPLIES[value].group !== 'throw');
 

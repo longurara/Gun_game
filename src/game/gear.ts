@@ -45,8 +45,8 @@ export const ATTACH: Record<AttachKind, AttachConfig> = {
   agrip: { kind: 'agrip', label: 'Tay cầm chéo', slot: 'grip', spread: 0.86, classes: ['smg', 'ar', 'br', 'lmg', 'dmr'] },
   extmag: { kind: 'extmag', label: 'Băng đạn mở rộng', slot: 'mag', mag: 1.3, classes: ['pistol', 'smg', 'ar', 'br', 'dmr', 'sniper'] },
 };
-export const isPackKind = (value: unknown): value is PackKind => typeof value === 'string' && value in PACKS;
-export const isAttachKind = (value: unknown): value is AttachKind => typeof value === 'string' && value in ATTACH;
+export const isPackKind = (value: unknown): value is PackKind => typeof value === 'string' && Object.hasOwn(PACKS, value);
+export const isAttachKind = (value: unknown): value is AttachKind => typeof value === 'string' && Object.hasOwn(ATTACH, value);
 
 export function emptyParts(): Record<AttachKind, number> {
   return Object.fromEntries(ATTACH_ORDER.map(kind => [kind, 0])) as Record<AttachKind, number>;
