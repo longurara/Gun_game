@@ -2302,7 +2302,8 @@ window.addEventListener('mousemove', event => {
 });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
-  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen) pause();
+  // The armoury releases the mouse on purpose so the cursor can pick a gun; that is not a pause.
+  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen && !ui.armouryOpen) pause();
   hadLock = locked;
 });
 window.addEventListener('blur', () => { if (!net) pause(); });
