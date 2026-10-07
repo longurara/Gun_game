@@ -124,17 +124,25 @@ test('handshake replays SDP and bundled ICE, ignores duplicate/stale answers and
   t.after(() => transport.close());
   transport.send({ k: 'roster', players: [{ id: 'host' }, { id: 'guest' }] }); await flush();
   const initial = signaling.sent.find(message => message.description)!;
+  // Browsers can update m=/c= lines as ICE gathering progresses, not just add candidates.
+  pc.localDescription = { type: 'offer', sdp: 'gathered-offer', toJSON: () => ({ type: 'offer', sdp: 'gathered-offer' }) };
   now = 3000; (transport as any).health(); await flush();
   const replay = signaling.sent.at(-1)!;
   assert.equal(replay.session, initial.session); assert.equal(replay.revision, initial.revision);
+  assert.deepEqual(replay.description, initial.description, 'replayed SDP is frozen for this negotiation');
   assert.deepEqual(replay.candidates, [{ candidate: 'local-ice' }]);
   let accepted = 0;
   const original = pc.setRemoteDescription.bind(pc);
-  pc.setRemoteDescription = async description => { accepted++; await original(description); };
+  pc.setRemoteDescription = async description => {
+    if (accepted > 0) throw new DOMException('answer cannot be applied in stable', 'InvalidStateError');
+    accepted++; await original(description);
+  };
   const answer = { k: 'rtc-signal', to: 'host', session: initial.session, revision: initial.revision,
     description: { type: 'answer', sdp: 'answer' }, candidates: [{ candidate: 'guest-ice' }] };
   signaling.receive(answer, 'guest'); signaling.receive(answer, 'guest'); await flush();
+  signaling.receive({ ...answer, description: { type: 'answer', sdp: 'gathered-answer-with-different-connection-lines' } }, 'guest'); await flush();
   assert.equal(accepted, 1); assert.ok(pc.candidates.some((c: any) => c.candidate === 'guest-ice'));
+  assert.equal(transport.netStats()[0].state, 'connecting', 'changed duplicate answer must not close the connection');
   signaling.receive({ ...answer, revision: 0, description: { type: 'answer', sdp: 'stale-answer' } }, 'guest'); await flush();
   assert.equal(accepted, 1);
   pc.channel.open(); const descriptions = signaling.sent.filter(message => message.description).length;

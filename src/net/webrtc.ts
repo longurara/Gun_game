@@ -15,6 +15,7 @@ interface Peer {
   assembly: { id: number; total: number; next: number; size: number; parts: string[] } | null;
   chain: Promise<void>; ice: RTCIceCandidateInit[]; outgoingIce: RTCIceCandidateInit[]; descriptionSent: boolean;
   revision: number; remoteKey: string; lastDescription: number; localIce: RTCIceCandidateInit[];
+  acceptedRevision: number | null; description: RTCSessionDescriptionInit | null;
   relayCandidate: boolean; error?: string;
 }
 export interface WebRTCOptions {
@@ -136,13 +137,15 @@ export class WebRTCTransport implements Transport {
           if (revision < peer!.revision) return;
           const key = this.descriptionKey(description);
           // Repeated offers acknowledge delivery without renegotiating a stable connection.
-          if (peer!.remoteKey === key && peer!.revision === revision) {
+          const duplicate = message.revision !== undefined ? peer!.acceptedRevision === revision : peer!.remoteKey === key;
+          if (duplicate && peer!.revision === revision) {
             await this.bundledIce(peer!, message); this.sendDescription(peer!); return;
           }
           peer!.revision = revision;
-          peer!.descriptionSent = false;
+          peer!.descriptionSent = false; peer!.description = null;
           await peer!.pc.setRemoteDescription(description);
           peer!.remoteKey = key;
+          peer!.acceptedRevision = revision;
           await this.flushIce(peer!);
           await this.bundledIce(peer!, message);
           await peer!.pc.setLocalDescription(await peer!.pc.createAnswer());
@@ -157,7 +160,11 @@ export class WebRTCTransport implements Transport {
         this.enqueue(peer, async () => {
           if (message.revision !== undefined && message.revision !== peer.revision) return;
           const key = this.descriptionKey(description);
-          if (peer.remoteKey !== key) { await peer.pc.setRemoteDescription(description); peer.remoteKey = key; }
+          // A gathered/reformatted SDP answer is still the answer to the same offer.
+          // Applying it again after reaching stable throws InvalidStateError in native browsers.
+          if (peer.acceptedRevision !== peer.revision) {
+            await peer.pc.setRemoteDescription(description); peer.remoteKey = key; peer.acceptedRevision = peer.revision;
+          }
           await this.flushIce(peer); await this.bundledIce(peer, message);
         });
       } else if (message.candidate && typeof message.candidate === 'object') {
@@ -192,7 +199,8 @@ export class WebRTCTransport implements Transport {
       const peer: Peer = { id, session, pc, channel: null, state: 'connecting', route: 'unknown', rttMs: null,
         created: now, seen: now, disconnected: null, restarted: false, ping: null, seq: 0, assembly: null,
         chain: Promise.resolve(), ice: [], outgoingIce: [], descriptionSent: false,
-        revision: 0, remoteKey: '', lastDescription: -Infinity, localIce: [], relayCandidate: false };
+        revision: 0, remoteKey: '', lastDescription: -Infinity, localIce: [], relayCandidate: false,
+        acceptedRevision: null, description: null };
       this.peers.set(id, peer);
       pc.onicecandidate = event => {
         if (!event.candidate || !this.current(peer)) return;
@@ -215,7 +223,13 @@ export class WebRTCTransport implements Transport {
 
   private current(peer: Peer): boolean { return !this.closed && this.peers.get(peer.id) === peer && peer.state !== 'failed'; }
   private enqueue(peer: Peer, work: () => Promise<void>): void {
-    peer.chain = peer.chain.then(async () => { if (this.current(peer)) await work(); }).catch(() => { if (this.current(peer)) this.fail(peer); });
+    peer.chain = peer.chain.then(async () => { if (this.current(peer)) await work(); }).catch(error => {
+      if (this.current(peer)) this.fail(peer, this.operationError('Thương lượng WebRTC', error));
+    });
+  }
+  private operationError(operation: string, error: unknown): string {
+    const name = error && typeof error === 'object' && 'name' in error && typeof error.name === 'string' && /^[a-zA-Z-]{1,48}$/.test(error.name) ? error.name : 'RTCError';
+    return `${operation} thất bại (${name}). Cả nhóm hãy tải lại game rồi tạo phòng mới.`;
   }
   private async addIce(peer: Peer, candidate: RTCIceCandidateInit): Promise<void> {
     try { await peer.pc.addIceCandidate(candidate); } catch { /* Late candidates from a previous ICE generation are harmless. */ }
@@ -235,8 +249,9 @@ export class WebRTCTransport implements Transport {
     if (!this.current(peer) || !peer.pc.localDescription) return;
     peer.lastDescription = this.now();
     // Replay gathered candidates with SDP in one broadcast, recovering lost trickle packets without a burst.
+    peer.description ??= peer.pc.localDescription.toJSON();
     this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, revision: peer.revision,
-      description: peer.pc.localDescription.toJSON(), candidates: peer.localIce });
+      description: peer.description, candidates: [...peer.localIce] });
     peer.descriptionSent = true;
     for (const candidate of peer.outgoingIce.splice(0)) this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, revision: peer.revision, candidate });
   }
@@ -265,8 +280,12 @@ export class WebRTCTransport implements Transport {
       peer.state = 'open'; peer.seen = this.now();
       this.changed(); this.emit('open'); void this.route(peer);
     };
-    channel.onclose = () => { if (this.current(peer)) this.fail(peer); };
-    channel.onerror = () => { if (this.current(peer)) this.fail(peer); };
+    channel.onclose = () => {
+      if (this.current(peer)) this.fail(peer, peer.state === 'connecting'
+        ? `Kênh dữ liệu đóng trước khi kết nối hoàn tất (ICE: ${peer.pc.iceConnectionState ?? 'unknown'}). Cả nhóm hãy tải lại game và thử vào lại phòng.`
+        : 'Kênh dữ liệu với người chơi đã đóng. Kiểm tra tab game và mạng của cả hai.');
+    };
+    channel.onerror = event => { if (this.current(peer)) this.fail(peer, this.operationError('Kênh dữ liệu', (event as RTCErrorEvent).error)); };
     channel.onmessage = event => { if (typeof event.data === 'string') this.receiveData(peer, event.data); };
   }
 
@@ -348,11 +367,13 @@ export class WebRTCTransport implements Transport {
         peer.restarted = true;
         this.enqueue(peer, async () => {
           peer.descriptionSent = false; peer.revision++; peer.localIce = []; peer.outgoingIce = [];
+          peer.acceptedRevision = null; peer.description = null;
           await peer.pc.setLocalDescription(await peer.pc.createOffer({ iceRestart: true })); this.sendDescription(peer);
         });
       }
       if (peer.state === 'connecting' && now - peer.created > this.timeout || peer.state === 'open' && now - peer.seen > 8000) {
-        this.fail(peer, peer.state === 'connecting' ? this.handshakeError(peer) : LINK_ERROR); continue;
+        this.fail(peer, peer.state === 'connecting' ? this.handshakeError(peer)
+          : 'Không nhận được phản hồi từ người chơi trong 8 giây. Hãy giữ tab game hoạt động và kiểm tra mạng của cả hai.'); continue;
       }
       if (peer.state === 'connecting' && peer.descriptionSent && now - peer.lastDescription >= 3000) this.sendDescription(peer);
       if (peer.state === 'open' && (!peer.ping || now - peer.ping.at > 4000)) {

@@ -19,7 +19,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function room(size: number, noIce = false, loseSignals = false) {
+async function room(size: number, noIce = false, loseSignals = false, varyAnswer = false) {
   const pages: Page[] = [], signals: Array<{ from: string; message: any }> = [], errors: string[] = [];
   const dropped = new Set<string>();
   for (let i = 0; i < size; i++) {
@@ -32,9 +32,19 @@ async function room(size: number, noIce = false, loseSignals = false) {
         if (packet.message.candidate) return; // All standalone trickle messages are lost.
         if (type && !dropped.has(type)) { dropped.add(type); return; }
       }
-      await Promise.all(pages.filter(p => p !== page && !p.isClosed()).map(p => p.evaluate(packet => {
+      const recipients = pages.filter(p => p !== page && !p.isClosed());
+      await Promise.all(recipients.map(p => p.evaluate(packet => {
         (window as any).__SIGNAL_RECEIVE__?.(packet.message, packet.from);
       }, packet).catch(() => {})));
+      if (varyAnswer && packet.message.description?.type === 'answer' && !dropped.has('varied-answer')) {
+        dropped.add('varied-answer');
+        const duplicate = structuredClone(packet);
+        // A gathering browser may rewrite connection lines while replaying the same answer.
+        duplicate.message.description.sdp = duplicate.message.description.sdp.replace(/^c=IN IP4 .*$/m, 'c=IN IP4 127.0.0.1\r');
+        await Promise.all(recipients.map(p => p.evaluate(packet => {
+          (window as any).__SIGNAL_RECEIVE__?.(packet.message, packet.from);
+        }, duplicate)));
+      }
     });
     pages.push(page);
     await page.goto(`${url}/tests/fixtures/webrtc.html?id=p${i}&role=${i ? 'client' : 'host'}${noIce ? '&no-ice=1' : ''}${loseSignals ? '&loss=1' : ''}`);
@@ -48,6 +58,18 @@ async function room(size: number, noIce = false, loseSignals = false) {
     for (const page of pages) { if (!page.isClosed()) { await page.evaluate(() => (window as any).__RTC_FIXTURE__.close()); await page.close(); } }
   } };
 }
+
+test('native WebRTC ignores a changed duplicate answer after the first answer reaches stable', async () => {
+  const r = await room(2, false, false, true);
+  try {
+    await r.host.waitForFunction(() => (window as any).__RTC_FIXTURE__.transport.ready);
+    await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.transport.ready);
+    assert.equal(await r.host.locator('#mp-error').textContent(), '');
+    await r.host.click('#mp-start');
+    await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.client?.netStats().snapshotsPerSecond > 0);
+    assert.deepEqual(r.errors, []);
+  } finally { await r.close(); }
+});
 
 test('native channels recover lost initial offer, answer and all standalone ICE signals', async () => {
   // Use the production handshake deadline: the fixture's 2s failure shortcut cannot cover a 3s replay.
