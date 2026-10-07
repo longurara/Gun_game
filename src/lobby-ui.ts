@@ -1,4 +1,5 @@
 import type { LobbyPhase, RoomConfig, RosterEntry } from './net/lobby';
+import type { PeerStats } from './net/webrtc';
 
 /** What the waiting room should show. */
 export interface LobbyModel {
@@ -12,6 +13,8 @@ export interface LobbyModel {
   config: RoomConfig;
   /** A short line under the room code, e.g. "Đang kết nối…". */
   status: string;
+  connections?: PeerStats[];
+  connectionReady?: boolean;
   /** Account ids of the player's friends, and online friends who could be invited to this room. */
   friendIds: string[];
   invitable: Array<{ id: string; name: string }>;
@@ -130,13 +133,18 @@ export class LobbyView {
     this.el('lobby-title').textContent = inRoom ? 'ĐANG CHỜ BẠN BÈ' : 'PHÒNG CHƠI';
     this.el('mp-room-code').textContent = model.code || '-----';
     this.el('mp-config').textContent = `${MAP_NAMES[model.config.map]} · ${model.config.botCount} bot · ${model.config.difficulty === 'easy' ? 'Dễ' : 'Tiêu chuẩn'}${model.isHost ? ' (đổi ở màn hình chính)' : ''}`;
-    this.el('mp-players').innerHTML = model.players.map((player, index) =>
-      `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${player.uid && model.friendIds.includes(player.uid) ? '<u>BẠN BÈ</u>' : ''}${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}</li>`).join('');
+    this.el('mp-players').innerHTML = model.players.map((player, index) => {
+      const link = model.connections?.find(link => link.id === player.id);
+      const state = link ? link.state === 'failed' ? 'MẤT KẾT NỐI' : link.state !== 'open' ? 'ĐANG KẾT NỐI' :
+        `${link.route === 'relay' ? 'QUA TURN' : link.route === 'direct' ? 'TRỰC TIẾP' : 'ĐÃ KẾT NỐI'}${link.rttMs === null ? '' : ` · ${Math.round(link.rttMs)} ms`}` : '';
+      const connection = state || (model.connectionReady === false && player.id !== model.me && (model.isHost || index === 0) ? 'ĐANG KẾT NỐI' : '');
+      return `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${player.uid && model.friendIds.includes(player.uid) ? '<u>BẠN BÈ</u>' : ''}${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}${connection ? `<small>${connection}</small>` : ''}</li>`;
+    }).join('');
     const invitable = model.invitable.filter(friend => !model.players.some(player => player.uid === friend.id));
     this.el('mp-invite').hidden = !inRoom || invitable.length === 0;
     this.el('mp-invite-list').innerHTML = invitable.map(friend => `<li><span>${escapeHtml(friend.name)}</span><button type="button" data-friend="${escapeHtml(friend.id)}">MỜI</button></li>`).join('');
     (this.el('mp-start') as HTMLButtonElement).hidden = !model.isHost;
-    (this.el('mp-start') as HTMLButtonElement).disabled = model.phase !== 'waiting';
+    (this.el('mp-start') as HTMLButtonElement).disabled = model.phase !== 'waiting' || model.connectionReady === false;
     this.el('mp-start').textContent = model.players.length > 1 ? `BẮT ĐẦU TRẬN · ${model.players.length} NGƯỜI` : 'BẮT ĐẦU (CHỈ MỘT NGƯỜI)';
     this.el('mp-wait').hidden = model.isHost || !inRoom;
     this.el('mp-status').textContent = model.status;

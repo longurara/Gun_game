@@ -300,6 +300,7 @@ export class ClientSession {
   /** Consecutive snapshots that put the local player at an earlier stage of the drop than they predicted. */
   private regressStreak = 0;
   closedByHost = false;
+  connectionLost = false;
 
   constructor(readonly sim: GameSimulation, private readonly transport: Transport, private readonly hostId: string, clock: () => number = () => performance.now()) {
     this.clock = clock;
@@ -313,6 +314,7 @@ export class ClientSession {
       if (message.k === 'snap') this.snapshot(message.s as unknown as Snapshot, (message.echo as Record<string, number> | undefined)?.[transport.clientId]);
       else if (message.k === 'closed') this.closedByHost = true;
     });
+    transport.onStatus(status => { if (status === 'closed' || status === 'error') this.connectionLost = true; });
   }
 
   drainEvents(): GameEvent[] {

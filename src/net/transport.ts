@@ -1,6 +1,6 @@
 /**
  * How messages get between the players. Everything above this file only needs "send to everyone else in the room" and
- * "tell me when something arrives", so the same game code runs over Supabase Realtime in the browser and over an
+ * "tell me when something arrives", so the same game code runs over WebRTC in the browser and over an
  * in-memory network with fake latency in the tests.
  */
 export interface NetMessage { k: string; [field: string]: unknown }
@@ -134,8 +134,8 @@ export class SupabaseTransport implements Transport {
           this.ready = true;
           this.emit('open');
           for (const message of this.queued.splice(0)) this.send(message);
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this.emit('error', error?.message ?? status);
-        else if (status === 'CLOSED') this.emit(this.closed ? 'closed' : 'connecting');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') { this.ready = false; this.emit('error', error?.message ?? status); }
+        else if (status === 'CLOSED') { this.ready = false; this.emit(this.closed ? 'closed' : 'connecting'); }
       });
       this.channel = channel;
       this.emit('connecting');

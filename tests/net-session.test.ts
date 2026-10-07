@@ -331,7 +331,7 @@ test('5% packet loss and heavy jitter: still playable, no divergence of the loot
   assert.ok(wrong <= 3, `${wrong} loot flags differ after the resync`);
 });
 
-test('room message budget: snapshots plus every input stream stay under the free Realtime limit for any room size', () => {
+test('gameplay cadence bounds the host workload for every room size', () => {
   for (let players = 2; players <= 6; players++) {
     const { snapshotHz, inputHz } = netRates(players);
     const perSecond = snapshotHz + (players - 1) * inputHz;

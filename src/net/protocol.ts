@@ -15,9 +15,8 @@ import { MELEE_ORDER } from '../game/melee';
 
 export const PROTOCOL_VERSION = 1;
 /**
- * How often each side talks. The free Realtime tier allows about 100 messages a second per project, and a room costs
- * snapshots + (players - 1) input streams, so small rooms get a faster stream and big rooms a slower one:
- * 2 players 40 msg/s, 4 players 80, 6 players 65.
+ * Gameplay cadence over WebRTC. Larger rooms use fewer input/snapshot updates to bound the host's upload and CPU work.
+ * These packets do not count towards the Supabase Realtime quota (only discovery/signaling goes there).
  */
 export function netRates(players: number): { snapshotHz: number; inputHz: number } {
   if (players <= 4) return { snapshotHz: 20, inputHz: 20 };

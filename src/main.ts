@@ -74,6 +74,7 @@ import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, s
 import type { Actor, AmmoType, GameSettings, GyroMode, Loot, LootKind, PlayerInput, Vehicle, WeaponType } from './types';
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
+import { WebRTCTransport } from './net/webrtc';
 import { MobileControls } from './mobile-controls';
 import { Gyro, GYRO_STATUS_TEXT, gyroSupport } from './gyro';
 import { STANCE } from './game/stance';
@@ -319,8 +320,20 @@ function scanAssist(now: number) {
 /** Connection health for the FPS overlay: ping, how many snapshots arrive, how late they run, how far behind others are drawn, how often the host moved you. */
 function netReadout(client: ClientSession): string {
   const s = client.netStats();
-  return ` · ping ${Math.round(s.rttMs)} ms
+  const link = net?.transport instanceof WebRTCTransport ? net.transport.netStats()[0] : undefined;
+  const route = link ? link.state !== 'open' ? 'mất kết nối' : link.route === 'relay' ? 'qua TURN' : link.route === 'direct' ? 'trực tiếp' : 'WebRTC' : '';
+  return ` · ping ${Math.round(link?.rttMs ?? s.rttMs)} ms${route ? ` · ${route}` : ''}
 mạng: ${s.snapshotsPerSecond.toFixed(0)} gói/s · giật ${Math.round(s.jitterMs)} ms · vẽ trễ ${Math.round(s.delayMs)} ms · kéo lại ${s.correctionsPer10s}/10 s`;
+}
+
+function hostNetReadout(transport: Transport): string {
+  if (!(transport instanceof WebRTCTransport)) return ' · chủ phòng';
+  const links = transport.netStats().map(link => {
+    if (link.state !== 'open') return 'mất kết nối';
+    const route = link.route === 'relay' ? 'TURN' : link.route === 'direct' ? 'P2P' : 'WebRTC';
+    return `${route} ${link.rttMs === null ? '…' : Math.round(link.rttMs) + ' ms'}`;
+  });
+  return ` · chủ phòng${links.length ? ' · ' + links.join(' / ') : ''}`;
 }
 
 /** Flip between standing and a lower stance (pressing the same stance again stands up). */
@@ -2536,7 +2549,7 @@ try {
       } else if (net.client) {
         net.client.tick(now, lastInput, yaw);
         net.client.frame(now);
-        if (net.client.closedByHost || net.client.silence > 15) { ui.notify(net.client.closedByHost ? 'Chủ phòng đã rời trận.' : 'Mất kết nối với chủ phòng.'); leaveMatch(); }
+        if (net.client.closedByHost || net.client.connectionLost || net.client.silence > 15) { ui.notify(net.client.closedByHost ? 'Chủ phòng đã rời trận.' : 'Mất kết nối với chủ phòng.'); leaveMatch(); }
       }
       if (net && sim.state.phase === 'playing' && !sim.player.alive && !mpSpectating) {
         // Killed in an online match: the match goes on without you, so keep watching it.
@@ -2636,7 +2649,7 @@ try {
       lastPerfAt = now;
       const average = frameTimes.reduce((sum, value) => sum + value, 0) / Math.max(1, frameTimes.length);
       ui.setPerf(`${Math.round(engine.getFps())} FPS · khung TB ${average.toFixed(1)} ms · tệ nhất ${Math.max(...frameTimes).toFixed(0)} ms
-${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không${net?.client ? netReadout(net.client) : net?.host ? ' · chủ phòng' : ''}`);
+${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length} · ${sim.state.actors.filter(a => a.alive && a.air).length} người trên không${net?.client ? netReadout(net.client) : net?.host ? hostNetReadout(net.transport) : ''}`);
     }
     ui.setSpectate(spectating() && sim.state.phase === 'playing' ? spectateTarget()?.name ?? '—' : null);
     const air = sim.player.air;

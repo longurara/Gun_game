@@ -1,0 +1,138 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { WebRTCTransport } from '../src/net/webrtc.ts';
+import { rtcConfiguration } from '../src/net/config.ts';
+import type { NetMessage, Transport, TransportStatus } from '../src/net/transport.ts';
+
+class Signaling implements Transport {
+  clientId = 'host'; sent: NetMessage[] = []; closed = false;
+  handlers: Array<(m: NetMessage, f: string) => void> = [];
+  send(message: NetMessage) { this.sent.push(message); }
+  onMessage(fn: (m: NetMessage, f: string) => void) { this.handlers.push(fn); }
+  onStatus(_fn: (s: TransportStatus) => void) {}
+  close() { this.closed = true; }
+  receive(message: NetMessage, from: string) { for (const fn of this.handlers) fn(message, from); }
+}
+class Channel {
+  label = 'lastlight'; readyState = 'connecting'; bufferedAmount = 0; sent: string[] = [];
+  onopen: (() => void) | null = null; onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null; onmessage: ((event: { data: string }) => void) | null = null;
+  open() { this.readyState = 'open'; this.onopen?.(); }
+  close() { this.readyState = 'closed'; this.onclose?.(); }
+  send(text: string) { this.sent.push(text); }
+}
+class PeerConnection {
+  channel = new Channel(); localDescription: any = null; remoteDescription: any = null;
+  connectionState = 'new'; onicecandidate: any = null; ondatachannel: any = null; onconnectionstatechange: any = null;
+  candidates: unknown[] = []; closed = false;
+  offers: unknown[] = []; report = new Map<string, any>();
+  createDataChannel() { return this.channel; }
+  async createOffer(options?: unknown) { this.offers.push(options); return { type: 'offer', sdp: 'test-offer' }; }
+  async createAnswer() { return { type: 'answer', sdp: 'test-answer' }; }
+  async setLocalDescription(description: any) {
+    this.localDescription = { ...description, toJSON: () => description };
+    this.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: 'local-ice' }) } });
+  }
+  async setRemoteDescription(description: any) { this.remoteDescription = description; }
+  async addIceCandidate(candidate: unknown) { assert.ok(this.remoteDescription, 'candidate waits for remote SDP'); this.candidates.push(candidate); }
+  async getStats() { return this.report; }
+  close() { this.closed = true; this.connectionState = 'closed'; }
+}
+const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
+function host(ids = ['guest']) {
+  const signaling = new Signaling(), pcs: PeerConnection[] = [];
+  const transport = new WebRTCTransport(signaling, 'host', { peerConnection: () => {
+    const pc = new PeerConnection(); pcs.push(pc); return pc as unknown as RTCPeerConnection;
+  } });
+  transport.send({ k: 'roster', players: ['host', ...ids].map(id => ({ id })) });
+  // Tests of data delivery can skip the production join pacer.
+  for (let i = 1; i < ids.length; i++) { (transport as any).nextOfferAt = -Infinity; (transport as any).nextOffer(); }
+  return { signaling, transport, pcs };
+}
+
+test('offer precedes local ICE; remote ICE waits for the answer, wrong recipients/sessions are ignored', async t => {
+  const { signaling, transport, pcs } = host(); t.after(() => transport.close());
+  await flush();
+  const packets = signaling.sent.filter(p => p.k === 'rtc-signal');
+  assert.equal((packets[0].description as any).type, 'offer'); assert.ok(packets[1].candidate);
+  const session = packets[0].session;
+  signaling.receive({ k: 'rtc-signal', to: 'host', session: 'old', candidate: { candidate: 'stale' } }, 'guest');
+  signaling.receive({ k: 'rtc-signal', to: 'elsewhere', session, candidate: { candidate: 'wrong-to' } }, 'guest');
+  signaling.receive({ k: 'rtc-signal', to: 'host', session, candidate: { candidate: 'unknown' } }, 'stranger');
+  signaling.receive({ k: 'rtc-signal', to: 'host', session, candidate: { candidate: 'valid' } }, 'guest');
+  await flush(); assert.deepEqual(pcs[0].candidates, []);
+  signaling.receive({ k: 'rtc-signal', to: 'host', session, description: { type: 'answer', sdp: 'answer' } }, 'guest');
+  await flush(); assert.deepEqual(pcs[0].candidates, [{ candidate: 'valid' }]);
+});
+
+test('start waits for every channel; gameplay bypasses signaling and sender identity is bound to its peer', async t => {
+  const { signaling, transport, pcs } = host(['a', 'b']); t.after(() => transport.close());
+  await flush(); assert.throws(() => transport.send({ k: 'start' }));
+  pcs[0].channel.open(); assert.equal(transport.ready, false);
+  pcs[1].channel.open(); assert.equal(transport.ready, true);
+  const received: Array<[string, string]> = []; transport.onMessage((m, f) => received.push([m.k, f]));
+  const count = signaling.sent.length;
+  transport.send({ k: 'start', setup: {} }); transport.send({ k: 'snap', s: { seq: 1 } });
+  assert.equal(signaling.sent.length, count);
+  assert.ok(pcs.every(pc => JSON.parse(pc.channel.sent.at(-1)!).k === 'snap'));
+  signaling.receive({ k: 'in' }, 'a');
+  pcs[0].channel.onmessage?.({ data: JSON.stringify({ k: 'in', f: 'b' }) });
+  assert.deepEqual(received, [['in', 'a']]);
+  signaling.receive({ k: 'hello', rtc: 1 }, 'late-guest');
+  assert.deepEqual(signaling.sent.at(-1), { k: 'reject', to: 'late-guest', why: 'started' });
+});
+
+test('a congested peer is disconnected without queuing unbounded data or ending other guests', async t => {
+  const { signaling, transport, pcs } = host(['a', 'b']); t.after(() => transport.close()); await flush();
+  pcs.forEach(pc => pc.channel.open()); transport.send({ k: 'start' });
+  const received: string[] = []; transport.onMessage((m, f) => { if (m.k === 'bye') received.push(f); });
+  pcs[0].channel.bufferedAmount = 1024 * 1024;
+  transport.send({ k: 'snap', s: {} });
+  assert.deepEqual(received, ['a']); assert.equal(pcs[0].closed, true); assert.equal(pcs[1].closed, false);
+  assert.equal(JSON.parse(pcs[1].channel.sent.at(-1)!).k, 'snap');
+  transport.close(); assert.equal(signaling.closed, true); assert.equal(pcs[1].closed, true);
+});
+
+test('ICE configuration supports STUN/TURN and rejects invalid JSON/servers', () => {
+  assert.match((rtcConfiguration(undefined).iceServers![0].urls as string), /^stun:/);
+  assert.deepEqual(rtcConfiguration('[]'), { iceServers: [] });
+  assert.equal(rtcConfiguration('[{"urls":["turn:example.test:3478"],"username":"u","credential":"p"}]').iceServers![0].username, 'u');
+  for (const raw of ['{', '{}', '[null]', '[{"urls":42}]']) assert.throws(() => rtcConfiguration(raw));
+});
+
+test('large Unicode snapshots are chunked below SCTP limits and reassembled exactly once', async t => {
+  const { transport, pcs } = host(); t.after(() => transport.close()); await flush(); pcs[0].channel.open();
+  const packet = { k: 'snap', s: 'đồng bộ 🪂'.repeat(8000) };
+  transport.send(packet);
+  assert.ok(pcs[0].channel.sent.length > 1);
+  assert.ok(pcs[0].channel.sent.every(text => Buffer.byteLength(text) < 65536));
+  const received: NetMessage[] = []; transport.onMessage(message => received.push(message));
+  for (const text of pcs[0].channel.sent) pcs[0].channel.onmessage?.({ data: text });
+  assert.deepEqual(received, [packet]);
+  // Out-of-order/incomplete fragments must never escape to the simulation.
+  pcs[0].channel.onmessage?.({ data: JSON.stringify({ k: 'rtc-chunk', id: 99, index: 1, total: 2, part: 'bad' }) });
+  assert.equal(received.length, 1);
+});
+
+test('selected candidate stats distinguish relay from direct and brief disconnection triggers host ICE restart', async t => {
+  let now = 0;
+  const signaling = new Signaling(), pc = new PeerConnection();
+  pc.report = new Map([
+    ['transport', { type: 'transport', selectedCandidatePairId: 'pair' }],
+    ['pair', { id: 'pair', type: 'candidate-pair', localCandidateId: 'local', remoteCandidateId: 'remote' }],
+    ['local', { candidateType: 'host' }], ['remote', { candidateType: 'relay' }],
+  ]);
+  const transport = new WebRTCTransport(signaling, 'host', { clock: () => now, peerConnection: () => pc as unknown as RTCPeerConnection });
+  t.after(() => transport.close());
+  transport.send({ k: 'roster', players: [{ id: 'host' }, { id: 'guest' }] }); await flush();
+  pc.channel.open(); await flush(); assert.equal(transport.netStats()[0].route, 'relay');
+  pc.connectionState = 'disconnected'; pc.onconnectionstatechange(); now = 3000;
+  (transport as any).health(); await flush();
+  assert.deepEqual(pc.offers.at(-1), { iceRestart: true });
+  assert.equal(pc.closed, false);
+  pc.connectionState = 'connected'; pc.onconnectionstatechange();
+  pc.report.get('remote').candidateType = 'host';
+  pc.channel.onmessage?.({ data: JSON.stringify({ k: 'rtc-pong', seq: JSON.parse(pc.channel.sent.at(-1)!).seq }) });
+  now = 4000; (transport as any).health(); await flush();
+  assert.equal(transport.netStats()[0].route, 'direct');
+});

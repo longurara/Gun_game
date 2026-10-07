@@ -125,7 +125,7 @@ export class Lobby {
       this.changed();
       for (const handler of this.startHandlers) handler(this.setup);
     } else if (message.k === 'reject' && message.to === this.me) {
-      this.fail(message.why === 'full' ? 'Phòng đã đầy.' : 'Trận đã bắt đầu, không thể vào nữa.');
+      this.fail(message.why === 'full' ? 'Phòng đã đầy.' : message.why === 'webrtc' ? 'Cả nhóm hãy tải lại game để dùng phiên bản WebRTC mới.' : 'Trận đã bắt đầu, không thể vào nữa.');
     } else if (message.k === 'closed' && from === this.hostId && this.phase !== 'starting') {
       this.phase = 'closed';
       this.error = 'Chủ phòng đã đóng phòng.';
