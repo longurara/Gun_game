@@ -18,6 +18,7 @@ import './free-assets.css';
 import './menu-assets.css';
 import './loading-screen.css';
 import './ui-scrollbars.css';
+import './network-signal.css';
 import { holdLoadingScreen, paintLoadingScreen } from './loading-screen';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
@@ -175,6 +176,7 @@ let eyeHeight = STANCE.stand.eye;
 let assistTargets: AssistTarget[] = [], lastAssistScan = -Infinity;
 const frameTimes: number[] = [];
 let lastPerfAt = -Infinity;
+let lastNetworkAt = -Infinity;
 /** After dying: the actor being watched, and whoever killed the player (watched first). */
 let spectateId: string | null = null, lastKillerId: string | null = null;
 const airdropModels = new Map<string, { root: TransformNode; chute: TransformNode; flare: Mesh }>();
@@ -2641,6 +2643,11 @@ try {
     mobile?.setEnabled(sim.state.phase === 'playing' && !gameplayInputBlocked());
     const drivenCar = sim.player.vehicleId ? sim.state.vehicles.find(v => v.id === sim.player.vehicleId) : undefined;
     ui.setVehicle(drivenCar ? { speed: drivenCar.speed, health: drivenCar.health / VEHICLES[kindOf(drivenCar)].health } : null);
+    if (!net) ui.setNetwork(null);
+    else if (now - lastNetworkAt >= 500) {
+      lastNetworkAt = now;
+      ui.setNetwork(net.transport instanceof WebRTCTransport ? net.transport.netStats() : null, net.role === 'host');
+    }
     // Frame-rate readout, refreshed twice a second from the last 120 frames.
     frameTimes.push(dt * 1000);
     if (frameTimes.length > 120) frameTimes.shift();

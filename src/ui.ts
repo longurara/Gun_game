@@ -18,6 +18,8 @@ import { SCOPE_FROM } from './optics';
 import { AMMO_LABEL, ARMOR_DURABILITY, ARMOR_NAMES, CLASS_BASE, GUNS_BY_CLASS, isSidearm, slotOrder, WEAPON_ORDER, WEAPONS } from './game/weapons';
 import { weaponHudIcon } from './hud-icons';
 import { loadingScreen } from './loading-screen';
+import { networkBadgeMarkup } from './network-signal';
+import type { PeerStats } from './net/webrtc';
 
 type Callbacks = {
   onStart: (settings: GameSettings) => void;
@@ -291,6 +293,7 @@ export class GameUI {
         <div class="hud-brand"><span class="brand-symbol">L<span></span></span><span>LASTLIGHT<small>SOLO</small></span></div>
         <div class="compass"><div class="compass-needle"></div><div id="compass-labels" class="compass-labels"></div><span id="compass-degrees" class="compass-degrees">000°</span></div>
         <div class="match-stats"><div><span>CÒN SỐNG</span><strong id="alive-count">6</strong></div><div><span>HẠ GỤC</span><strong id="kill-count">0</strong></div><div><span>THỜI GIAN</span><strong id="match-time">00:00</strong></div></div>
+        <div id="network-badge" class="network-badge" hidden></div>
         <div id="range-panel" class="range-panel" hidden>
           <div class="range-title">TRƯỜNG BẮN</div>
           <div id="range-last" class="range-last">Chưa bắn trúng bia</div>
@@ -1389,6 +1392,14 @@ export class GameUI {
   }
 
   /** The frame-rate readout (null hides it). */
+  public setNetwork(links: readonly PeerStats[] | null, isHost = false): void {
+    const badge = this.el('network-badge');
+    const markup = links ? networkBadgeMarkup(links, isHost) : '';
+    badge.hidden = !markup;
+    badge.title = isHost ? 'Ping cao nhất giữa chủ phòng và người chơi' : 'Ping tới chủ phòng';
+    if (badge.innerHTML !== markup) badge.innerHTML = markup;
+  }
+
   public setPerf(text: string | null): void {
     this.hide('perf-meter', text === null);
     if (text !== null) this.text('perf-meter', text);

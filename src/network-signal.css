@@ -1,0 +1,23 @@
+.net-signal { display: inline-flex; align-items: center; gap: 6px; color: #90dfaa; white-space: nowrap; }
+.net-signal svg { width: 19px; height: 16px; flex: 0 0 auto; fill: currentColor; }
+.net-signal-value { display: inline-flex; align-items: baseline; gap: 3px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.net-signal-unit { font-size: 9px; font-weight: 500; opacity: .8; }
+.net-signal[data-quality="fair"] { color: #f2c566; }
+.net-signal[data-quality="poor"], .net-signal[data-quality="offline"] { color: #ff8275; }
+.net-signal[data-quality="pending"] { color: #8d9caa; }
+.network-badge { position: absolute; left: 18px; top: 64px; display: inline-flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid #a3bac529; border-radius: 4px; background: #10191ee0; box-shadow: 0 2px 10px #0002; pointer-events: none; }
+.network-badge[hidden] { display: none; }
+html[data-input="mouse"] .hud:has(.network-badge:not([hidden])) .perf-meter { top: 100px; }
+.network-badge-route { color: #a9b8c1; font-size: 9px; letter-spacing: 1px; font-weight: 600; }
+.mp-players li .mp-connection { display: flex; align-items: center; gap: 10px; }
+.mp-connection .net-signal-value { font-size: 10px; }
+.mp-connection .net-signal svg { width: 16px; height: 14px; }
+html[data-input="touch"] .network-badge { left: calc(8px + var(--safe-left, 0px)); top: calc(38px + var(--safe-top, 0px)); gap: 7px; padding: 3px 7px; }
+html[data-input="touch"] .network-badge .net-signal-value { font-size: 10px; }
+html[data-input="touch"] .network-badge-route { font-size: 8px; letter-spacing: .6px; }
+@media (orientation: portrait) {
+  html[data-input="touch"] .network-badge { left: auto; right: calc(8px + var(--safe-right, 0px)); top: calc(132px + var(--safe-top, 0px)); }
+}
+@media (orientation: landscape) {
+  html[data-input="touch"] .network-badge { left: calc(140px + var(--safe-left, 0px)); top: calc(40px + var(--safe-top, 0px)); }
+}

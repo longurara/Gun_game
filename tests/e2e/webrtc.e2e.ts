@@ -137,7 +137,7 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
   const broadcasts: any[] = [], errors: string[] = [];
   try {
     for (let i = 0; i < 2; i++) {
-      const page = await browser.newPage({ viewport: { width: i ? 390 : 1280, height: 844 } }); pages.push(page);
+      const page = await browser.newPage({ viewport: { width: i ? 390 : 1280, height: 844 }, hasTouch: i === 1, isMobile: i === 1 }); pages.push(page);
       page.on('pageerror', e => errors.push(e.message));
       // Local Phoenix broker: exercise the installed Supabase SDK, without touching the shared project.
       await page.route('**/*.supabase.co/**', route => route.abort());
@@ -165,7 +165,7 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
           }
         });
       });
-      await page.addInitScript(() => localStorage.setItem('lastlight.settings.v1', JSON.stringify({ map: 'arena', quality: 'low', botCount: 3, showFps: true })));
+      await page.addInitScript(() => localStorage.setItem('lastlight.settings.v1', JSON.stringify({ map: 'arena', quality: 'low', botCount: 3, showFps: false })));
       await page.goto(url, { waitUntil: 'commit' });
       await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
       await page.click('#multi-button');
@@ -180,6 +180,25 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
     await Promise.all(pages.map(page => page.waitForFunction(() => !!(window as any).__LASTLIGHT__.net())));
     await host.evaluate(() => { (window as any).__LASTLIGHT__.simulation.botsFrozen = true; });
     await guest.waitForFunction(() => (window as any).__LASTLIGHT__.net().client.netStats().snapshotsPerSecond > 0);
+    for (const [index, page] of pages.entries()) {
+      await page.waitForFunction(() => !document.querySelector<HTMLElement>('#network-badge')!.hidden && document.querySelector('#network-badge')!.textContent!.includes('ms'));
+      assert.equal(await page.locator('#network-badge').isVisible(), true, 'multiplayer ping is visible with FPS disabled');
+      assert.equal(await page.locator('#perf-meter').isVisible(), false);
+      assert.equal(await page.locator('#network-badge .net-signal svg rect').count(), 4);
+      const overlaps = await page.evaluate(() => {
+        const badge = document.querySelector('#network-badge')!.getBoundingClientRect();
+        return ['#inventory-toggle', '.compass', '.match-stats', '.minimap-panel', '.touch-top-actions', '.zone-banner'].filter(selector => {
+          const element = document.querySelector(selector);
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && badge.left < rect.right && badge.right > rect.left && badge.top < rect.bottom && badge.bottom > rect.top;
+        });
+      });
+      assert.deepEqual(overlaps, [], 'ping does not cover HUD controls');
+      await page.screenshot({ path: `output/playwright/network-signal-${index ? 'phone' : 'desktop'}.png` });
+    }
+    await guest.setViewportSize({ width: 844, height: 390 });
+    await guest.screenshot({ path: 'output/playwright/network-signal-phone-landscape.png' });
     assert.ok(broadcasts.every(m => ['hello', 'roster', 'rtc-signal', 'reject'].includes(m.k)));
     for (const socket of [...sockets.keys()]) await socket.close();
     const elapsed = await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.elapsed);
@@ -187,6 +206,7 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
     assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.net().client.connectionLost), false);
     await host.evaluate(() => { (window as any).__LASTLIGHT__.net().host.close(); });
     await guest.waitForFunction(() => (window as any).__LASTLIGHT__.net() === null);
+    await guest.waitForFunction(() => document.querySelector<HTMLElement>('#network-badge')!.hidden);
     assert.deepEqual(errors, []);
   } finally { for (const page of pages) await page.close(); }
 });

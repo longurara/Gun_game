@@ -5,6 +5,7 @@ import { GameSimulation } from '../../src/game/simulation';
 import { HostSession, ClientSession, matchOptions } from '../../src/net/session';
 import type { NetMessage, Transport, TransportStatus } from '../../src/net/transport';
 import '../../src/lobby.css';
+import '../../src/network-signal.css';
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id')!;

@@ -1,5 +1,6 @@
 import type { LobbyPhase, RoomConfig, RosterEntry } from './net/lobby';
 import type { PeerStats } from './net/webrtc';
+import { signalMarkup } from './network-signal';
 
 /** What the waiting room should show. */
 export interface LobbyModel {
@@ -136,9 +137,9 @@ export class LobbyView {
     this.el('mp-players').innerHTML = model.players.map((player, index) => {
       const link = model.connections?.find(link => link.id === player.id);
       const state = link ? link.state === 'failed' ? 'MẤT KẾT NỐI' : link.state !== 'open' ? 'ĐANG KẾT NỐI' :
-        `${link.route === 'relay' ? 'QUA TURN' : link.route === 'direct' ? 'TRỰC TIẾP' : 'ĐÃ KẾT NỐI'}${link.rttMs === null ? '' : ` · ${Math.round(link.rttMs)} ms`}` : '';
+        `${link.route === 'relay' ? 'QUA TURN' : link.route === 'direct' ? 'TRỰC TIẾP' : 'ĐÃ KẾT NỐI'}` : '';
       const connection = state || (model.connectionReady === false && player.id !== model.me && (model.isHost || index === 0) ? 'ĐANG KẾT NỐI' : '');
-      return `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${player.uid && model.friendIds.includes(player.uid) ? '<u>BẠN BÈ</u>' : ''}${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}${connection ? `<small>${connection}</small>` : ''}</li>`;
+      return `<li class="${player.id === model.me ? 'me' : ''}"><b>${escapeHtml(player.name)}</b>${player.uid && model.friendIds.includes(player.uid) ? '<u>BẠN BÈ</u>' : ''}${index === 0 ? '<em>CHỦ PHÒNG</em>' : ''}${player.id === model.me ? '<i>BẠN</i>' : ''}${connection ? `<small class="mp-connection">${link ? signalMarkup(link) : signalMarkup({ state: 'connecting', rttMs: null, route: 'unknown' })}<span>${connection}</span></small>` : ''}</li>`;
     }).join('');
     const invitable = model.invitable.filter(friend => !model.players.some(player => player.uid === friend.id));
     this.el('mp-invite').hidden = !inRoom || invitable.length === 0;
