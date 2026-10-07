@@ -39,7 +39,7 @@ const controller = new MultiplayerController(view, {
   makeTransport: () => {
     blocked = false;
     transport = new WebRTCTransport(new Signaling(), params.get('role') === 'host' ? 'host' : 'client', {
-      configuration: { iceServers: [] }, handshakeTimeoutMs: 2000,
+      configuration: { iceServers: [] }, handshakeTimeoutMs: params.has('loss') ? 15000 : 2000,
       ...(params.has('no-ice') ? { peerConnection: () => {
         const pc = new RTCPeerConnection({ iceServers: [] });
         // Native SDP/data channel negotiation, but no reachable remote candidates.

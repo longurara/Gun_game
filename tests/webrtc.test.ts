@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WebRTCTransport } from '../src/net/webrtc.ts';
-import { rtcConfiguration } from '../src/net/config.ts';
+import { rtcConfiguration, loadRtcConfiguration } from '../src/net/config.ts';
 import type { NetMessage, Transport, TransportStatus } from '../src/net/transport.ts';
 
 class Signaling implements Transport {
@@ -98,6 +98,61 @@ test('ICE configuration supports STUN/TURN and rejects invalid JSON/servers', ()
   assert.deepEqual(rtcConfiguration('[]'), { iceServers: [] });
   assert.equal(rtcConfiguration('[{"urls":["turn:example.test:3478"],"username":"u","credential":"p"}]').iceServers![0].username, 'u');
   for (const raw of ['{', '{}', '[null]', '[{"urls":42}]']) assert.throws(() => rtcConfiguration(raw));
+});
+
+test('TURN credential endpoint is awaited, requires a relay and hides keys on failure', async () => {
+  const servers = [{ urls: 'turns:relay.example:443?transport=tcp', username: 'u', credential: 'p' }];
+  let calls = 0;
+  const request = (async (_url: unknown, options: RequestInit) => {
+    calls++; assert.equal(options.credentials, 'omit'); assert.equal(options.cache, 'no-store');
+    assert.ok(options.signal); return new Response(JSON.stringify(servers));
+  }) as typeof fetch;
+  assert.deepEqual(await loadRtcConfiguration('https://credential.example/?apiKey=private-value', request), { iceServers: servers });
+  assert.equal(calls, 1);
+  for (const response of [new Response('denied', { status: 401 }), new Response('[]'), new Response('{}'), new Response('invalid')]) {
+    await assert.rejects(loadRtcConfiguration('https://credential.example/?apiKey=private-value', (async () => response) as typeof fetch), error => {
+      assert.match((error as Error).message, /TURN/); assert.doesNotMatch((error as Error).message, /private-value|credential\.example/); return true;
+    });
+  }
+  await assert.rejects(loadRtcConfiguration('http://credential.example', request)); assert.equal(calls, 1);
+});
+
+test('handshake replays SDP and bundled ICE, ignores duplicate/stale answers and stops after opening', async t => {
+  let now = 0;
+  const signaling = new Signaling(), pc = new PeerConnection();
+  const transport = new WebRTCTransport(signaling, 'host', { clock: () => now, peerConnection: () => pc as unknown as RTCPeerConnection });
+  t.after(() => transport.close());
+  transport.send({ k: 'roster', players: [{ id: 'host' }, { id: 'guest' }] }); await flush();
+  const initial = signaling.sent.find(message => message.description)!;
+  now = 3000; (transport as any).health(); await flush();
+  const replay = signaling.sent.at(-1)!;
+  assert.equal(replay.session, initial.session); assert.equal(replay.revision, initial.revision);
+  assert.deepEqual(replay.candidates, [{ candidate: 'local-ice' }]);
+  let accepted = 0;
+  const original = pc.setRemoteDescription.bind(pc);
+  pc.setRemoteDescription = async description => { accepted++; await original(description); };
+  const answer = { k: 'rtc-signal', to: 'host', session: initial.session, revision: initial.revision,
+    description: { type: 'answer', sdp: 'answer' }, candidates: [{ candidate: 'guest-ice' }] };
+  signaling.receive(answer, 'guest'); signaling.receive(answer, 'guest'); await flush();
+  assert.equal(accepted, 1); assert.ok(pc.candidates.some((c: any) => c.candidate === 'guest-ice'));
+  signaling.receive({ ...answer, revision: 0, description: { type: 'answer', sdp: 'stale-answer' } }, 'guest'); await flush();
+  assert.equal(accepted, 1);
+  pc.channel.open(); const descriptions = signaling.sent.filter(message => message.description).length;
+  now = 6000; (transport as any).health(); await flush();
+  assert.equal(signaling.sent.filter(message => message.description).length, descriptions);
+});
+
+test('timeout distinguishes missing signaling from an ICE path blocked without TURN', async t => {
+  let now = 0;
+  const signaling = new Signaling(), pc = new PeerConnection();
+  const transport = new WebRTCTransport(signaling, 'host', { clock: () => now, handshakeTimeoutMs: 2000,
+    peerConnection: () => pc as unknown as RTCPeerConnection });
+  t.after(() => transport.close());
+  transport.send({ k: 'roster', players: [{ id: 'host' }, { id: 'guest' }] }); await flush();
+  assert.match((transport as any).handshakeError((transport as any).peers.get('guest')), /phản hồi handshake/);
+  pc.remoteDescription = { type: 'answer', sdp: 'test' };
+  now = 3000; (transport as any).health();
+  assert.equal(transport.netStats()[0].state, 'failed'); assert.match(transport.netStats()[0].error!, /Chưa cấu hình TURN/);
 });
 
 test('large Unicode snapshots are chunked below SCTP limits and reassembled exactly once', async t => {

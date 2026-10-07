@@ -5,6 +5,7 @@ import { MAX_PLAYERS } from './protocol';
 export interface PeerStats {
   id: string; state: 'connecting' | 'open' | 'failed'; route: 'direct' | 'relay' | 'unknown';
   rttMs: number | null; bufferedBytes: number;
+  error?: string;
 }
 interface Peer {
   id: string; session: string; pc: RTCPeerConnection; channel: RTCDataChannel | null;
@@ -13,6 +14,8 @@ interface Peer {
   ping: { seq: number; at: number } | null; seq: number;
   assembly: { id: number; total: number; next: number; size: number; parts: string[] } | null;
   chain: Promise<void>; ice: RTCIceCandidateInit[]; outgoingIce: RTCIceCandidateInit[]; descriptionSent: boolean;
+  revision: number; remoteKey: string; lastDescription: number; localIce: RTCIceCandidateInit[];
+  relayCandidate: boolean; error?: string;
 }
 export interface WebRTCOptions {
   configuration?: RTCConfiguration;
@@ -50,7 +53,7 @@ export class WebRTCTransport implements Transport {
     this.hostId = role === 'host' ? this.clientId : null;
     this.members.add(this.clientId);
     this.now = options.clock ?? (() => performance.now());
-    this.timeout = options.handshakeTimeoutMs ?? 12000;
+    this.timeout = options.handshakeTimeoutMs ?? 30000;
     this.configuration = options.configuration ?? { iceServers: [] };
     signaling.onMessage((message, from) => this.signal(message, from));
     signaling.onStatus((status, detail) => {
@@ -78,7 +81,7 @@ export class WebRTCTransport implements Transport {
 
   netStats(): PeerStats[] {
     return [...this.peers.values()].map(peer => ({ id: peer.id, state: peer.state, route: peer.route,
-      rttMs: peer.rttMs, bufferedBytes: peer.channel?.bufferedAmount ?? 0 }));
+      rttMs: peer.rttMs, bufferedBytes: peer.channel?.bufferedAmount ?? 0, ...(peer.error ? { error: peer.error } : {}) }));
   }
 
   private roster(message: NetMessage, from: string): boolean {
@@ -120,15 +123,28 @@ export class WebRTCTransport implements Transport {
     if (message.k === 'rtc-signal') {
       if (message.to !== this.clientId || !this.members.has(from) || typeof message.session !== 'string' || message.session.length > 64) return;
       const description = message.description as RTCSessionDescriptionInit | undefined;
+      if (description && (typeof description.sdp !== 'string' || description.sdp.length > 65536)) return;
+      if (message.revision !== undefined && (!Number.isSafeInteger(message.revision) || (message.revision as number) < 0)) return;
       if (this.role === 'client' && from === this.hostId && description?.type === 'offer') {
         let peer = this.peers.get(from);
         if (peer && peer.session !== message.session) { this.disposePeer(peer); this.peers.delete(from); peer = undefined; }
         peer ??= this.createPeer(from, message.session);
         if (!peer) return;
+        const revision = (message.revision as number | undefined) ?? 0;
+        if (revision < peer.revision) return;
         this.enqueue(peer, async () => {
+          if (revision < peer!.revision) return;
+          const key = this.descriptionKey(description);
+          // Repeated offers acknowledge delivery without renegotiating a stable connection.
+          if (peer!.remoteKey === key && peer!.revision === revision) {
+            await this.bundledIce(peer!, message); this.sendDescription(peer!); return;
+          }
+          peer!.revision = revision;
           peer!.descriptionSent = false;
           await peer!.pc.setRemoteDescription(description);
+          peer!.remoteKey = key;
           await this.flushIce(peer!);
+          await this.bundledIce(peer!, message);
           await peer!.pc.setLocalDescription(await peer!.pc.createAnswer());
           this.sendDescription(peer!);
         });
@@ -136,8 +152,14 @@ export class WebRTCTransport implements Transport {
       }
       const peer = this.peers.get(from);
       if (!peer || peer.session !== message.session || peer.state === 'failed') return;
+      if (message.revision !== undefined && message.revision !== peer.revision) return;
       if (this.role === 'host' && description?.type === 'answer') {
-        this.enqueue(peer, async () => { await peer.pc.setRemoteDescription(description); await this.flushIce(peer); });
+        this.enqueue(peer, async () => {
+          if (message.revision !== undefined && message.revision !== peer.revision) return;
+          const key = this.descriptionKey(description);
+          if (peer.remoteKey !== key) { await peer.pc.setRemoteDescription(description); peer.remoteKey = key; }
+          await this.flushIce(peer); await this.bundledIce(peer, message);
+        });
       } else if (message.candidate && typeof message.candidate === 'object') {
         const candidate = message.candidate as RTCIceCandidateInit;
         if (typeof candidate.candidate !== 'string' || candidate.candidate.length > 8192) return;
@@ -169,12 +191,15 @@ export class WebRTCTransport implements Transport {
       const now = this.now();
       const peer: Peer = { id, session, pc, channel: null, state: 'connecting', route: 'unknown', rttMs: null,
         created: now, seen: now, disconnected: null, restarted: false, ping: null, seq: 0, assembly: null,
-        chain: Promise.resolve(), ice: [], outgoingIce: [], descriptionSent: false };
+        chain: Promise.resolve(), ice: [], outgoingIce: [], descriptionSent: false,
+        revision: 0, remoteKey: '', lastDescription: -Infinity, localIce: [], relayCandidate: false };
       this.peers.set(id, peer);
       pc.onicecandidate = event => {
         if (!event.candidate || !this.current(peer)) return;
         const candidate = event.candidate.toJSON();
-        if (peer.descriptionSent) this.signaling.send({ k: 'rtc-signal', to: id, session, candidate });
+        if (peer.localIce.length < 128) peer.localIce.push(candidate);
+        peer.relayCandidate ||= event.candidate.type === 'relay';
+        if (peer.descriptionSent) this.signaling.send({ k: 'rtc-signal', to: id, session, revision: peer.revision, candidate });
         else if (peer.outgoingIce.length < 128) peer.outgoingIce.push(candidate);
       };
       pc.ondatachannel = event => this.attach(peer, event.channel);
@@ -196,18 +221,31 @@ export class WebRTCTransport implements Transport {
     try { await peer.pc.addIceCandidate(candidate); } catch { /* Late candidates from a previous ICE generation are harmless. */ }
   }
   private async flushIce(peer: Peer): Promise<void> { for (const candidate of peer.ice.splice(0)) await this.addIce(peer, candidate); }
+  private descriptionKey(description: RTCSessionDescriptionInit): string {
+    // localDescription grows as ICE gathering progresses; that is still the same negotiation.
+    return `${description.type}:${description.sdp?.replace(/^a=(?:candidate:.*|end-of-candidates)\r?\n/gm, '')}`;
+  }
+  private async bundledIce(peer: Peer, message: NetMessage): Promise<void> {
+    if (!Array.isArray(message.candidates) || message.candidates.length > 128) return;
+    for (const candidate of message.candidates) {
+      if (candidate && typeof candidate.candidate === 'string' && candidate.candidate.length <= 8192) await this.addIce(peer, candidate);
+    }
+  }
   private sendDescription(peer: Peer): void {
-    if (!this.current(peer)) return;
-    this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, description: peer.pc.localDescription?.toJSON() });
+    if (!this.current(peer) || !peer.pc.localDescription) return;
+    peer.lastDescription = this.now();
+    // Replay gathered candidates with SDP in one broadcast, recovering lost trickle packets without a burst.
+    this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, revision: peer.revision,
+      description: peer.pc.localDescription.toJSON(), candidates: peer.localIce });
     peer.descriptionSent = true;
-    for (const candidate of peer.outgoingIce.splice(0)) this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, candidate });
+    for (const candidate of peer.outgoingIce.splice(0)) this.signaling.send({ k: 'rtc-signal', to: peer.id, session: peer.session, revision: peer.revision, candidate });
   }
   private offer(id: string): void {
     const peer = this.createPeer(id, randomId(16));
     if (!peer) return;
     try { this.attach(peer, peer.pc.createDataChannel('lastlight', { ordered: true })); }
     catch { this.fail(peer); return; }
-    this.enqueue(peer, async () => { await peer.pc.setLocalDescription(await peer.pc.createOffer()); this.sendDescription(peer); });
+    this.enqueue(peer, async () => { peer.revision++; await peer.pc.setLocalDescription(await peer.pc.createOffer()); this.sendDescription(peer); });
   }
 
   /** Spread joins over time instead of negotiating five guests in one quota-heavy burst. */
@@ -309,13 +347,14 @@ export class WebRTCTransport implements Transport {
       if (peer.disconnected !== null && now - peer.disconnected > 2000 && !peer.restarted && this.role === 'host') {
         peer.restarted = true;
         this.enqueue(peer, async () => {
-          peer.descriptionSent = false;
+          peer.descriptionSent = false; peer.revision++; peer.localIce = []; peer.outgoingIce = [];
           await peer.pc.setLocalDescription(await peer.pc.createOffer({ iceRestart: true })); this.sendDescription(peer);
         });
       }
       if (peer.state === 'connecting' && now - peer.created > this.timeout || peer.state === 'open' && now - peer.seen > 8000) {
-        this.fail(peer); continue;
+        this.fail(peer, peer.state === 'connecting' ? this.handshakeError(peer) : LINK_ERROR); continue;
       }
+      if (peer.state === 'connecting' && peer.descriptionSent && now - peer.lastDescription >= 3000) this.sendDescription(peer);
       if (peer.state === 'open' && (!peer.ping || now - peer.ping.at > 4000)) {
         peer.ping = { seq: ++peer.seq, at: now };
         this.sendData(peer, JSON.stringify({ k: 'rtc-ping', seq: peer.seq }));
@@ -324,10 +363,18 @@ export class WebRTCTransport implements Transport {
     }
   }
 
-  private fail(peer: Peer): void {
+  private handshakeError(peer: Peer): string {
+    if (!peer.pc.remoteDescription) return 'Chưa nhận được phản hồi handshake từ người chơi. Cả nhóm hãy tải lại game và kiểm tra kết nối phòng chờ.';
+    const hasTurn = this.configuration.iceServers?.some(server => (Array.isArray(server.urls) ? server.urls : [server.urls]).some(url => /^turns?:/i.test(url)));
+    if (!hasTurn) return 'Đã trao đổi handshake nhưng chưa mở được đường truyền tới người chơi. Chưa cấu hình TURN; hai mạng khác nhau có thể cần TURN để kết nối.';
+    if (!peer.relayCandidate) return 'Không lấy được đường truyền TURN. Kiểm tra credential, quota dịch vụ TURN và kết nối tới TURN qua TCP/TLS 443.';
+    return 'Đã nhận đường truyền TURN nhưng chưa kết nối được người chơi. Kiểm tra mạng của cả hai và thử vào lại phòng.';
+  }
+  private fail(peer: Peer, error = LINK_ERROR): void {
+    peer.error = error;
     peer.state = 'failed'; this.disposePeer(peer); this.changed();
     // One guest failing must not terminate the other guests' connections.
-    if (this.role === 'client') this.emit('error', LINK_ERROR);
+    if (this.role === 'client') this.emit('error', error);
     else if (this.playing) this.deliver({ k: 'bye' }, peer.id);
   }
   private disposePeer(peer: Peer): void {

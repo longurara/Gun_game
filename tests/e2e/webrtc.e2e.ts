@@ -10,7 +10,8 @@ import type { Browser, Page, WebSocketRoute } from 'playwright-core';
 
 let server: ViteDevServer, browser: Browser, url: string;
 before(async () => {
-  server = await createServer({ cacheDir: mkdtempSync(join(tmpdir(), 'lastlight-rtc-')), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+  // Local tests must not consume a developer's TURN quota or depend on their credential endpoint.
+  server = await createServer({ envFile: false, cacheDir: mkdtempSync(join(tmpdir(), 'lastlight-rtc-')), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
   await server.listen(); const address = server.httpServer!.address();
   url = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 5173}`;
   browser = await chromium.launch({ executablePath: ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync), headless: true });
@@ -18,19 +19,25 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function room(size: number, noIce = false) {
+async function room(size: number, noIce = false, loseSignals = false) {
   const pages: Page[] = [], signals: Array<{ from: string; message: any }> = [], errors: string[] = [];
+  const dropped = new Set<string>();
   for (let i = 0; i < size; i++) {
     const page = await browser.newPage({ viewport: { width: i ? 390 : 1280, height: 720 } });
     page.on('pageerror', e => errors.push(e.message));
     await page.exposeBinding('rtcSignal', async (_source, packet) => {
       signals.push(packet);
+      if (loseSignals && packet.message.k === 'rtc-signal') {
+        const type = packet.message.description?.type;
+        if (packet.message.candidate) return; // All standalone trickle messages are lost.
+        if (type && !dropped.has(type)) { dropped.add(type); return; }
+      }
       await Promise.all(pages.filter(p => p !== page && !p.isClosed()).map(p => p.evaluate(packet => {
         (window as any).__SIGNAL_RECEIVE__?.(packet.message, packet.from);
       }, packet).catch(() => {})));
     });
     pages.push(page);
-    await page.goto(`${url}/tests/fixtures/webrtc.html?id=p${i}&role=${i ? 'client' : 'host'}${noIce ? '&no-ice=1' : ''}`);
+    await page.goto(`${url}/tests/fixtures/webrtc.html?id=p${i}&role=${i ? 'client' : 'host'}${noIce ? '&no-ice=1' : ''}${loseSignals ? '&loss=1' : ''}`);
     await page.waitForFunction(() => !!(window as any).__RTC_FIXTURE__);
   }
   const host = pages[0]; await host.click('#mp-create');
@@ -41,6 +48,20 @@ async function room(size: number, noIce = false) {
     for (const page of pages) { if (!page.isClosed()) { await page.evaluate(() => (window as any).__RTC_FIXTURE__.close()); await page.close(); } }
   } };
 }
+
+test('native channels recover lost initial offer, answer and all standalone ICE signals', async () => {
+  // Use the production handshake deadline: the fixture's 2s failure shortcut cannot cover a 3s replay.
+  const r = await room(2, false, true);
+  try {
+    await r.host.waitForFunction(() => !(document.querySelector('#mp-start') as HTMLButtonElement).disabled, undefined, { timeout: 15000 });
+    await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.transport.ready);
+    assert.ok(r.signals.filter(p => p.message.description?.type === 'offer').length > 1);
+    assert.ok(r.signals.filter(p => p.message.description?.type === 'answer').length > 1);
+    await r.host.click('#mp-start');
+    await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.client?.netStats().snapshotsPerSecond > 0);
+    assert.deepEqual(r.errors, []);
+  } finally { await r.close(); }
+});
 
 test('six native WebRTC peers start a match, exchange gameplay without signaling, report ping and isolate a guest leaving', async () => {
   const r = await room(6);

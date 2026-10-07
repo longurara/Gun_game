@@ -4,7 +4,7 @@ import type { RoomConfig } from './lobby';
 import type { MatchSetup } from './session';
 import { SupabaseTransport } from './transport';
 import type { Transport } from './transport';
-import { SUPABASE, rtcConfiguration } from './config';
+import { SUPABASE, loadRtcConfiguration } from './config';
 import { WebRTCTransport } from './webrtc';
 
 /** Everything the game needs to begin a match once the lobby is done. */
@@ -33,6 +33,8 @@ export class MultiplayerController {
   private code = '';
   private timer = 0;
   private localError = '';
+  private opening = false;
+  private generation = 0;
 
   constructor(private readonly view: LobbyView, private readonly options: ControllerOptions) {}
 
@@ -55,6 +57,7 @@ export class MultiplayerController {
 
   /** Close the room and the connection (before a match starts). */
   leave(): void {
+    this.generation++; this.opening = false;
     window.clearInterval(this.timer);
     if (this.lobby && this.lobby.phase !== 'starting') this.lobby.leave();
     else if (this.transport && this.lobby?.phase !== 'starting') this.transport.close();
@@ -63,15 +66,24 @@ export class MultiplayerController {
     this.render();
   }
 
-  private open(code: string, name: string, role: 'host' | 'client'): void {
+  private async open(code: string, name: string, role: 'host' | 'client'): Promise<void> {
     this.leave();
+    const generation = this.generation;
     this.localError = '';
     let transport: Transport;
     try {
-      const configuration = this.options.makeTransport ? undefined : rtcConfiguration();
+      this.opening = true; this.render();
+      const configuration = this.options.makeTransport ? undefined : await loadRtcConfiguration();
+      if (generation !== this.generation) return;
       transport = this.options.makeTransport ? this.options.makeTransport(code)
         : new WebRTCTransport(new SupabaseTransport(SUPABASE, code), role, { configuration });
-    } catch { this.localError = 'Cấu hình kết nối WebRTC không hợp lệ.'; this.render(); return; }
+    } catch (error) {
+      if (generation !== this.generation) return;
+      this.opening = false;
+      this.localError = error instanceof Error ? error.message : 'Cấu hình kết nối WebRTC không hợp lệ.';
+      this.render(); return;
+    }
+    this.opening = false;
     this.transport = transport;
     this.code = code;
     const who = this.options.identity?.();
@@ -101,7 +113,7 @@ export class MultiplayerController {
 
   private render(): void {
     const lobby = this.lobby;
-    const phase = lobby?.phase ?? null;
+    const phase = this.opening ? 'connecting' : lobby?.phase ?? null;
     const rtc = this.transport instanceof WebRTCTransport ? this.transport : null;
     const links = rtc?.netStats() ?? [];
     const failed = links.some(link => link.state === 'failed');
@@ -111,9 +123,9 @@ export class MultiplayerController {
           : phase === 'starting' ? 'Đang vào trận…' : '';
     const model: LobbyModel = {
       phase, code: this.code, players: lobby?.players ?? [], me: lobby?.me ?? '', isHost: lobby?.role === 'host',
-      error: lobby?.error || this.localError || (failed ? 'Không kết nối được với một người chơi. Hãy rời/vào lại phòng hoặc thử mạng khác; một số mạng cần TURN.' : ''),
+      error: lobby?.error || this.localError || links.find(link => link.state === 'failed')?.error || (failed ? 'Không kết nối được với người chơi.' : ''),
       config: lobby?.config ?? this.options.config(),
-      status: phase === 'waiting' && rtc && !rtc.ready ? 'Đang kết nối với người chơi…' : status,
+      status: this.opening ? 'Đang chuẩn bị cấu hình kết nối…' : phase === 'waiting' && rtc && !rtc.ready ? 'Đang kết nối với người chơi…' : status,
       connections: links, connectionReady: rtc?.ready ?? true,
       friendIds: this.options.friends?.().friendIds ?? [], invitable: this.options.friends?.().invitable ?? [],
     };

@@ -20,3 +20,27 @@ export function rtcConfiguration(raw = env.VITE_WEBRTC_ICE_SERVERS): RTCConfigur
   }
   return { iceServers: servers };
 }
+
+/** Credential-scoped, browser-safe URL (for example Metered's Get TURN Credential endpoint).
+ * Fetch before joining signaling so neither peer starts negotiating without its relay configuration. */
+export async function loadRtcConfiguration(
+  url = env.VITE_WEBRTC_ICE_URL,
+  request: typeof fetch = fetch,
+): Promise<RTCConfiguration> {
+  if (!url) {
+    try { return rtcConfiguration(); }
+    catch { throw new Error('Cấu hình VITE_WEBRTC_ICE_SERVERS không hợp lệ. Kiểm tra mảng ICE servers trong cấu hình triển khai.'); }
+  }
+  try {
+    if (new URL(url).protocol !== 'https:') throw new Error('HTTPS required');
+    const response = await request(url, { signal: AbortSignal.timeout(8000), credentials: 'omit', cache: 'no-store' });
+    if (!response.ok) throw new Error('Credential endpoint unavailable');
+    const configuration = rtcConfiguration(JSON.stringify(await response.json()));
+    if (!configuration.iceServers?.some(server => (Array.isArray(server.urls) ? server.urls : [server.urls])
+      .some(address => /^turns?:/i.test(address)))) throw new Error('No relay returned');
+    return configuration;
+  } catch {
+    // Do not expose the credential URL/API key in errors or silently fall back to STUN-only.
+    throw new Error('Không tải được cấu hình TURN. Kiểm tra URL cấp credential, trạng thái credential và quota dịch vụ.');
+  }
+}

@@ -52,7 +52,25 @@ Giới hạn cần biết:
 - **Chủ phòng nên để tab game ở phía trước** và có mạng ổn định: trình duyệt làm chậm tab nền, khi đó cả phòng bị chậm theo. Chủ phòng thoát hoặc mất mạng thì trận kết thúc cho mọi người; bạn bè thoát hoặc im quá 8 giây thì bị loại khỏi trận.
 - Gameplay không tiêu thụ quota tin nhắn Supabase; phòng chờ và handshake vẫn tiêu thụ quota. Không tự chuyển gameplay về Supabase khi WebRTC lỗi.
 - Mặc định dùng STUN công khai của Google, **chưa có TURN được cấp sẵn**. Một số NAT/tường lửa không cho kết nối trực tiếp; cấu hình `VITE_WEBRTC_ICE_SERVERS` bằng JSON trong `.env.local` (xem `.env.example`) để thêm TURN, rồi build lại. Credentials trong biến Vite được gửi tới trình duyệt; triển khai công khai nên dùng credentials ngắn hạn. `[]` dùng cho kiểm thử LAN không gọi STUN ngoài.
-- Kết nối không thành công sẽ báo lỗi sau khoảng 12 giây, thay vì bắt đầu một trận thiếu người. ICE restart có thể khôi phục gián đoạn ngắn; đóng tab/đóng DataChannel sẽ ngắt kết nối. Chưa có chuyển chủ phòng hoặc vào lại một trận đang chạy.
+- Có thể đặt `VITE_WEBRTC_ICE_URL` để tải ICE servers khi tạo/vào phòng; URL này ưu tiên hơn JSON tĩnh. Game chờ cấu hình (tối đa 8 giây) trước khi mở signaling, kiểm tra kết quả có TURN, báo lỗi nếu tải thất bại. Không tự bỏ TURN để quay về STUN khi endpoint lỗi. Chỉ dùng URL cấp credential dành cho trình duyệt, không dùng khóa quản trị tài khoản.
+- Handshake gửi lại SDP cùng các ICE candidates đã thu thập mỗi 3 giây khi chưa kết nối, giúp phục hồi nếu offer/answer hoặc tín hiệu trickle bị mất. Dừng gửi lại khi DataChannel mở. Kết nối không thành công sẽ báo lỗi sau khoảng 30 giây, phân biệt chưa nhận phản hồi handshake, thiếu TURN, không lấy được relay hoặc không mở được đường truyền. ICE restart có thể khôi phục gián đoạn ngắn; đóng tab/đóng DataChannel sẽ ngắt kết nối. Chưa có chuyển chủ phòng hoặc vào lại một trận đang chạy.
+
+**Thêm TURN miễn phí cho hai mạng khác nhau (Metered Open Relay):**
+
+1. Đăng ký tại [Open Relay](https://www.metered.ca/tools/openrelay/) và chọn gói miễn phí của Open Relay trong dashboard; kiểm tra quota thực tế của tài khoản trước khi dùng. Trang Open Relay công bố 20 GB/tháng, còn [gói thử dịch vụ premium](https://www.metered.ca/stun-turn) công bố 500 MB/tháng — đây là hai hạn mức khác nhau.
+2. Mở **TURN Server & SFU → Credentials → Create Credential**. Chờ tối đa 2 phút để credential mới hoạt động.
+3. Chọn **Get credential → Show API Key** cho credential vừa tạo. Lấy domain `yourappname.metered.live` ở **Developers**. Đây là key cho một credential, **không phải Secret key quản trị ở trang Developers**. Xem [hướng dẫn chính thức](https://www.metered.ca/docs/turn-server-service/quickstart/).
+4. Điền URL bên dưới vào `.env.local` trên máy build, hoặc biến môi trường của dịch vụ hosting. Không commit `.env.local`:
+
+   ```dotenv
+   VITE_WEBRTC_ICE_URL=https://yourappname.metered.live/api/v1/turn/credentials?apiKey=YOUR_CREDENTIAL_API_KEY
+   ```
+
+5. Restart dev server nếu chạy local; nếu chơi bản online, đặt biến trên hosting, build và deploy lại. Cả nhóm tải lại game, tạo phòng mới. Khi cần relay, dòng trạng thái hiện **QUA TURN** và ping đo thực tế. Chưa kiểm chứng TURN thật nếu chưa có credential.
+
+Nếu không muốn dùng endpoint, sao chép **Show ICE Servers Array** vào `VITE_WEBRTC_ICE_SERVERS` dưới dạng JSON một dòng. Giữ cả UDP, TCP và TLS 443 theo snippet dashboard để hỗ trợ mạng chặn UDP. Supabase vẫn chỉ dùng cho phòng chờ/handshake; TURN chuyển tiếp dữ liệu khi P2P trực tiếp không khả dụng, không xử lý logic trận đấu.
+
+**Vercel:** vào project → **Settings → Environment Variables**, thêm `VITE_WEBRTC_ICE_URL` với giá trị URL cấp credential, chọn **Production** (và **Preview** nếu cần), rồi deploy commit có `loadRtcConfiguration` hoặc redeploy sau khi cập nhật biến. `.env.local` chỉ áp dụng trên máy local, không được Git đẩy lên hosting. Xem [hướng dẫn Vercel](https://vercel.com/docs/environment-variables/managing-environment-variables).
 - Ai biết mã phòng đều vào được (không có mật khẩu). Chưa có chat, bảng điểm, ngồi chung xe, hay gia nhập giữa trận. Lái xe online có độ trễ bằng đường truyền vì xe do chủ phòng điều khiển.
 - Không chống gian lận: chủ phòng là "máy chủ" nên chỉ nên chơi với người quen.
 - Địa chỉ và khóa công khai (publishable) của dự án Supabase nằm trong [src/net/config.ts](src/net/config.ts); đổi sang dự án khác bằng `VITE_SUPABASE_URL` và `VITE_SUPABASE_KEY` trong `.env.local` (xem `.env.example`). **Không bao giờ đưa khóa service-role vào trình duyệt hay vào mã nguồn.**
