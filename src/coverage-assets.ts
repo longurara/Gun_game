@@ -6,6 +6,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
+import { mergeAssetMeshes } from './merge-asset-meshes';
 
 export const COVERAGE_MODELS = [
   'motorcycle', 'scooter', 'buggy', 'jeep', 'minibus', 'backpack', 'firstaid', 'molotov', 'pan', 'machete', 'crowbar', 'sickle',
@@ -132,7 +133,7 @@ async function load(scene: Scene, key: CoverageModel): Promise<void> {
     const batched: Mesh[] = [];
     for (const parts of groups.values()) {
       if (parts.length === 1) { batched.push(parts[0]); continue; }
-      const merged = Mesh.MergeMeshes(parts, true, true)!;
+      const merged = mergeAssetMeshes(parts, false)!;
       merged.name = `coverage-template-${key}-body-${batched.length}`;
       merged.metadata = { coverageAsset: key, template: true, sourceExtent: extent.asArray() };
       merged.isPickable = false; merged.setEnabled(false); batched.push(merged);

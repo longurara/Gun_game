@@ -1,4 +1,5 @@
 import { LANDMARK_SPECS } from './building-assets';
+import { mergeAssetMeshes } from './merge-asset-meshes';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
@@ -837,7 +838,7 @@ export class IslandRenderer {
     // Sorting makes equal-material index ranges consecutive, allowing Babylon to consolidate draw calls.
     assetParts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0));
     const coverageModels = [...new Set(assetParts.map(part => part.metadata?.coverageAsset))];
-    const assets = assetParts.length ? Mesh.MergeMeshes(assetParts, true, true, undefined, false, true) : null;
+    const assets = mergeAssetMeshes(assetParts);
     if (assets) { assets.name = `kit-props-${cx}-${cz}`; assets.metadata = { solid: true, coverageEnvironment: true, coverageModels }; assets.receiveShadows = true; assets.freezeWorldMatrix(); }
     return { props: mesh, foliage, facade, assets };
   }

@@ -76,6 +76,7 @@ import type { Actor, AmmoType, GameSettings, GyroMode, Loot, LootKind, PlayerInp
 import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { isTouchDevice, renderBudgetFor, touchLookSensitivity } from './device';
 import { WebRTCTransport } from './net/webrtc';
+import { mergeAssetMeshes } from './merge-asset-meshes';
 import { MobileControls } from './mobile-controls';
 import { Gyro, GYRO_STATUS_TEXT, gyroSupport } from './gyro';
 import { STANCE } from './game/stance';
@@ -1622,7 +1623,7 @@ function lootInstance(loot: Loot): InstancedMesh {
   let template = lootTemplates.get(loot.kind);
   if (!template) {
     const root = createLootNode(loot);
-    const merged = Mesh.MergeMeshes(root.getChildMeshes(false) as Mesh[], true, true, undefined, false, true)!;
+    const merged = mergeAssetMeshes(root.getChildMeshes(false) as Mesh[])!;
     merged.name = `loot-template-${loot.kind}`;
     merged.isPickable = false;
     merged.setEnabled(false);
@@ -1656,7 +1657,7 @@ function renderGrenades(time: number) {
     if (!mesh) {
       const asset = pickupAsset(p.kind);
       const parts = asset && coverageParts(scene, asset.key, null, asset.size, `projectile-${p.id}`);
-      if (parts) { parts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0)); mesh = Mesh.MergeMeshes(parts, true, true, undefined, false, true)!; }
+      if (parts) { parts.sort((a, b) => (a.material?.uniqueId ?? 0) - (b.material?.uniqueId ?? 0)); mesh = mergeAssetMeshes(parts)!; }
       else mesh = p.kind === 'molotov' ? CreateCylinder('grenade', { diameter: 0.13, height: 0.28, tessellation: 8 }, scene)
         : p.kind === 'rocket' ? CreateCylinder('rocket', { diameter: 0.16, height: 0.8, tessellation: 8 }, scene)
         : CreateSphere('grenade', { diameter: p.kind === 'shell' ? 0.16 : 0.22, segments: 6 }, scene);

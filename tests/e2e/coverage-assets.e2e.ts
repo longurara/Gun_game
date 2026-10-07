@@ -173,6 +173,8 @@ test('homes use selected building details and remain visible when those assets f
     await page.evaluate(async () => {
       const g = (window as any).__LASTLIGHT__, m = await import('../../src/coverage-assets.ts');
       await m.prepareCoverageAssets(g.scene);
+      (window as any).__BUILDING_SOURCES__ = g.scene.meshes.filter((mesh: any) => mesh.metadata?.template).map((mesh: any) => ({ mesh,
+        indices: Array.from(mesh.getIndices()), positions: Array.from(mesh.getVerticesData('position')) }));
     });
     await page.click('#start-button');
     await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
@@ -197,10 +199,13 @@ test('homes use selected building details and remain visible when those assets f
       c.setTarget(new c.position.constructor(home.x, home.y + 2, home.z));
       g.scene.render();
       return { activeDetails: details.filter(key => g.scene.meshes.some((m: any) => m.isEnabled() && m.metadata?.coverageModels?.includes(key))),
+        corruptedSources: (window as any).__BUILDING_SOURCES__.filter(({mesh,indices,positions}: any) => mesh.getIndices().length !== indices.length ||
+          indices.some((index: number, i: number) => index !== mesh.getIndices()[i]) || positions.some((value: number, i: number) => value !== mesh.getVerticesData('position')[i])).map(({mesh}: any) => mesh.metadata.coverageAsset),
         solidProps: g.scene.meshes.some((m: any) => m.isEnabled() && m.name.startsWith('props-') && m.getTotalVertices() > 0) };
     }, { home, details });
     assert.equal(info.solidProps, true);
     assert.equal(info.activeDetails.length, missing ? 0 : details.length);
+    assert.deepEqual(info.corruptedSources, [], 'streaming houses and batching loot must preserve cached asset geometry');
     await page.screenshot({ path: 'output/playwright/house-assets-' + (missing ? 'fallback' : 'loaded') + '.png' });
     assert.deepEqual(errors, []);
     await page.close();
