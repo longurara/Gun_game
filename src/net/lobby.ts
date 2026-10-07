@@ -34,6 +34,7 @@ export class Lobby {
   hostId: string | null = null;
   error = '';
   setup: MatchSetup | null = null;
+  dropLeader: string | undefined;
   private changeHandlers: Array<() => void> = [];
   private startHandlers: Array<(setup: MatchSetup) => void> = [];
   private lastSeen = new Map<string, number>();
@@ -74,11 +75,18 @@ export class Lobby {
     this.changed();
   }
 
+  setDropLeader(id: string | undefined): void {
+    if (this.role !== 'host' || this.phase !== 'waiting' || (id && !this.players.some(player => player.id === id))) return;
+    this.dropLeader = id;
+    this.broadcastRoster(); this.changed();
+  }
+
   /** Host: close the room to newcomers and tell everybody to begin. */
   start(nowMs = 0): MatchSetup | null {
     if (this.role !== 'host' || this.phase !== 'waiting') return null;
     const seed = Math.floor(this.random() * 2 ** 31);
     const setup: MatchSetup = { seed, map: this.config.map, botCount: this.config.botCount, difficulty: this.config.difficulty, drop: this.config.map !== 'arena' && this.config.map !== 'range', players: this.players.map(player => ({ clientId: player.id, name: player.name, ...(player.skin ? { skin: player.skin } : {}) })) };
+    if (setup.drop && this.players.some(player => player.id === this.dropLeader)) setup.dropLeader = this.dropLeader;
     this.setup = setup;
     this.phase = 'starting';
     this.startedAt = nowMs;
@@ -89,7 +97,8 @@ export class Lobby {
   }
 
   private broadcastRoster(): void {
-    this.transport.send({ k: 'roster', players: this.players as unknown as Record<string, unknown>[], config: this.config as unknown as Record<string, unknown>, open: this.phase === 'waiting' && this.players.length < MAX_PLAYERS });
+    if (!this.players.some(player => player.id === this.dropLeader)) this.dropLeader = undefined;
+    this.transport.send({ k: 'roster', players: this.players as unknown as Record<string, unknown>[], config: this.config as unknown as Record<string, unknown>, dropLeader: this.dropLeader ?? '', open: this.phase === 'waiting' && this.players.length < MAX_PLAYERS });
   }
 
   private receive(message: NetMessage, from: string): void {
@@ -116,6 +125,7 @@ export class Lobby {
       if (this.hostId === null) this.hostId = from;
       if (from !== this.hostId) return;
       this.players = (message.players as RosterEntry[]) ?? [];
+      this.dropLeader = typeof message.dropLeader === 'string' && this.players.some(player => player.id === message.dropLeader) ? message.dropLeader : undefined;
       this.config = (message.config as unknown as RoomConfig) ?? this.config;
       if (this.players.some(player => player.id === this.me) && this.phase !== 'starting') this.phase = 'waiting';
       this.changed();

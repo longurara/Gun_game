@@ -51,6 +51,7 @@ type Callbacks = {
   /** Change the scope's magnification: +1 zooms in, -1 out. */
   onZoomStep?: (direction: number) => void;
   onTouchOverlayChange?: (open: boolean) => void;
+  onDropDetach?: () => void;
   onInventoryPickup?: (lootId: string) => void;
   onInventoryDrop?: (kind: LootKind, amount: number) => void;
   onInventoryHeal?: () => void;
@@ -310,7 +311,7 @@ export class GameUI {
         </div>
         <div id="zone-banner" class="zone-banner"><span class="zone-dot"></span><div><span id="zone-title">VÙNG AN TOÀN</span><small id="zone-description">Vòng bo sẽ thu hẹp</small></div><strong id="zone-time">00:00</strong></div>
         <div id="rangefinder" class="rangefinder" aria-hidden="true" hidden></div><div id="crosshair" class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div><div id="hit-marker" class="hit-marker" aria-hidden="true">×</div><div id="vehicle-hud" class="vehicle-hud" hidden><div class="vehicle-speed"><strong id="vehicle-speed">0</strong><span>KM/H</span></div><div class="vehicle-health"><i id="vehicle-health-bar"></i></div><small class="desktop-controls">W / S GA · A / D LÁI · SPACE PHANH · F XUỐNG XE</small></div><div id="sound-dirs" class="sound-dirs" aria-hidden="true">${[0, 1, 2, 3].map(i => `<div id="sound-dir-${i}" class="sound-dir"><i></i></div>`).join('')}</div><div id="damage-dir" class="damage-dir" aria-hidden="true"><i></i></div><div id="kill-feed" class="kill-feed" aria-live="off"></div>
-        <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-prompt" class="air-prompt"></div></div>
+        <div id="air-hud" class="air-hud" hidden><div id="air-stage" class="air-stage">TRÊN MÁY BAY</div><div class="air-readout"><div><strong id="air-alt">0</strong><span>M · ĐỘ CAO</span></div><div><strong id="air-speed">0</strong><span>KM/H</span></div><div><strong id="air-left">0</strong><span id="air-left-label">GIÂY</span></div></div><div id="air-team" class="air-team" hidden><span id="air-leader"></span><button id="air-detach" type="button" hidden>TÁCH ĐỘI</button></div><div id="air-prompt" class="air-prompt"></div></div>
         <div id="stance-badge" class="stance-badge" hidden></div><div id="perf-meter" class="perf-meter" hidden aria-hidden="true"></div><div id="spectate-bar" class="spectate-bar" hidden><span id="spectate-name">ĐANG XEM</span><small id="spectate-help"></small><button id="spectate-exit" type="button">THOÁT</button></div><div id="air-streaks" class="air-streaks" hidden aria-hidden="true"></div><div id="air-flag" class="air-flag" hidden></div>
         <div id="interaction-hint" class="interaction-hint" hidden></div><div id="action-progress" class="action-progress" hidden></div>
         <div class="health-panel"><div class="player-label"><span class="status-dot"></span>BẠN <span id="health-number">100</span><small>HP</small></div><div class="health-track"><div id="health-bar"></div></div><div id="boost-track" class="boost-track" hidden aria-label="Thanh tăng lực"><i>TĂNG LỰC</i><div><div id="boost-bar"></div></div></div><div id="armor-row" class="armor-row" aria-label="Giáp đang mặc"></div><div class="health-meta"><span>${icon('medkit')}<strong id="medkits">1</strong> TÚI CỨU THƯƠNG <kbd>H</kbd></span><span id="health-status">SẴN SÀNG</span></div><div id="supply-row" class="supply-row" aria-label="Vật phẩm hồi phục"></div></div>
@@ -407,6 +408,7 @@ export class GameUI {
     });
     this.el('scope-zoom-out').addEventListener('click', () => this.callbacks.onZoomStep?.(-1));
     this.el('start-button').addEventListener('click', () => { this.hide('error-banner', true); this.callbacks.onStart({ ...this.settings }); });
+    this.el('air-detach').addEventListener('click', () => this.callbacks.onDropDetach?.());
     this.el('resume-button').addEventListener('click', callbacks.onResume);
     this.el('multi-button').addEventListener('click', () => callbacks.onMultiplayer?.());
     const chip = this.el('profile-id');
@@ -776,9 +778,10 @@ export class GameUI {
     this.el('range-last').classList.toggle('fresh', fresh);
     this.text('range-stats', state.shots ? `Chính xác ${Math.round(state.hits / state.shots * 100)}% · ${state.hits}/${state.shots} phát · hạ ${state.kills} bia` : 'Chưa bắn phát nào');
     this.updateDrills(state);
-    this.text('range-immortal-state', this.settings.immortal ? 'BẬT' : 'TẮT');
-    this.el('range-immortal').setAttribute('aria-pressed', String(this.settings.immortal));
-    this.el('range-immortal').classList.toggle('on', this.settings.immortal);
+    const immortal = state.actors.find(actor => actor.id === state.localId)?.practice?.immortal ?? this.settings.immortal;
+    this.text('range-immortal-state', immortal ? 'BẬT' : 'TẮT');
+    this.el('range-immortal').setAttribute('aria-pressed', String(immortal));
+    this.el('range-immortal').classList.toggle('on', immortal);
   }
 
   private pickedDrill: DrillId = 'warm';
@@ -855,7 +858,10 @@ export class GameUI {
   }
 
   /** Switch immortality on the range (the K key and the button on the panel). */
-  public toggleImmortal(): void { this.changeSettings({ immortal: !this.settings.immortal }); this.notify(this.settings.immortal ? 'Bất tử: BẬT' : 'Bất tử: TẮT'); }
+  public toggleImmortal(): void {
+    const current = this.lastState?.actors.find(actor => actor.id === this.lastState?.localId)?.practice?.immortal ?? this.settings.immortal;
+    this.changeSettings({ immortal: !current }); this.notify(this.settings.immortal ? 'Bất tử: BẬT' : 'Bất tử: TẮT');
+  }
 
   public get armouryOpen(): boolean { return !this.el('range-armoury').hidden; }
 
@@ -1062,9 +1068,12 @@ export class GameUI {
   public setSpotGear(text: string): void { this.text('spot-gear', text); }
 
   /** Flight readout while in the plane, in free fall or under the canopy; null once on the ground. */
-  public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number; flag?: { distance: number; reachable: boolean; auto: boolean } | null } | null): void {
+  public setAir(info: { mode: AirMode; altitude: number; speed: number; seconds: number; leaderName?: string; followers?: number; flag?: { distance: number; reachable: boolean; auto: boolean } | null } | null): void {
     this.hide('air-hud', !info);
     this.hide('air-flag', !info?.flag);
+    this.hide('air-team', !info?.leaderName && !info?.followers);
+    this.hide('air-detach', !info?.leaderName);
+    if (info?.leaderName) this.root.dataset.dropFollow = 'on'; else delete this.root.dataset.dropFollow;
     // Speed lines rush outward from the centre of the screen while falling fast.
     this.hide('air-streaks', info?.mode !== 'freefall');
     if (info?.mode === 'freefall') this.el('air-streaks').style.setProperty('--fall', `${Math.max(0, Math.min(1, (info.speed - 35) / 45)).toFixed(2)}`);
@@ -1088,7 +1097,8 @@ export class GameUI {
     this.text('air-speed', `${Math.round(info.speed * 3.6)}`);
     this.text('air-left', `${Math.max(0, Math.round(info.seconds))}`);
     this.text('air-left-label', label);
-    this.text('air-prompt', prompt);
+    this.text('air-prompt', info.leaderName ? (touch ? 'TỰ NHẢY VÀ LÁI THEO NGƯỜI DẪN · TÁCH ĐỘI ĐỂ TỰ ĐIỀU KHIỂN' : '[J] TÁCH ĐỘI · [M] BẢN ĐỒ · NGƯỜI DẪN ĐIỀU KHIỂN NHẢY DÙ') : prompt);
+    this.text('air-leader', info.leaderName ? `ĐANG THEO · ${info.leaderName}` : `BẠN DẪN ĐỘI · ${info.followers ?? 0} ĐỒNG ĐỘI`);
     if (info.flag) {
       const km = info.flag.distance >= 1000 ? `${(info.flag.distance / 1000).toFixed(1)} KM` : `${Math.round(info.flag.distance)} M`;
       this.text('air-flag', `CỜ ĐÁP · ${km} · ${info.flag.reachable ? 'TỚI ĐƯỢC' : 'NGOÀI TẦM LƯỢN'}${info.flag.auto ? ' · TỰ LÁI BẬT' : touch ? '' : ' · [G] TỰ LÁI'}`);

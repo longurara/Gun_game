@@ -6,7 +6,11 @@
 .lobby-dialog { width: min(460px, 94vw); display: flex; flex-direction: column; gap: 12px; }
 .lobby-dialog h2 { margin: 0; }
 .mp-field { display: flex; flex-direction: column; gap: 6px; font-size: 9px; letter-spacing: 2px; color: #b9c9aa; }
-.mp-field input, .mp-join input { padding: 11px 12px; font: inherit; font-size: 15px; letter-spacing: 1px; color: #f2f0dd; background: #ffffff10; border: 1px solid #ffffff2a; border-radius: 3px; width: 100%; box-sizing: border-box; }
+.mp-field input, .mp-field select, .mp-join input { padding: 11px 12px; font: inherit; font-size: 15px; letter-spacing: 1px; color: #f2f0dd; background: #ffffff10; border: 1px solid #ffffff2a; border-radius: 3px; width: 100%; box-sizing: border-box; }
+.mp-field select option { background: #17242c; color: #f2f0dd; }
+#mp-drop-field small { font-size: 10px; letter-spacing: .3px; }
+#mp-mode-field small { font-size: 10px; letter-spacing: .3px; line-height: 1.5; }
+#mp-mode:focus { outline: 2px solid #f2b43c; outline-offset: 1px; }
 .mp-field input:focus, .mp-join input:focus { outline: 2px solid #f2b43c; outline-offset: 1px; }
 .mp-entry { display: flex; flex-direction: column; gap: 10px; }
 .mp-or { text-align: center; font-size: 10px; letter-spacing: 1.5px; color: #8ea580; }
@@ -47,6 +51,8 @@ html[data-input="touch"] .mp-note { display: none; }
   .lobby-dialog .eyebrow, .lobby-dialog h2, .mp-note { display: none; }
   .mp-field { flex-direction: row; align-items: center; gap: 10px; }
   .mp-field span { white-space: nowrap; }
+  #mp-drop-field small { display: none; }
+  #mp-drop-field select { min-width: 0; font-size: 12px; padding: 7px; }
   .mp-room { display: grid; grid-template-columns: 1fr 200px; gap: 6px 14px; }
   .mp-room > * { grid-column: 1; }
   .mp-room > #mp-start, .mp-room > #mp-wait { grid-column: 2; grid-row: 1 / span 3; align-self: start; }
@@ -55,6 +61,10 @@ html[data-input="touch"] .mp-note { display: none; }
   .mp-players { max-height: 84px; }
   .mp-players li { padding: 6px 10px; font-size: 13px; }
   .mp-entry { flex-direction: row; align-items: center; gap: 10px; }
+  .mp-entry { flex-wrap: wrap; }
+  #mp-mode-field { flex-basis: 100%; }
+  #mp-mode-field select { width: auto; flex: 1; padding: 7px; font-size: 12px; }
+  #mp-mode-hint { display: none; }
   .mp-or { display: none; }
   .mp-entry > .button { flex: 0 0 auto; }
   .mp-join { flex: 1; }

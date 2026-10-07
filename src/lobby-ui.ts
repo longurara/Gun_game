@@ -1,6 +1,7 @@
 import type { LobbyPhase, RoomConfig, RosterEntry } from './net/lobby';
 import type { PeerStats } from './net/webrtc';
 import { signalMarkup } from './network-signal';
+import type { ConnectionMode } from './net/connection-mode';
 
 /** What the waiting room should show. */
 export interface LobbyModel {
@@ -12,6 +13,7 @@ export interface LobbyModel {
   isHost: boolean;
   error: string;
   config: RoomConfig;
+  dropLeader?: string;
   /** A short line under the room code, e.g. "Đang kết nối…". */
   status: string;
   connections?: PeerStats[];
@@ -23,11 +25,12 @@ export interface LobbyModel {
 
 export interface LobbyCallbacks {
   onCreate(name: string): void;
-  onJoin(code: string, name: string): void;
+  onJoin(code: string, name: string, mode: ConnectionMode): void;
   onStart(): void;
   onLeave(): void;
   onClose(): void;
   onInvite?(friendId: string): void;
+  onDropLeader?(id: string): void;
 }
 
 const MAP_NAMES: Record<RoomConfig['map'], string> = { island: 'Đảo 4 × 4 km', valley: 'Đấu trường 1 × 1 km', arena: 'Sân tập 200 m', desert: 'Sa mạc 5 × 5 km', pines: 'Rừng thông 4,5 × 4,5 km', metro: 'Đô thị 3 × 3 km', range: 'Trường bắn' };
@@ -54,12 +57,14 @@ export class LobbyView {
         <div id="mp-entry" class="mp-entry">
           <button id="mp-create" class="button button-primary" type="button">TẠO PHÒNG MỚI</button>
           <div class="mp-or">hoặc vào phòng của bạn bè</div>
+          <label id="mp-mode-field" class="mp-field"><span>KẾT NỐI VÀO PHÒNG</span><select id="mp-mode" aria-label="Phương thức kết nối"><option value="p2p">P2P · Trực tiếp</option><option value="turn">TURN · Chuyển tiếp</option></select><small id="mp-mode-hint">Kết nối trực tiếp, tiết kiệm dung lượng TURN. Nếu không vào được, hãy chọn TURN.</small></label>
           <div class="mp-join"><input id="mp-code" type="text" maxlength="9" autocomplete="off" spellcheck="false" placeholder="MÃ PHÒNG" aria-label="Mã phòng"><button id="mp-join" class="button button-secondary" type="button">VÀO PHÒNG</button></div>
         </div>
         <div id="mp-room" class="mp-room" hidden>
           <div class="mp-code-row"><div><small>MÃ PHÒNG</small><strong id="mp-room-code">-----</strong></div><button id="mp-copy" class="button button-secondary" type="button">SAO CHÉP LINK</button></div>
           <div id="mp-config" class="mp-config"></div>
           <ul id="mp-players" class="mp-players" aria-label="Người trong phòng"></ul>
+          <label id="mp-drop-field" class="mp-field" hidden><span>NGƯỜI DẪN NHẢY DÙ</span><select id="mp-drop-leader" aria-label="Người dẫn nhảy dù"></select><small>Cả đội bám theo người dẫn; có thể tách ra khi đang bay.</small></label>
           <div id="mp-invite" class="mp-invite" hidden><h4>MỜI BẠN BÈ ĐANG ONLINE</h4><ul id="mp-invite-list"></ul></div>
           <button id="mp-start" class="button button-primary" type="button">BẮT ĐẦU TRẬN</button>
           <div id="mp-wait" class="mp-wait" hidden>Đang chờ chủ phòng bắt đầu…</div>
@@ -76,7 +81,13 @@ export class LobbyView {
     this.input('mp-code').addEventListener('keydown', event => { if (event.key === 'Enter') this.join(); });
     this.el('mp-create').addEventListener('click', () => callbacks.onCreate(this.name()));
     this.el('mp-join').addEventListener('click', () => this.join());
+    this.el('mp-mode').addEventListener('change', () => {
+      this.el('mp-mode-hint').textContent = this.connectionMode() === 'turn'
+        ? 'Dùng máy chủ TURN để vượt mạng hạn chế. Tiêu thụ dung lượng TURN của phòng.'
+        : 'Kết nối trực tiếp, tiết kiệm dung lượng TURN. Nếu không vào được, hãy chọn TURN.';
+    });
     this.el('mp-start').addEventListener('click', () => callbacks.onStart());
+    this.el('mp-drop-leader').addEventListener('change', () => callbacks.onDropLeader?.((this.el('mp-drop-leader') as HTMLSelectElement).value));
     this.el('mp-copy').addEventListener('click', () => this.copyLink());
     this.el('mp-invite-list').addEventListener('click', event => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-friend]');
@@ -107,7 +118,8 @@ export class LobbyView {
     return name;
   }
 
-  private join(): void { this.callbacks.onJoin(this.input('mp-code').value, this.name()); }
+  connectionMode(): ConnectionMode { return (this.el('mp-mode') as HTMLSelectElement).value === 'turn' ? 'turn' : 'p2p'; }
+  private join(): void { this.callbacks.onJoin(this.input('mp-code').value, this.name(), this.connectionMode()); }
 
   show(open: boolean): void {
     this.root.hidden = !open;
@@ -134,6 +146,12 @@ export class LobbyView {
     this.el('lobby-title').textContent = inRoom ? 'ĐANG CHỜ BẠN BÈ' : 'PHÒNG CHƠI';
     this.el('mp-room-code').textContent = model.code || '-----';
     this.el('mp-config').textContent = `${MAP_NAMES[model.config.map]} · ${model.config.botCount} bot · ${model.config.difficulty === 'easy' ? 'Dễ' : 'Tiêu chuẩn'}${model.isHost ? ' (đổi ở màn hình chính)' : ''}`;
+    this.el('mp-drop-field').hidden = !inRoom || model.config.map === 'arena' || model.config.map === 'range';
+    const leaderSelect = this.el('mp-drop-leader') as HTMLSelectElement;
+    const options = '<option value="">Mỗi người tự nhảy</option>' + model.players.map(player => `<option value="${escapeHtml(player.id)}">${escapeHtml(player.name)}${player.id === model.me ? ' (bạn)' : ''}</option>`).join('');
+    if (leaderSelect.innerHTML !== options) leaderSelect.innerHTML = options;
+    leaderSelect.value = model.dropLeader ?? '';
+    leaderSelect.disabled = !model.isHost || model.phase !== 'waiting';
     this.el('mp-players').innerHTML = model.players.map((player, index) => {
       const link = model.connections?.find(link => link.id === player.id);
       const state = link ? link.state === 'failed' ? 'MẤT KẾT NỐI' : link.state !== 'open' ? 'ĐANG KẾT NỐI' :

@@ -299,8 +299,9 @@ export class Soldier {
       clip.goToFrame(clip.from + (this.swatTime * fps) % Math.max(1, clip.to - clip.from));
     }
     this.root.computeWorldMatrix(true).invertToRef(swat.inverse);
-    // The authored rig uses independent foot controls. Keep them on the ground while folding the legs.
-    if (crouch > .001) for (const leg of swat.legs) {
+    // These exports keep foot controls outside the leg hierarchy. Reapply their IK
+    // in every pose: the animation alone can leave the shin detached from its boot.
+    for (const leg of swat.legs) {
       if (!leg.upper || !leg.lower || !leg.end || !leg.foot) continue;
       leg.foot.computeWorldMatrix(true);
       const foot = Vector3.TransformCoordinates(leg.foot.getAbsolutePosition(), swat.inverse);

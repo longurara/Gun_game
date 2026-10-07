@@ -7,6 +7,12 @@
 .air-readout strong { font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; color: #f4fbff; line-height: 1; }
 .air-readout span { font-size: 6.5px; letter-spacing: 1.2px; color: #a9c6d6; white-space: nowrap; }
 .air-prompt { padding: 7px 14px; font-size: 10px; letter-spacing: 1.2px; color: #fff2cf; background: #3a2a12bd; border-bottom: 2px solid var(--orange, #e9a24b); animation: air-pulse 1.4s ease-in-out infinite; }
+.air-team { display: flex; align-items: center; gap: 12px; padding: 7px 12px; color: #d7f3ff; background: #102a39e8; border: 1px solid #80c9ef66; font-size: 11px; }
+.air-team button { pointer-events: auto; touch-action: manipulation; cursor: pointer; min-height: 36px; padding: 7px 12px; color: #111b23; background: #f2b43c; border: 0; font: inherit; font-weight: 700; }
+html[data-input="touch"] .air-team { font-size: 9px; padding: 4px 6px; max-width: min(170px, 44vw); box-sizing: border-box; gap: 6px; }
+html[data-input="touch"] .air-team span { min-width: 0; overflow-wrap: anywhere; }
+html[data-input="touch"] .air-team button { flex-shrink: 0; padding: 7px 8px; font-size: 9px; }
+html[data-input="touch"] [data-drop-follow="on"] .air-prompt { max-width: min(170px, 44vw); box-sizing: border-box; font-size: 7px; }
 @keyframes air-pulse { 50% { background: #5a3f17d6; } }
 
 /* No weapons or gun HUD while hanging in the sky. */

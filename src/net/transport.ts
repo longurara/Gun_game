@@ -4,7 +4,10 @@
  * in-memory network with fake latency in the tests.
  */
 export interface NetMessage { k: string; [field: string]: unknown }
-export type TransportStatus = 'connecting' | 'open' | 'closed' | 'error';
+export type TransportStatus = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error';
+export type PeerState = 'open' | 'reconnecting' | 'failed';
+export const RECONNECT_GRACE_MS = 30_000;
+export const CONNECTION_STALE_MS = 3_000;
 
 export interface Transport {
   /** This machine's id in the room (random per visit). */
@@ -13,6 +16,9 @@ export interface Transport {
   /** `from` is the sender's client id. */
   onMessage(handler: (message: NetMessage, from: string) => void): void;
   onStatus(handler: (status: TransportStatus, detail?: string) => void): void;
+  onPeerState?(handler: (id: string, state: PeerState) => void): void;
+  reconnectPeer?(id: string): void;
+  forgetPeer?(id: string): void;
   close(): void;
 }
 

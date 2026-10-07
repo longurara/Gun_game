@@ -83,3 +83,83 @@ test('real range bots gain imported appearances while missing enemy files keep p
     assert.deepEqual(errors, []); await page.close();
   }
 });
+
+test('feet stay attached for players, teammates and every bot rig through live and dead poses', async () => {
+  const page = await browser.newPage({ viewport: { width: 1680, height: 1000 } });
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto(url + '/tests/fixtures/enemy-gallery.html');
+  await page.waitForFunction(() => !!(window as any).__ENEMY_GALLERY__, undefined, { timeout: 60000 });
+  const report = await page.evaluate(async () => {
+    const { Soldier } = await import('/src/soldier.ts' as string);
+    const gallery = (window as any).__ENEMY_GALLERY__;
+    gallery.engine.stopRenderLoop();
+    const player = new Soldier(gallery.scene, 'regression-player', true, gallery.shadows);
+    const teammate = new Soldier(gallery.scene, 'regression-teammate', true, gallery.shadows);
+    const soldiers = [...gallery.actors.map((a: any) => a.soldier), player, teammate];
+    for (const soldier of soldiers) soldier.setWeapon('rifle');
+    const results: { actor: string; pose: string; gap: number }[] = [];
+    const surfaces: { actor: string; pose: string; radius: number }[] = [];
+    const { Vector3 } = await import('/node_modules/@babylonjs/core/Maths/math.vector.js' as string);
+    const textureState = soldiers.map(soldier => soldier.importedMeshes.map((mesh: any) => ({ mesh, material: mesh.material, texture: mesh.material?.diffuseTexture, uvs: Array.from(mesh.getVerticesData('uv') ?? []) })));
+    const poses = [
+      { name: 'first-freefall', pitch: Math.PI / 2 - .15 },
+      { name: 'standing' }, { name: 'running', moving: 5 },
+      { name: 'crouched', crouch: 1 }, { name: 'prone', prone: 1, pitch: Math.PI / 2 - .12 },
+      { name: 'reloading', reloading: true }, { name: 'healing', healing: true },
+      { name: 'showcase', showcase: true }, { name: 'dead', alive: false, roll: Math.PI / 2 },
+    ];
+    for (const pose of poses) {
+      for (const soldier of soldiers) {
+        soldier.root.position.y = 37.5 - .477 * (pose.crouch ?? 0);
+        soldier.root.rotation.set(pose.pitch ?? 0, .8, pose.roll ?? 0);
+      }
+      // Sample the entire moving clip, rather than its first, nearly-rest frame.
+      for (let frame = 0; frame < 90; frame++) {
+        for (const [index, soldier] of soldiers.entries()) {
+          // Moving and turning at real map coordinates also catches actor/world
+          // space mix-ups that a stationary animation gallery would miss.
+          soldier.root.position.x = 1500 + index * 3 + frame * .2;
+          soldier.root.position.z = -1600 + frame * .13;
+          soldier.root.rotation.y = .8 + frame / 15;
+          soldier.pose(1 / 30, {
+          moving: pose.moving ?? 0, stride: frame / 4, alive: pose.alive ?? true,
+          reloading: pose.reloading ?? false, healing: pose.healing ?? false,
+          time: frame / 30, crouch: pose.crouch ?? 0, prone: pose.prone ?? 0, showcase: pose.showcase,
+        });
+        }
+        gallery.scene.render();
+        for (const soldier of soldiers) for (const leg of soldier.swat.legs) {
+          leg.end.computeWorldMatrix(true); leg.foot.computeWorldMatrix(true);
+          results.push({ actor: soldier.root.name, pose: pose.name,
+            gap: leg.end.getAbsolutePosition().subtract(leg.foot.getAbsolutePosition()).length() });
+        }
+        if (frame % 15 === 0) for (const soldier of soldiers) {
+          const inverse = soldier.root.computeWorldMatrix(true).clone().invert();
+          let radius = 0;
+          for (const mesh of soldier.importedMeshes) {
+            const vertices = mesh.getPositionData(true);
+            if (!vertices) continue;
+            const matrix = mesh.computeWorldMatrix(true).multiply(inverse);
+            for (let i = 0; i < vertices.length; i += 3) {
+              const point = Vector3.TransformCoordinates(new Vector3(vertices[i], vertices[i + 1], vertices[i + 2]), matrix);
+              radius = Math.max(radius, point.length());
+            }
+          }
+          surfaces.push({ actor: soldier.root.name, pose: pose.name, radius });
+        }
+      }
+    }
+    const texturesStable = textureState.every(meshes => meshes.every(({ mesh, material, texture, uvs }: any) =>
+      mesh.material === material && mesh.material?.diffuseTexture === texture &&
+      JSON.stringify(Array.from(mesh.getVerticesData('uv') ?? [])) === JSON.stringify(uvs)));
+    for (const soldier of soldiers) soldier.dispose();
+    return { results, surfaces, texturesStable };
+  });
+  const detached = report.results.filter(row => !Number.isFinite(row.gap) || row.gap > .06);
+  assert.deepEqual(detached.slice(0, 20), [], 'ankle-to-boot separation must remain below 6 cm');
+  assert.equal(new Set(report.results.map(row => row.actor)).size, 14);
+  assert.deepEqual(report.surfaces.filter(row => !Number.isFinite(row.radius) || row.radius > 2.4).slice(0, 20), [], 'rendered skin must stay within human proportions while moving and turning');
+  assert.ok(report.texturesStable, 'animation must not change UVs or swap a character texture');
+  assert.deepEqual(errors, []);
+  await page.close();
+});

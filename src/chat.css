@@ -1,0 +1,31 @@
+.match-comms { position: absolute; inset: 0; pointer-events: none; z-index: 28; }
+.match-comms[hidden], .match-comms [hidden] { display: none !important; }
+.match-comms button, .match-comms input, #chat-panel { pointer-events: auto; }
+#chat-toggle { position: absolute; left: 18px; top: 108px; display: flex; align-items: center; gap: 8px; border: 1px solid #9bc3d04a; padding: 8px 10px; background: #10202aeb; color: #d4ebf5; font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+#chat-toggle kbd { font-size: 9px; opacity: .65; }
+#chat-unread { min-width: 16px; padding: 2px; background: #e8ac39; color: #18232a; text-align: center; border-radius: 3px; }
+#chat-panel { position: absolute; left: 18px; top: 150px; width: min(340px, calc(100vw - 36px)); background: #101b24f5; border: 1px solid #81acbf6e; box-shadow: 0 8px 30px #0008; color: #dbe9ef; }
+#chat-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #9cc5d133; font-size: 10px; letter-spacing: 1px; }
+#chat-close { color: #e3edf2; background: transparent; border: 0; font-size: 24px; width: 32px; cursor: pointer; }
+#chat-log { height: min(220px, 30vh); overflow-y: auto; padding: 8px 12px; overscroll-behavior: contain; }
+#chat-log p { margin: 0 0 10px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+#chat-log b { display: block; color: #efbb54; font-size: 10px; }
+#chat-log span { white-space: pre-wrap; }
+#chat-form { display: flex; padding: 8px; gap: 6px; border-top: 1px solid #9cc5d133; }
+#chat-input { flex: 1; min-width: 0; padding: 10px; border: 1px solid #6f93a155; background: #253039; color: #edf8fd; font: inherit; font-size: 12px; }
+#chat-send { border: 0; padding: 8px 12px; background: #efb43f; color: #18232a; font-weight: 700; cursor: pointer; }
+#chat-send:disabled { opacity: .4; }
+#chat-hint { display: block; padding: 0 10px 10px; color: #a4b7c2; font-size: 9px; }
+#reconnect-banner { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); width: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: 18px; display: grid; gap: 10px; background: #102331f5; border: 1px solid #eab650; text-align: center; box-shadow: 0 6px 30px #0008; }
+#reconnect-banner strong { color: #f3bf58; letter-spacing: 2px; font-size: 14px; }
+#reconnect-banner span { color: #d0e1eb; font-size: 12px; }
+#reconnect-banner b { color: #fff; font-size: 22px; font-variant-numeric: tabular-nums; }
+#reconnect-exit { justify-self: center; padding: 8px 16px; background: transparent; border: 1px solid #9ab6c566; color: #c9dfe9; cursor: pointer; }
+html[data-input="touch"] #chat-toggle { left: calc(8px + var(--safe-left, 0px)); top: calc(184px + var(--safe-top, 0px)); min-height: 36px; }
+html[data-input="touch"] #chat-toggle kbd { display: none; }
+html[data-input="touch"] #chat-panel { left: 8px; top: 226px; width: calc(100vw - 16px); max-width: 340px; }
+html[data-input="touch"] #chat-input { font-size: 16px; }
+html[data-input="touch"] #reconnect-banner { top: 180px; }
+@media (max-height: 520px) { html[data-input="touch"] #chat-toggle { top: 86px; } html[data-input="touch"] #chat-panel { top: 8px; left: 50%; transform: translateX(-50%); } }
+.on-range #chat-toggle { left: 250px; }
+html[data-input="touch"] .on-range #chat-toggle { left: auto; right: calc(8px + var(--safe-right, 0px)); top: calc(184px + var(--safe-top, 0px)); }

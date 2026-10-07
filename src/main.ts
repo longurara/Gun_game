@@ -19,6 +19,9 @@ import './menu-assets.css';
 import './loading-screen.css';
 import './ui-scrollbars.css';
 import './network-signal.css';
+import './chat.css';
+import { ChatView } from './chat-ui';
+import { ChatSession } from './net/chat';
 import { holdLoadingScreen, paintLoadingScreen } from './loading-screen';
 import { installMenuAssets } from './menu-assets';
 import { preloadFreeAssets } from './free-assets';
@@ -167,6 +170,9 @@ let replay: { time: number; killerId: string; saved: Map<string, { x: number; y:
 const lastSoundCue = new Map<string, number>();
 /** An online match: the host runs the game, a client mirrors it. Null in single player. */
 let net: { role: 'host' | 'client'; host?: HostSession; client?: ClientSession; transport: Transport } | null = null;
+let chatView: ChatView | undefined;
+let chatSession: ChatSession | null = null;
+let wasReconnecting = false;
 let mpMenuOpen = false, mpSpectating = false;
 /** The result of this match has been sent to the player's account (once per match). */
 let resultReported = false;
@@ -205,14 +211,15 @@ const ui = new GameUI({
   onSettings: (next) => {
     const outfitChanged = settings?.skin !== next.skin;
     settings = next; if (settings.gyro !== 'off') gyroOnMode = settings.gyro; applySettings(); syncGyro();
-    sim?.setImmortal(settings.immortal);
+    if (sim?.rangeMode && net?.client) net.client.queueCommand('range-immortal', settings.immortal);
+    else sim?.setImmortal(settings.immortal);
     // A new outfit: rebuild the player's soldier (in the lobby it is the one on show).
     if (outfitChanged && sim) { const old = models.get(sim.localId); if (old) { old.soldier.dispose(); models.delete(sim.localId); } }
   },
   onSelectWeapon: selectWeapon,
   onRangeEquip: weapon => doRangeEquip(weapon),
-  onDrill: id => { if (id) sim.startDrill(id); else sim.stopDrill(); },
-  onResetVehicles: () => { if (sim.rangeResetVehicles()) { aiming = false; shooting = false; } },
+  onDrill: id => { if (net?.client) net.client.queueCommand('range-drill', id); else if (id) sim.startDrill(id); else sim.stopDrill(); },
+  onResetVehicles: () => resetRangeVehicles(),
   onArmouryChange: open => { if (open) { shooting = false; aiming = false; if (document.pointerLockElement) document.exitPointerLock(); } else { void audio.unlock(); lockPointer(); } },
   onBreath: held => { mobileBreath = held; },
   onZoomStep: direction => changeZoom(direction),
@@ -233,6 +240,7 @@ const ui = new GameUI({
     } else if (sim.state.phase === 'playing' && sim.player.alive && !ui.mapOpen && !mpMenuOpen && !sim.state.spectating) lockPointer();
   },
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
+  onDropDetach: () => detachSquadDrop(),
 });
 inventoryPreview = new InventoryPreview(ui.inventory.canvas);
 settings = ui.settings;
@@ -473,22 +481,28 @@ function doVehicle(): boolean {
 // ---- Online matches -----------------------------------------------------------------------------------------------
 
 const uiRoot = document.getElementById('ui-root')!;
+chatView = new ChatView(uiRoot, {
+  send: text => !!net && !net.client?.reconnecting && !!chatSession?.send(text),
+  toggle: open => { if (open) { releaseInput(); if (document.pointerLockElement) document.exitPointerLock(); }
+    else if (net && sim.state.phase === 'playing') lockPointer(); },
+  exit: () => leaveMatch(),
+});
 installMenuAssets(uiRoot, audio);
 const plateLayer = document.createElement('div');
 plateLayer.id = 'nameplates';
 uiRoot.appendChild(plateLayer);
 const lobbyView = new LobbyView(uiRoot, {
   onCreate: name => mp.create(name),
-  onJoin: (code, name) => mp.join(code, name),
+  onJoin: (code, name, mode) => mp.join(code, name, mode),
   onStart: () => mp.start(),
+  onDropLeader: id => mp.setDropLeader(id),
   onLeave: () => mp.leave(),
   onClose: () => lobbyView.show(false),
   onInvite: friendId => { const person = social.friends.find(edge => edge.person.id === friendId)?.person; if (person) social.invite(person); },
 });
 const social = new SocialStore(new SupabaseSocialApi(SUPABASE, createClient as unknown as ConstructorParameters<typeof SupabaseSocialApi>[1]));
 const mp = new MultiplayerController(lobbyView, {
-  // The range is for one player: a room on it plays on the island instead.
-  config: () => ({ map: settings.map === 'range' ? 'island' : settings.map, botCount: settings.map === 'range' ? 100 : settings.botCount, difficulty: settings.difficulty }),
+  config: () => ({ map: settings.map, botCount: settings.botCount, difficulty: settings.difficulty }),
   begin: beginMultiplayer,
   skin: () => ui.currentSkin(),
   identity: () => social.signedIn && social.displayName ? { name: social.displayName, uid: social.state.account!.id } : null,
@@ -499,7 +513,7 @@ const mp = new MultiplayerController(lobbyView, {
   onRoom: code => social.setRoom(code),
 });
 const accountView = new AccountView(uiRoot, social, {
-  onJoinRoom: room => { lobbyView.show(true); mp.join(room, lobbyView.name()); },
+  onJoinRoom: room => { mp.leave(); lobbyView.prefillCode(room); lobbyView.show(true); },
 });
 social.onChange(() => {
   const profile = social.state.profile;
@@ -516,6 +530,7 @@ if (social.linkFailed(location.hash)) {
 
 /** Send the result of the match that just ended to the signed-in player's record (once per match). */
 function reportResult(won: boolean) {
+  if (sim.rangeMode) return;
   if (resultReported) return;
   resultReported = true;
   void social.reportMatch(won, sim.state.kills, won ? 1 : sim.state.playerRank ?? sim.player.rank ?? sim.state.actors.filter(actor => actor.alive).length + 1);
@@ -533,7 +548,7 @@ function beginMultiplayer(info: MatchStart) {
   void preloadEnemyAssets(scene);
   audio.pause();
   releaseInput();
-  sim.start(matchOptions(info.setup, info.me, info.role === 'client'));
+  sim.start({ ...matchOptions(info.setup, info.me, info.role === 'client'), immortal: false });
   audio.localId = sim.localId;
   matchSkins.clear();
   info.setup.players.forEach((player, index) => { if (player.skin && skinById(player.skin)) matchSkins.set(actorIdFor(index), player.skin); });
@@ -543,6 +558,14 @@ function beginMultiplayer(info: MatchStart) {
   net = info.role === 'host'
     ? { role: 'host', host: new HostSession(sim, info.transport, info.setup), transport: info.transport }
     : { role: 'client', client: new ClientSession(sim, info.transport, info.hostId), transport: info.transport };
+  if (sim.rangeMode) {
+    if (net.client) net.client.queueCommand('range-immortal', settings.immortal);
+    else sim.setImmortal(settings.immortal);
+  }
+  chatSession = new ChatSession(info.transport, info.setup, info.role, info.hostId);
+  wasReconnecting = false;
+  chatView!.setEnabled(true);
+  chatSession.onChange(rows => chatView!.render(rows));
   mpMenuOpen = false; mpSpectating = false;
   ui.setMultiplayer(true); ui.setMpMenu(false);
   lobbyView.show(false);
@@ -556,13 +579,15 @@ function beginMultiplayer(info: MatchStart) {
   for (const model of models.values()) model.root.setEnabled(false);
   lockPointer();
   clock = performance.now();
-  ui.notify(sim.state.plane ? 'Trận online: máy bay đang bay qua đảo. Chọn điểm đáp rồi nhảy!' : 'Trận online bắt đầu. Người sống cuối cùng chiến thắng!');
+  ui.notify(sim.rangeMode ? 'Trường bắn online: cùng luyện tập với bạn bè. B: kho súng · T: bài tập · K: bất tử.' : sim.state.plane ? 'Trận online: máy bay đang bay qua đảo. Chọn điểm đáp rồi nhảy!' : 'Trận online bắt đầu. Người sống cuối cùng chiến thắng!');
 }
 
 /** Leave an online match (the others carry on) and go back to the main screen. */
 function leaveMatch() {
   const current = net;
   net = null;
+  chatSession = null; chatView?.setEnabled(false);
+  wasReconnecting = false;
   try { current?.host?.close(); current?.client?.leave(); } catch { /* the connection may already be gone */ }
   mpMenuOpen = false; mpSpectating = false;
   ui.setMultiplayer(false); ui.setMpMenu(false);
@@ -587,7 +612,8 @@ function updateNameplates() {
   const view = scene.getTransformMatrix(), viewport = camera.viewport.toGlobal(width, height);
   for (const person of people) {
     let label = nameplates.get(person.id);
-    if (!label) { label = document.createElement('div'); label.className = 'nameplate'; label.textContent = person.name; plateLayer.appendChild(label); nameplates.set(person.id, label); }
+    if (!label) { label = document.createElement('div'); label.className = 'nameplate'; plateLayer.appendChild(label); nameplates.set(person.id, label); }
+    label.textContent = `${person.name}${person.reconnecting ? ' · MẤT MẠNG · BẢO VỆ' : ''}`;
     const distance = Vector3.Distance(camera.position, new Vector3(person.position.x, person.position.y, person.position.z));
     const above = (person.stance === 'prone' ? 0.9 : person.stance === 'crouch' ? 1.7 : 2.25) + (person.air ? 1.5 : 0);
     const spot = Vector3.Project(new Vector3(person.position.x, person.position.y + above, person.position.z), Matrix.IdentityReadOnly, view, viewport);
@@ -802,7 +828,7 @@ function updateRangeTools(now: number) {
 }
 
 function gameplayInputBlocked(): boolean {
-  return mpMenuOpen || ui.mapOpen || ui.touchOverlayOpen || ui.armouryOpen;
+  return mpMenuOpen || ui.mapOpen || ui.touchOverlayOpen || ui.armouryOpen || !!chatView?.open || !!net?.client?.reconnecting;
 }
 
 function lockPointer() {
@@ -2122,12 +2148,21 @@ function useVehicle() {
 
 /** The shooting range: take any gun. */
 function doRangeEquip(weapon: WeaponType) {
+  if (net?.client?.reconnecting) return;
   if (!sim.rangeEquip(weapon)) return;
+  net?.client?.queueCommand('range-equip', weapon);
   void audio.unlock();
   aiming = false; shooting = false; triggerPending = false; recoil = 0;
   mobile?.cancelFire();
   const old = models.get(sim.localId);
   old?.soldier.setWeapon(weapon);
+}
+
+function resetRangeVehicles() {
+  if (!sim.rangeMode || net?.client?.reconnecting) return;
+  if (net?.client) net.client.queueCommand('range-reset-vehicles');
+  else sim.rangeResetVehicles();
+  aiming = false; shooting = false;
 }
 
 function selectWeapon(weapon: WeaponType) {
@@ -2346,8 +2381,18 @@ function events(dt: number) {
   }
 }
 
+function detachSquadDrop(): void {
+  if (!sim.player.dropFollowing || !sim.player.air || sim.state.phase !== 'playing') return;
+  if (net?.role === 'client') net.client!.queueCommand('drop-detach');
+  else sim.detachDrop();
+  autoGlide = false;
+}
+
 window.addEventListener('keydown', event => {
   if (event.defaultPrevented || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
+  if (event.code === 'Enter' && !event.repeat && net && !mpMenuOpen) {
+    event.preventDefault(); chatView?.toggle(true); return;
+  }
   if ((event.code === 'Tab' || event.code === 'KeyI') && sim.state.phase === 'playing' && !mpMenuOpen && !replay && !sim.state.spectating) {
     event.preventDefault();
     if (!event.repeat) ui.toggleInventory();
@@ -2376,9 +2421,10 @@ window.addEventListener('keydown', event => {
     if (event.code === 'KeyK') { ui.toggleImmortal(); return; }
     if (event.code === 'KeyT') { ui.toggleDrill(); return; }
     if (event.code === 'KeyY') { ui.cycleDrill(); return; }
-    if (event.code === 'KeyL') { if (sim.rangeResetVehicles()) { aiming = false; shooting = false; } return; }
+    if (event.code === 'KeyL') { resetRangeVehicles(); return; }
   }
   if (gameplayInputBlocked()) return;
+  if (event.code === 'KeyJ' && !event.repeat && sim.player.dropFollowing) { detachSquadDrop(); return; }
   if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
   if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
@@ -2433,7 +2479,7 @@ window.addEventListener('mousemove', event => {
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   // The armoury releases the mouse on purpose so the cursor can pick a gun; that is not a pause.
-  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen && !ui.armouryOpen) pause();
+  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen && !ui.armouryOpen && !chatView?.open && !net?.client?.reconnecting) pause();
   hadLock = locked;
 });
 window.addEventListener('blur', () => { if (!net) pause(); });
@@ -2507,7 +2553,7 @@ try {
     audio.setMenuMusic(sim.state.phase === 'menu');
     if (sim.state.phase !== 'playing' || (!sim.player.vehicleId && sim.player.air?.mode !== 'plane')) audio.stopEngine();
     audio.footSurface = underground ? 'metal' : sim.world.id === 'range' || sim.world.id === 'arena' || sim.world.id === 'metro' ? 'concrete' : 'grass';
-    if (sim.state.phase === 'playing') {
+    if (sim.state.phase === 'playing' && !net?.client?.reconnecting) {
       const rawForward = gameplayInputBlocked() ? 0 : (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0) + (mobile?.movement.forward ?? 0);
       const rawSide = gameplayInputBlocked() ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (mobile?.movement.side ?? 0);
       const length = Math.max(1, Math.hypot(rawForward, rawSide));
@@ -2551,8 +2597,14 @@ try {
         for (const text of net.host.takeDeparted()) ui.notify(text);
       } else if (net.client) {
         net.client.tick(now, lastInput, yaw);
-        net.client.frame(now);
-        if (net.client.closedByHost || net.client.connectionLost || net.client.silence > 15) { ui.notify(net.client.closedByHost ? 'Chủ phòng đã rời trận.' : 'Mất kết nối với chủ phòng.'); leaveMatch(); }
+        if (net.client.reconnecting && !wasReconnecting) releaseInput();
+        else if (!net.client.reconnecting && wasReconnecting) {
+          yaw = sim.player.yaw; snapCamera = true; ui.notify('Đã kết nối lại.'); lockPointer();
+        }
+        wasReconnecting = net.client.reconnecting;
+        if (!net.client.reconnecting) net.client.frame(now);
+        chatView?.setReconnect(net.client.reconnecting ? net.client.reconnectSeconds : null);
+        if (net.client.closedByHost || net.client.connectionLost) { ui.notify(net.client.closedByHost ? 'Chủ phòng đã rời trận.' : 'Không nối lại được trong thời gian chờ.'); leaveMatch(); }
       }
       if (net && sim.state.phase === 'playing' && !sim.player.alive && !mpSpectating) {
         // Killed in an online match: the match goes on without you, so keep watching it.
@@ -2560,7 +2612,12 @@ try {
         sim.state.spectating = true;
         spectateId = lastKillerId && sim.state.actors.some(actor => actor.id === lastKillerId && actor.alive) ? lastKillerId : null;
         snapCamera = true; pitch = -0.15;
-        ui.notify(`Bạn bị hạ · hạng #${sim.state.playerRank ?? sim.player.rank ?? '?'} · đang xem tiếp trận`);
+        ui.notify(sim.rangeMode ? 'Bạn bị hạ · sẽ hồi sinh tại vạch bắn sau 2 giây.' : `Bạn bị hạ · hạng #${sim.state.playerRank ?? sim.player.rank ?? '?'} · đang xem tiếp trận`);
+      }
+      if (net && sim.rangeMode && sim.player.alive && mpSpectating) {
+        mpSpectating = false; sim.state.spectating = false; spectateId = null;
+        snapCamera = true; yaw = sim.player.yaw; pitch = -0.12;
+        ui.notify('Đã hồi sinh tại vạch bắn.');
       }
     }
     updateNameplates();
@@ -2677,7 +2734,9 @@ ${scene.getActiveMeshes().length} vật thể đang vẽ / ${scene.meshes.length
           const distance = Math.hypot(flag.x - sim.player.position.x, flag.z - sim.player.position.z);
           return { distance, reachable: distance <= remainingGlide(air.mode, agl), auto: autoGlide };
         })() : null;
-        ui.setAir({ mode: air.mode, altitude: agl, speed, seconds, flag: flagInfo });
+        const leader = sim.player.dropFollowing ? sim.actorById(sim.player.dropFollowing) : null;
+        const followers = sim.humans.filter(human => human.alive && human.air && human.dropFollowing === sim.player.id).length;
+        ui.setAir({ mode: air.mode, altitude: agl, speed, seconds, flag: flagInfo, leaderName: leader?.name, followers });
       }
     } else ui.setAir(null);
     mobile?.update({

@@ -3,6 +3,9 @@
  * *publishable* key, which is meant to be public. Override with VITE_SUPABASE_URL / VITE_SUPABASE_KEY in `.env.local`
  * to point at another project. Never put a service-role key in the browser.
  */
+import { connectionConfiguration } from './connection-mode';
+import type { ConnectionMode } from './connection-mode';
+
 const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
 
 export const SUPABASE = {
@@ -26,10 +29,21 @@ export function rtcConfiguration(raw = env.VITE_WEBRTC_ICE_SERVERS): RTCConfigur
 export async function loadRtcConfiguration(
   url = env.VITE_WEBRTC_ICE_URL,
   request: typeof fetch = fetch,
+  mode?: ConnectionMode,
 ): Promise<RTCConfiguration> {
+  // Direct joins do not depend on the TURN endpoint or allocate relay bandwidth.
+  if (mode === 'p2p') {
+    let configuration: RTCConfiguration;
+    try { configuration = rtcConfiguration(); } catch { configuration = rtcConfiguration(''); }
+    configuration = connectionConfiguration(configuration, mode);
+    if (!configuration.iceServers?.length) configuration.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    return configuration;
+  }
   if (!url) {
-    try { return rtcConfiguration(); }
+    let configuration: RTCConfiguration;
+    try { configuration = rtcConfiguration(); }
     catch { throw new Error('Cấu hình VITE_WEBRTC_ICE_SERVERS không hợp lệ. Kiểm tra mảng ICE servers trong cấu hình triển khai.'); }
+    return connectionConfiguration(configuration, mode);
   }
   try {
     if (new URL(url).protocol !== 'https:') throw new Error('HTTPS required');
@@ -38,7 +52,7 @@ export async function loadRtcConfiguration(
     const configuration = rtcConfiguration(JSON.stringify(await response.json()));
     if (!configuration.iceServers?.some(server => (Array.isArray(server.urls) ? server.urls : [server.urls])
       .some(address => /^turns?:/i.test(address)))) throw new Error('No relay returned');
-    return configuration;
+    return connectionConfiguration(configuration, mode);
   } catch {
     // Do not expose the credential URL/API key in errors or silently fall back to STUN-only.
     throw new Error('Không tải được cấu hình TURN. Kiểm tra URL cấp credential, trạng thái credential và quota dịch vụ.');

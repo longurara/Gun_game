@@ -4,6 +4,8 @@ import { WebRTCTransport } from '../src/net/webrtc.ts';
 import { rtcConfiguration, loadRtcConfiguration } from '../src/net/config.ts';
 import type { NetMessage, Transport, TransportStatus } from '../src/net/transport.ts';
 import { fragment, WireDecoder, WireEncoder } from '../src/net/wire.ts';
+import { reconnectProof } from '../src/net/reconnect-auth.ts';
+import { connectionConfiguration } from '../src/net/connection-mode.ts';
 
 const read = (bytes: ArrayBuffer) => new WireDecoder().decode(new Uint8Array(bytes));
 const write = (message: NetMessage) => new WireEncoder().encode(message).buffer as ArrayBuffer;
@@ -43,9 +45,14 @@ class PeerConnection {
   close() { this.closed = true; this.connectionState = 'closed'; }
 }
 const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
-function host(ids = ['guest']) {
+async function until(predicate: () => boolean): Promise<void> {
+  const deadline = performance.now() + 2000;
+  while (!predicate() && performance.now() < deadline) await flush();
+  assert.ok(predicate(), 'asynchronous crypto verification completed');
+}
+function host(ids = ['guest'], clock?: () => number) {
   const signaling = new Signaling(), pcs: PeerConnection[] = [];
-  const transport = new WebRTCTransport(signaling, 'host', { peerConnection: () => {
+  const transport = new WebRTCTransport(signaling, 'host', { clock, peerConnection: () => {
     const pc = new PeerConnection(); pcs.push(pc); return pc as unknown as RTCPeerConnection;
   } });
   transport.send({ k: 'roster', players: ['host', ...ids].map(id => ({ id })) });
@@ -67,6 +74,62 @@ test('offer precedes local ICE; remote ICE waits for the answer, wrong recipient
   await flush(); assert.deepEqual(pcs[0].candidates, []);
   signaling.receive({ k: 'rtc-signal', to: 'host', session, description: { type: 'answer', sdp: 'answer' } }, 'guest');
   await flush(); assert.deepEqual(pcs[0].candidates, [{ candidate: 'valid' }]);
+});
+
+test('closed match channels rebuild with a private reconnect ticket and preserve the 30-second deadline across attempts', async t => {
+  let now = 1000;
+  const { signaling, transport, pcs } = host(['guest'], () => now); t.after(() => transport.close());
+  const changes: string[] = []; transport.onPeerState((id, state) => changes.push(`${id}:${state}`));
+  await flush(); pcs[0].channel.open();
+  const ticket = read(pcs[0].channel.sent.at(-1)!).token;
+  assert.equal(typeof ticket, 'string');
+  assert.ok(signaling.sent.every(packet => !packet.token), 'private ticket is shared through P2P only');
+  const originalOffer = signaling.sent.find(packet => (packet.description as any)?.type === 'offer')!;
+  transport.send({ k: 'start' });
+  const proof = await reconnectProof(ticket as string, 'guest', 'host', 1);
+  signaling.receive({ k: 'rtc-reconnect', to: 'host', attempt: 1, proof }, 'guest'); await flush();
+  await until(() => (transport as any).acceptedAttempts.get('guest') === 1);
+  assert.equal(transport.netStats()[0].state, 'open', 'old requests cannot interrupt a healthy channel');
+  pcs[0].channel.close();
+  assert.equal(transport.netStats()[0].state, 'reconnecting');
+  signaling.receive({ k: 'rtc-reconnect', to: 'host', attempt: 2, proof: 'wrong' }, 'guest'); await flush();
+  assert.equal(pcs.length, 1);
+  const request = { k: 'rtc-reconnect', to: 'host', attempt: 2, proof: await reconnectProof(ticket as string, 'guest', 'host', 2) };
+  signaling.receive(request, 'guest'); await flush();
+  await until(() => pcs.length === 2); await flush();
+  assert.equal(pcs.length, 2);
+  const replacement = signaling.sent.filter(packet => (packet.description as any)?.type === 'offer').at(-1)!;
+  assert.equal(replacement.generation, 1); assert.notEqual(replacement.session, originalOffer.session);
+  signaling.receive(request, 'guest'); await flush(); assert.equal(pcs.length, 2, 'replayed proof does not trigger another attempt');
+  signaling.receive({ k: 'rtc-signal', to: 'host', session: originalOffer.session, description: { type: 'answer', sdp: 'old' } }, 'guest');
+  await flush(); assert.equal(pcs[1].remoteDescription, null);
+  now += 29_000; (transport as any).health(); await flush();
+  assert.equal(transport.netStats()[0].state, 'reconnecting');
+  now += 1001; (transport as any).health(); await flush();
+  assert.equal(transport.netStats()[0].state, 'failed');
+  assert.deepEqual(changes, ['guest:open', 'guest:reconnecting', 'guest:failed']);
+  const count = pcs.length;
+  signaling.receive(request, 'guest'); await flush(); assert.equal(pcs.length, count);
+});
+
+test('a brief match disconnection recovers on the existing channel; a stale offer cannot replace a newer client peer', async t => {
+  let now = 1000;
+  const h = host(['guest'], () => now); t.after(() => h.transport.close()); await flush(); h.pcs[0].channel.open();
+  h.transport.send({ k: 'start' });
+  h.pcs[0].connectionState = 'disconnected'; h.pcs[0].onconnectionstatechange();
+  assert.equal(h.transport.ready, false);
+  h.pcs[0].connectionState = 'connected'; h.pcs[0].onconnectionstatechange();
+  h.pcs[0].channel.onmessage?.({ data: write({ k: 'in', seq: 2 }) });
+  assert.equal(h.transport.ready, true); now += 1000; (h.transport as any).health(); assert.equal(h.pcs.length, 1);
+  const signals = new Signaling(); signals.clientId = 'guest'; const pcs: PeerConnection[] = [];
+  const client = new WebRTCTransport(signals, 'client', { clock: () => now, peerConnection: () => { const pc = new PeerConnection(); pcs.push(pc); return pc as any; } });
+  t.after(() => client.close());
+  signals.receive({ k: 'roster', rtc: 2, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
+  const offer = (session: string, generation: number) => ({ k: 'rtc-signal', to: 'guest', session, generation, revision: 1, description: { type: 'offer', sdp: session } });
+  signals.receive(offer('first', 0), 'host'); await flush();
+  signals.receive(offer('new', 1), 'host'); await flush();
+  signals.receive(offer('first', 0), 'host'); await flush();
+  assert.equal(pcs.length, 2); assert.equal(pcs[0].closed, true); assert.equal(pcs[1].remoteDescription.sdp, 'new');
 });
 
 test('start waits for every channel; gameplay bypasses signaling and sender identity is bound to its peer', async t => {
@@ -131,7 +194,7 @@ test('a receiver missing a baseline requests resync over the DataChannel, never 
 test('a congested peer is disconnected without queuing unbounded data or ending other guests', async t => {
   const { signaling, transport, pcs } = host(['a', 'b']); t.after(() => transport.close()); await flush();
   pcs.forEach(pc => pc.channel.open()); transport.send({ k: 'start' });
-  const received: string[] = []; transport.onMessage((m, f) => { if (m.k === 'bye') received.push(f); });
+  const received: string[] = []; transport.onPeerState((id, state) => { if (state === 'reconnecting') received.push(id); });
   pcs[0].channel.bufferedAmount = 1024 * 1024;
   transport.send({ k: 'snap', s: {} });
   assert.deepEqual(received, ['a']); assert.equal(pcs[0].closed, true); assert.equal(pcs[1].closed, false);
@@ -161,6 +224,40 @@ test('TURN credential endpoint is awaited, requires a relay and hides keys on fa
     });
   }
   await assert.rejects(loadRtcConfiguration('http://credential.example', request)); assert.equal(calls, 1);
+});
+
+test('explicit direct joins skip the TURN service, mixed ICE entries lose relay credentials, and TURN forces relay', async () => {
+  const configuration: RTCConfiguration = { iceServers: [{ urls: ['stun:stun.example:3478', 'turn:relay.example:3478'], username: 'u', credential: 'secret' }] };
+  assert.deepEqual(connectionConfiguration(configuration, 'p2p'), { iceTransportPolicy: 'all', iceServers: [{ urls: ['stun:stun.example:3478'] }] });
+  assert.equal(connectionConfiguration(configuration, 'turn').iceTransportPolicy, 'relay');
+  assert.equal(configuration.iceTransportPolicy, undefined, 'source configuration stays intact for other guests');
+  assert.throws(() => connectionConfiguration({ iceServers: [] }, 'turn'), /TURN/);
+  const direct = await loadRtcConfiguration('https://unavailable.example', (async () => { throw new Error('must not request TURN'); }) as typeof fetch, 'p2p');
+  assert.equal(direct.iceTransportPolicy, 'all');
+  assert.ok(direct.iceServers?.every(server => (Array.isArray(server.urls) ? server.urls : [server.urls]).every(url => /^stun:/.test(url))));
+  const relay = await loadRtcConfiguration('https://relay.example', (async () => new Response(JSON.stringify(configuration.iceServers))) as typeof fetch, 'turn');
+  assert.equal(relay.iceTransportPolicy, 'relay');
+});
+
+test('host honors a different route for each guest and preserves it during reconnect', async t => {
+  let now = 0;
+  const signaling = new Signaling(), configurations: RTCConfiguration[] = [], pcs: PeerConnection[] = [];
+  const transport = new WebRTCTransport(signaling, 'host', {
+    clock: () => now, configuration: { iceServers: [{ urls: 'stun:stun.example:3478' }, { urls: 'turn:relay.example:3478', username: 'u', credential: 'p' }] },
+    peerConnection: configuration => { configurations.push(configuration); const pc = new PeerConnection(); pcs.push(pc); return pc as unknown as RTCPeerConnection; },
+  });
+  t.after(() => transport.close());
+  signaling.receive({ k: 'hello', rtc: 2, connectionMode: 'p2p' }, 'direct');
+  signaling.receive({ k: 'hello', rtc: 2, connectionMode: 'turn' }, 'relay');
+  transport.send({ k: 'roster', players: ['host', 'direct', 'relay'].map(id => ({ id })) });
+  now = 1000; (transport as any).nextOffer(); await flush();
+  assert.equal(configurations[0].iceTransportPolicy, 'all');
+  assert.ok(configurations[0].iceServers?.every(server => !JSON.stringify(server.urls).includes('turn:')));
+  assert.equal(configurations[1].iceTransportPolicy, 'relay');
+  pcs.forEach(pc => pc.channel.open()); transport.send({ k: 'start' });
+  pcs[0].channel.close(); pcs[1].channel.close();
+  now = 10000; transport.reconnectPeer('direct'); transport.reconnectPeer('relay'); await flush();
+  assert.equal(configurations[2].iceTransportPolicy, 'all'); assert.equal(configurations[3].iceTransportPolicy, 'relay');
 });
 
 test('handshake replays SDP and bundled ICE, ignores duplicate/stale answers and stops after opening', async t => {

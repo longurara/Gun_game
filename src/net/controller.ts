@@ -6,6 +6,7 @@ import { SupabaseTransport } from './transport';
 import type { Transport } from './transport';
 import { SUPABASE, loadRtcConfiguration } from './config';
 import { WebRTCTransport } from './webrtc';
+import type { ConnectionMode } from './connection-mode';
 
 /** Everything the game needs to begin a match once the lobby is done. */
 export interface MatchStart { setup: MatchSetup; role: 'host' | 'client'; transport: Transport; hostId: string; me: string }
@@ -40,10 +41,10 @@ export class MultiplayerController {
 
   create(name: string): void { this.open(makeRoomCode(), name, 'host'); }
 
-  join(codeText: string, name: string): void {
+  join(codeText: string, name: string, mode: ConnectionMode = 'p2p'): void {
     const code = normalizeRoomCode(codeText);
     if (code.length !== 5) { this.localError = 'Mã phòng gồm 5 ký tự.'; this.render(); return; }
-    this.open(code, name, 'client');
+    this.open(code, name, 'client', mode);
   }
 
   /** Host: begin the match for everybody in the room. */
@@ -54,6 +55,7 @@ export class MultiplayerController {
 
   /** The host changed the map or bots on the main screen while the room is open. */
   refreshConfig(): void { if (this.lobby?.role === 'host') this.lobby.setConfig(this.options.config()); }
+  setDropLeader(id: string): void { this.lobby?.setDropLeader(id || undefined); }
 
   /** Close the room and the connection (before a match starts). */
   leave(): void {
@@ -66,17 +68,17 @@ export class MultiplayerController {
     this.render();
   }
 
-  private async open(code: string, name: string, role: 'host' | 'client'): Promise<void> {
+  private async open(code: string, name: string, role: 'host' | 'client', mode?: ConnectionMode): Promise<void> {
     this.leave();
     const generation = this.generation;
     this.localError = '';
     let transport: Transport;
     try {
       this.opening = true; this.render();
-      const configuration = this.options.makeTransport ? undefined : await loadRtcConfiguration();
+      const configuration = this.options.makeTransport ? undefined : await loadRtcConfiguration(undefined, fetch, mode);
       if (generation !== this.generation) return;
       transport = this.options.makeTransport ? this.options.makeTransport(code)
-        : new WebRTCTransport(new SupabaseTransport(SUPABASE, code), role, { configuration });
+        : new WebRTCTransport(new SupabaseTransport(SUPABASE, code), role, { configuration, mode });
     } catch (error) {
       if (generation !== this.generation) return;
       this.opening = false;
@@ -125,6 +127,7 @@ export class MultiplayerController {
       phase, code: this.code, players: lobby?.players ?? [], me: lobby?.me ?? '', isHost: lobby?.role === 'host',
       error: lobby?.error || this.localError || links.find(link => link.state === 'failed')?.error || (failed ? 'Không kết nối được với người chơi.' : ''),
       config: lobby?.config ?? this.options.config(),
+      dropLeader: lobby?.dropLeader,
       status: this.opening ? 'Đang chuẩn bị cấu hình kết nối…' : phase === 'waiting' && rtc && !rtc.ready ? 'Đang kết nối với người chơi…' : status,
       connections: links, connectionReady: rtc?.ready ?? true,
       friendIds: this.options.friends?.().friendIds ?? [], invitable: this.options.friends?.().invitable ?? [],

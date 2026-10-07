@@ -17,12 +17,12 @@ const click = (node: Element) => node.dispatchEvent(new dom.window.MouseEvent('c
 
 function rangeUi() {
   const taken: WeaponType[] = [], opened: boolean[] = [];
-  const ui = new GameUI({
-    onStart() {}, onResume() {}, onRestart() {}, onMenu() {}, onSettings() {}, onSelectWeapon() {},
-    onRangeEquip: weapon => taken.push(weapon), onArmouryChange: open => opened.push(open),
-  });
   const game = new GameSimulation({ seed: 4, botCount: 2, map: 'range' });
   game.start();
+  const ui = new GameUI({
+    onStart() {}, onResume() {}, onRestart() {}, onMenu() {}, onSettings: settings => game.setImmortal(settings.immortal), onSelectWeapon() {},
+    onRangeEquip: weapon => taken.push(weapon), onArmouryChange: open => opened.push(open),
+  });
   ui.update(game.state, game.world, '');
   return { ui, game, taken, opened, doc: dom.window.document };
 }

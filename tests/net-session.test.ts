@@ -294,7 +294,7 @@ test('a player who disconnects is eliminated, and the match goes on for the rest
   assert.ok(m.peers[0].sim.actorById('p2')!.alive === false, 'the other client sees the departure too');
 });
 
-test('a player who goes silent for the timeout is eliminated; the host closing is noticed by clients', () => {
+test('a silent player has a 30-second protected reconnect window, then is eliminated; host closing reaches clients', () => {
   const m = startMatch({ latency: 40 }, { map: 'arena', botCount: 2, difficulty: 'normal' });
   m.hostSim.botsFrozen = true;
   m.run(1);
@@ -308,6 +308,9 @@ test('a player who goes silent for the timeout is eliminated; the host closing i
     }
   };
   frames(10);
+  assert.equal(m.hostSim.actorById('p2')!.alive, true);
+  assert.equal(m.hostSim.actorById('p2')!.reconnecting, true);
+  frames(30);
   assert.equal(m.hostSim.actorById('p2')!.alive, false);
   assert.match(m.hostSession.takeDeparted()[0], /mất kết nối/);
   assert.equal(silent.session.matchOver, false);

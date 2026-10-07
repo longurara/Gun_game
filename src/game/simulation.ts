@@ -28,6 +28,7 @@ interface Options {
   /** On the shooting range: nothing hurts the player. */ immortal?: boolean;
   /** Multiplayer: how many of the first actors are people (default 1), which of them is on this machine, their names. */
   humans?: number; localId?: string; names?: string[];
+  dropLeaderId?: string;
   /** A mirror of someone else's match: it never steps the world itself, it is told what happened. */
   remote?: boolean;
 }
@@ -201,7 +202,7 @@ export class GameSimulation {
   private lootCount = -1;
 
   constructor(options: Options = {}) {
-    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false, immortal: options.immortal ?? false, humans: Math.max(1, options.humans ?? 1), localId: options.localId ?? '', names: options.names ?? [], remote: options.remote ?? false };
+    this.options = { seed: options.seed ?? 72341, botCount: options.botCount ?? 5, difficulty: options.difficulty ?? 'normal', map: options.map ?? 'arena', drop: options.drop ?? false, immortal: options.immortal ?? false, humans: Math.max(1, options.humans ?? 1), localId: options.localId ?? '', names: options.names ?? [], remote: options.remote ?? false, dropLeaderId: options.dropLeaderId ?? '' };
     this.immortal = !!options.immortal;
     this.world = this.makeWorld();
     this.state = this.makeState('menu');
@@ -235,7 +236,10 @@ export class GameSimulation {
   get rangeMode(): boolean { return this.world.id === 'range'; }
   /** On the range: nothing can hurt the player. */
   immortal = false;
-  setImmortal(on: boolean): void { this.immortal = on; }
+  setImmortal(on: boolean, actor: Actor = this.player): void {
+    if (actor === this.player) this.immortal = on;
+    if (actor.practice) actor.practice.immortal = on;
+  }
   private dummySpecs = new Map<string, RangeDummySpec>();
 
   /** The person at this machine. */
@@ -397,7 +401,18 @@ export class GameSimulation {
   /** Multiplayer (host): take a player who left or lost their connection out of the match. */
   eliminate(actorId: string): void {
     const actor = this.actorById(actorId);
+    if (actor) delete actor.reconnecting;
+    if (actor?.practice) { actor.practice.left = true; actor.practice.immortal = false; actor.hidden = true; }
     if (actor?.alive) this.damage(actor, 1e9);
+  }
+
+  setReconnecting(actorId: string, paused: boolean): void {
+    const actor = this.actorById(actorId);
+    if (!actor?.isPlayer) return;
+    if (paused && actor.alive) actor.reconnecting = true; else delete actor.reconnecting;
+    this.setHumanInput(actorId, ZERO_INPUT);
+    this.jumpHeldBy.set(actorId, false);
+    this.pendingPresses.delete(actorId);
   }
 
   /** Multiplayer: the hidden movement state of an actor that a client needs to predict its own movement. */
@@ -440,7 +455,14 @@ export class GameSimulation {
       const pressed = input.jump && !this.jumpHeldBy.get(me.id);
       this.jumpHeldBy.set(me.id, input.jump);
       // The jump from the plane is predicted too, so the door opens the instant the key goes down; the host confirms it.
-      if (me.air) this.flyPlayer(me, dt, input, pressed);
+      if (me.air && me.dropFollowing) {
+        // The host controls the formation. Predict its latest velocity without braking it with this follower's input.
+        if (me.air.mode !== 'plane') {
+          me.position.x += me.air.vx * dt; me.position.y += me.air.vy * dt; me.position.z += me.air.vz * dt;
+          me.air.time += dt;
+        }
+      }
+      else if (me.air) this.flyPlayer(me, dt, input, pressed);
       else if (!me.vehicleId) this.walkPlayer(me, dt, input, pressed);
       else this.predictDrive(me, dt, input);
     }
@@ -1019,6 +1041,8 @@ export class GameSimulation {
 
   /** Armour soaks part of a hit and wears down; a broken piece disappears. */
   private absorb(victim: Actor, amount: number, head: boolean): number {
+    if (victim.reconnecting) return 0;
+    if (this.rangeMode && victim.isPlayer && (victim.practice?.immortal ?? this.immortal)) return 0;
     const slot: ArmorSlot = head ? 'helmet' : 'vest';
     const level = victim[slot];
     if (!level) return amount;
@@ -1130,6 +1154,8 @@ export class GameSimulation {
         actor.air = { mode: 'plane', vx: 0, vy: 0, vz: 0, time: 0 };
         if (!actor.isPlayer) this.runtime(actor).drop = this.planDrop(plane);
       }
+      const leader = this.humanList.find(actor => actor.id === this.options.dropLeaderId);
+      if (leader) for (const human of this.humanList) if (human !== leader) human.dropFollowing = leader.id;
     }
     return { phase, elapsed: 0, actors, loot, vehicles, zone, kills: 0, shots: 0, hits: 0, plane, airdrops: [], projectiles: [], smokes: [], fires: [], localId: this.localActor?.id };
   }
@@ -1211,10 +1237,15 @@ export class GameSimulation {
     };
   }
 
-  /** You at the firing line, bots in the yard (they shoot back), and a target in every lane. */
+  /** Everyone has their own place at the firing line, beside the shared targets and bot yard. */
   private makeRangeActors(): Actor[] {
     const layout = this.world.range!;
-    const actors: Actor[] = [this.blankActor('player', this.options.names[0] ?? 'Bạn', true, layout.playerSpawn.x, layout.playerSpawn.z, 0, 'rifle')];
+    const actors: Actor[] = Array.from({ length: this.options.humans }, (_, index) => {
+      const spawn = this.rangeSpawn(index), solo = this.options.humans === 1;
+      const actor = this.blankActor(solo ? 'player' : `p${index}`, this.options.names[index] ?? (solo ? 'Bạn' : `Người chơi ${index + 1}`), true, spawn.x, spawn.z, 0, 'rifle');
+      actor.practice = { immortal: this.immortal, shots: 0, hits: 0, drill: null };
+      return actor;
+    });
     for (let i = 0; i < this.options.botCount; i++) {
       const spawn = layout.botSpawns[i % layout.botSpawns.length];
       actors.push(this.blankActor(`bot-${i + 1}`, `Đối thủ ${i + 1}`, false, spawn.x, spawn.z, this.random() * Math.PI * 2, this.rangeBotWeapon()));
@@ -1228,6 +1259,11 @@ export class GameSimulation {
     }
     for (const actor of actors) this.runtime(actor);
     return actors;
+  }
+
+  private rangeSpawn(index: number): Vec3 {
+    const spawn = this.world.range!.playerSpawn;
+    return { ...spawn, x: spawn.x + (index - (this.options.humans - 1) / 2) * 2.4 };
   }
 
   /** Every gun racked behind the firing line, class by class, with ammunition, parts, supplies and armour in front of the racks. */
@@ -1269,14 +1305,26 @@ export class GameSimulation {
   private stepRange(dt: number): void {
     if (!this.rangeMode) return;
     void dt;
-    const layout = this.world.range!, now = this.state.elapsed, player = this.player;
-    if (player.alive) {
-      for (const type of AMMO_ORDER) player.reserve[type] = Math.max(player.reserve[type], 400);
-      for (const kind of ATTACH_ORDER) player.parts[kind] = Math.max(player.parts[kind], 2);
-      for (const kind of SUPPLY_ORDER) player.supplies[kind] = Math.max(player.supplies[kind], 3);
-      player.medkits = Math.max(player.medkits, 3);
-      player.pack = 3;
-    } else if (now - (player.diedAt ?? now) > 2) this.revive(player, layout.playerSpawn);
+    const now = this.state.elapsed;
+    for (const [index, player] of this.humans.entries()) {
+      if (player.practice?.left) continue;
+      if (player.alive) {
+        for (const type of AMMO_ORDER) player.reserve[type] = Math.max(player.reserve[type], 400);
+        for (const kind of ATTACH_ORDER) player.parts[kind] = Math.max(player.parts[kind], 2);
+        for (const kind of SUPPLY_ORDER) player.supplies[kind] = Math.max(player.supplies[kind], 3);
+        player.medkits = Math.max(player.medkits, 3);
+        player.pack = 3;
+      } else if (now - (player.diedAt ?? now) > 2) {
+        this.revive(player, this.rangeSpawn(index));
+        this.runtimes.delete(player.id);
+        this.setHumanInput(player.id, ZERO_INPUT);
+      }
+      const drill = player.practice?.drill;
+      if (drill && !drill.done && now >= drill.endsAt) {
+        drill.done = true;
+        this.tell(player, `Hết giờ · ${DRILLS[drill.id as keyof typeof DRILLS]?.name ?? 'Bài tập'}: ${drill.score} điểm, hạng ${drillGrade(drill.id as keyof typeof DRILLS, drill.score)}.`);
+      }
+    }
     for (const actor of this.state.actors) {
       if (actor.isPlayer) continue;
       const spec = actor.dummy ? this.dummySpecs.get(actor.id) : undefined;
@@ -1299,11 +1347,6 @@ export class GameSimulation {
         actor.position.x = x;
         if (dir !== 0) actor.yaw = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
       }
-    }
-    const drill = this.state.drill;
-    if (drill && !drill.done && now >= drill.endsAt) {
-      drill.done = true;
-      this.tell(player, `Hết giờ · ${DRILLS[drill.id as keyof typeof DRILLS]?.name ?? 'Bài tập'}: ${drill.score} điểm, hạng ${drillGrade(drill.id as keyof typeof DRILLS, drill.score)}.`);
     }
     // A wrecked vehicle is replaced after a few seconds.
     this.state.vehicles.forEach((car, index) => {
@@ -1328,42 +1371,44 @@ export class GameSimulation {
   }
 
   /** The range: every vehicle back where it started (the L key and the panel button). */
-  rangeResetVehicles(): boolean {
+  rangeResetVehicles(actor: Actor = this.player): boolean {
     if (!this.rangeMode || this.state.phase !== 'playing') return false;
     this.state.vehicles.forEach((car, index) => this.resetVehicle(car, index));
-    this.tell(this.player, 'Đã đưa mọi xe về bãi.');
+    this.tell(actor, 'Đã đưa mọi xe về bãi.');
     return true;
   }
 
   /** Begin a timed drill: every target stands up, the clock starts, and the score is cleared. */
-  startDrill(id: unknown): boolean {
-    if (!this.rangeMode || this.state.phase !== 'playing' || !this.player.alive || !isDrillId(id)) return false;
-    for (const actor of this.state.actors) if (actor.dummy && !actor.alive) { const spec = this.dummySpecs.get(actor.id); if (spec) this.revive(actor, { x: spec.x, y: 0, z: spec.z }); }
+  startDrill(id: unknown, player: Actor = this.player): boolean {
+    if (!this.rangeMode || this.state.phase !== 'playing' || !player.alive || !player.practice || !isDrillId(id)) return false;
+    // Starting one person's drill must not reset targets another person is shooting.
+    if (this.options.humans === 1) for (const actor of this.state.actors) if (actor.dummy && !actor.alive) { const spec = this.dummySpecs.get(actor.id); if (spec) this.revive(actor, { x: spec.x, y: 0, z: spec.z }); }
     const now = this.state.elapsed;
-    this.state.drill = { id, startedAt: now, endsAt: now + DRILLS[id].seconds, score: 0, hits: 0, shots: 0, heads: 0, kills: 0, combo: 0, lastHitAt: -Infinity, done: false, weapon: this.player.weapon };
-    this.tell(this.player, `${DRILLS[id].name}: ${DRILLS[id].seconds} giây · ${DRILLS[id].blurb}.`);
+    player.practice.drill = { id, startedAt: now, endsAt: now + DRILLS[id].seconds, score: 0, hits: 0, shots: 0, heads: 0, kills: 0, combo: 0, lastHitAt: -Infinity, done: false, weapon: player.weapon };
+    if (player === this.player) this.state.drill = player.practice.drill;
+    this.tell(player, `${DRILLS[id].name}: ${DRILLS[id].seconds} giây · ${DRILLS[id].blurb}.`);
     return true;
   }
 
   /** End the drill early (it keeps the score so far on show), or clear a finished one. */
-  stopDrill(): boolean {
-    const drill = this.state.drill;
+  stopDrill(player: Actor = this.player): boolean {
+    const drill = player.practice?.drill;
     if (!this.rangeMode || !drill) return false;
-    if (drill.done) { this.state.drill = null; return true; }
+    if (drill.done) { player.practice!.drill = null; if (player === this.player) this.state.drill = null; return true; }
     drill.done = true; drill.endsAt = this.state.elapsed;
     return true;
   }
 
   /** A hit on a target counts for the drill if it is one the drill is about. */
-  private scoreDrill(target: Actor, head: boolean, killed: boolean): void {
-    const drill = this.state.drill;
+  private scoreDrill(target: Actor, head: boolean, killed: boolean, player: Actor): void {
+    const drill = player.practice?.drill;
     if (!drill || drill.done || !isDrillId(drill.id)) return;
     const spec = this.dummySpecs.get(target.id);
     if (!spec || !DRILLS[drill.id].counts(spec)) return;
     const now = this.state.elapsed;
     drill.combo = now - drill.lastHitAt <= COMBO_WINDOW ? drill.combo + 1 : 0;
     drill.lastHitAt = now;
-    const distance = Math.hypot(target.position.x - this.player.position.x, target.position.z - this.player.position.z);
+    const distance = Math.hypot(target.position.x - player.position.x, target.position.z - player.position.z);
     drill.score += hitPoints(spec, distance, head, killed, drill.combo);
     drill.hits++;
     if (head) drill.heads++;
@@ -1416,7 +1461,7 @@ export class GameSimulation {
     this.stepPlane(dt);
     this.stepAirdrops(dt);
     for (const human of this.humanList) {
-      const held = this.inputs.get(human.id) ?? ZERO_INPUT;
+      const held = human.reconnecting ? ZERO_INPUT : this.inputs.get(human.id) ?? ZERO_INPUT;
       if (pressed.has(human.id) || Math.hypot(held.moveX, held.moveZ) > 0.05) this.cancelHeal(human);
     }
     for (const actor of this.state.actors) {
@@ -1454,11 +1499,15 @@ export class GameSimulation {
         actor.boost = Math.max(0, actor.boost - BOOST_DRAIN * dt);
       }
     }
-    for (const human of this.humanList) {
+    // A client can lead the host too: step independent humans before the people following them.
+    const orderedHumans = this.humanList.some(human => human.dropFollowing)
+      ? [...this.humanList].sort((a, b) => Number(!!a.dropFollowing) - Number(!!b.dropFollowing)) : this.humanList;
+    for (const human of orderedHumans) {
       if (!human.alive) continue;
-      const held = this.inputs.get(human.id) ?? ZERO_INPUT;
-      if (human.air) this.flyPlayer(human, dt, held, pressed.has(human.id));
-      else if (!human.vehicleId) this.walkPlayer(human, dt, held, pressed.has(human.id));
+      const held = human.reconnecting ? ZERO_INPUT : this.inputs.get(human.id) ?? ZERO_INPUT;
+      const jump = !human.reconnecting && pressed.has(human.id);
+      if (human.air) this.flyPlayer(human, dt, held, jump);
+      else if (!human.vehicleId) this.walkPlayer(human, dt, held, jump);
     }
     for (const human of this.humanList) if (human.alive) this.stepBreath(human, dt);
     this.rebuildActorGrid();
@@ -1607,6 +1656,7 @@ export class GameSimulation {
   }
 
   private flyPlayer(player: Actor, dt: number, input: PlayerInput, jumpPressed: boolean): void {
+    if (player.dropFollowing && this.followDrop(player)) return;
     const air = player.air!;
     if (air.mode === 'plane') {
       if (jumpPressed && this.state.elapsed > DROP.doorDelay) this.jumpFromPlane(player);
@@ -1615,6 +1665,39 @@ export class GameSimulation {
     // A second press opens the canopy, but not in the first instant of the fall, so a double tap cannot waste the altitude.
     if (jumpPressed && air.mode === 'freefall' && air.time > 1) this.openChute(player);
     this.moveInAir(player, { x: input.moveX, z: input.moveZ, dive: input.sprint }, dt);
+  }
+
+  /** Give back this human's controls without changing their current flight or velocity. */
+  detachDrop(actor: Actor = this.player): boolean {
+    if (this.state.phase !== 'playing' || !actor.isPlayer || !actor.alive || !actor.air || !actor.dropFollowing) return false;
+    delete actor.dropFollowing;
+    this.tell(actor, 'Đã tách đội. Bạn tự điều khiển nhảy dù.');
+    return true;
+  }
+
+  private followDrop(actor: Actor): boolean {
+    const leader = this.humanList.find(human => human.id === actor.dropFollowing);
+    if (!leader?.alive || !leader.air || leader.dropFollowing || leader.reconnecting) { this.detachDrop(actor); return false; }
+    const mode = actor.air!.mode;
+    if (leader.air.mode === 'plane') return true;
+    if (mode === 'plane') this.jumpFromPlane(actor);
+    if (mode !== 'chute' && leader.air.mode === 'chute') this.openChute(actor);
+    actor.air = { ...leader.air };
+    actor.yaw = leader.yaw;
+    // Seven metres between canopies. Stable slots do not collapse when another member detaches.
+    const slot = this.humanList.filter(human => human !== leader).indexOf(actor);
+    const side = (slot % 2 ? -1 : 1) * (Math.floor(slot / 2) + 1) * 7;
+    const back = -(Math.floor(slot / 2) + 1) * 7;
+    const yaw = this.state.plane?.yaw ?? leader.yaw, sin = Math.sin(yaw), cos = Math.cos(yaw);
+    const edge = this.world.halfSize - ACTOR_RADIUS;
+    actor.position = { x: clamp(leader.position.x + side * cos + back * sin, -edge, edge),
+      y: leader.position.y, z: clamp(leader.position.z - side * sin + back * cos, -edge, edge) };
+    const ground = this.heightAt(actor.position.x, actor.position.z);
+    if (actor.position.y <= ground) this.land(actor, ground);
+    else if (actor.air.mode === 'freefall' && actor.position.y - ground <= DROP.autoOpen) {
+      this.detachDrop(actor); this.openChute(actor);
+    }
+    return true;
   }
 
   private moveInAir(actor: Actor, control: { x: number; z: number; dive: boolean }, dt: number): void {
@@ -1660,6 +1743,7 @@ export class GameSimulation {
     const air = actor.air!;
     const impact = -air.vy;
     actor.air = null;
+    delete actor.dropFollowing;
     const runtime = this.runtime(actor);
     runtime.velocityY = 0;
     runtime.drop = null;
@@ -2162,6 +2246,11 @@ export class GameSimulation {
     runtime.weaponCooldowns[actor.weapon] = weapon.fireInterval;
     this.cancelHeal(actor);
     if (actor === this.player) this.state.shots++;
+    if (actor.practice) {
+      actor.practice.shots++;
+      const drill = actor.practice.drill;
+      if (drill && !drill.done) drill.shots++;
+    }
     if (weapon.kind === 'launcher') {
       const rocket = weapon.ammoType === 'rocket';
       const speed = rocket ? 62 : 42;
@@ -2207,7 +2296,7 @@ export class GameSimulation {
     // On the cramped arena everyone would hear everything; halve the range there.
     this.alertNearby(actor, gunshotLoudness(actor.weapon) * rig.loud * (this.openWorld ? 1 : 0.45));
     if (actor === this.player && anyHit) this.state.hits++;
-    if (actor === this.player) { const drill = this.state.drill; if (drill && !drill.done) drill.shots++; }
+    if (actor.practice && anyHit) actor.practice.hits++;
     for (const [victim, amount] of damageByActor) this.damage(victim, amount, actor.id, { cause: actor.weapon, head: headshots.has(victim) });
     this.checkEnd();
     return true;
@@ -2317,12 +2406,13 @@ export class GameSimulation {
 
   /** `how` says what did the harm and whether it was a headshot; it goes into the events for the match statistics. */
   private damage(actor: Actor, amount: number, sourceId?: string, how: { cause?: string; head?: boolean } = {}): void {
-    if (!actor.alive || amount <= 0) return;
-    if (this.immortal && this.rangeMode && actor.isPlayer) return;
+    if (!actor.alive || amount <= 0 || actor.reconnecting) return;
+    if (this.rangeMode && actor.isPlayer && (actor.practice?.immortal ?? this.immortal)) return;
     const actual = Math.min(actor.health, amount);
     actor.health = Math.max(0, actor.health - actual);
     actor.hurtTimer = 0.45;
-    if (actor.dummy && sourceId === this.player.id) this.scoreDrill(actor, how.head === true, actor.health <= 1e-7);
+    const shooter = sourceId ? this.actorById(sourceId) : undefined;
+    if (actor.dummy && shooter?.isPlayer) this.scoreDrill(actor, how.head === true, actor.health <= 1e-7, shooter);
     // Zone ticks are intentionally not emitted every frame; the HUD tracks health.
     if (sourceId) {
       this.cancelHeal(actor);

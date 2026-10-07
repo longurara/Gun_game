@@ -161,6 +161,12 @@ export interface Actor {
   vehicleId?: string | null;
   /** Set while the actor is in the plane, falling or under a parachute; absent once on the ground. */
   air?: AirState | null;
+  /** Human leading this actor's squad drop; cleared on detaching or landing. */
+  dropFollowing?: string;
+  /** Host-controlled protection while a disconnected human is allowed to reconnect. */
+  reconnecting?: boolean;
+  /** Individual shooting-range tools and score; absent in battle maps. */
+  practice?: { immortal: boolean; shots: number; hits: number; drill: DrillState | null; left?: boolean };
   /** Absent means standing. */
   stance?: Stance;
   /** Opponents (and people) this actor has put down, and the place and time of its own death. */
