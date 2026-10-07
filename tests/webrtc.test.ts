@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { WebRTCTransport } from '../src/net/webrtc.ts';
 import { rtcConfiguration, loadRtcConfiguration } from '../src/net/config.ts';
 import type { NetMessage, Transport, TransportStatus } from '../src/net/transport.ts';
+import { fragment, WireDecoder, WireEncoder } from '../src/net/wire.ts';
+
+const read = (bytes: ArrayBuffer) => new WireDecoder().decode(new Uint8Array(bytes));
+const write = (message: NetMessage) => new WireEncoder().encode(message).buffer as ArrayBuffer;
 
 class Signaling implements Transport {
   clientId = 'host'; sent: NetMessage[] = []; closed = false;
@@ -14,12 +18,12 @@ class Signaling implements Transport {
   receive(message: NetMessage, from: string) { for (const fn of this.handlers) fn(message, from); }
 }
 class Channel {
-  label = 'lastlight'; readyState = 'connecting'; bufferedAmount = 0; sent: string[] = [];
+  label = 'lastlight'; readyState = 'connecting'; bufferedAmount = 0; sent: ArrayBuffer[] = [];
   onopen: (() => void) | null = null; onclose: (() => void) | null = null;
-  onerror: (() => void) | null = null; onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null; onmessage: ((event: { data: ArrayBuffer }) => void) | null = null;
   open() { this.readyState = 'open'; this.onopen?.(); }
   close() { this.readyState = 'closed'; this.onclose?.(); }
-  send(text: string) { this.sent.push(text); }
+  send(bytes: ArrayBuffer) { this.sent.push(bytes); }
 }
 class PeerConnection {
   channel = new Channel(); localDescription: any = null; remoteDescription: any = null;
@@ -74,12 +78,54 @@ test('start waits for every channel; gameplay bypasses signaling and sender iden
   const count = signaling.sent.length;
   transport.send({ k: 'start', setup: {} }); transport.send({ k: 'snap', s: { seq: 1 } });
   assert.equal(signaling.sent.length, count);
-  assert.ok(pcs.every(pc => JSON.parse(pc.channel.sent.at(-1)!).k === 'snap'));
+  assert.ok(pcs.every(pc => read(pc.channel.sent.at(-1)!).k === 'snap'));
   signaling.receive({ k: 'in' }, 'a');
-  pcs[0].channel.onmessage?.({ data: JSON.stringify({ k: 'in', f: 'b' }) });
+  pcs[0].channel.onmessage?.({ data: write({ k: 'in', f: 'b' }) });
   assert.deepEqual(received, [['in', 'a']]);
   signaling.receive({ k: 'hello', rtc: 1 }, 'late-guest');
   assert.deepEqual(signaling.sent.at(-1), { k: 'reject', to: 'late-guest', why: 'started' });
+});
+
+test('binary snapshot baselines are per peer and resync requests force a new full frame', async t => {
+  const { transport, pcs } = host(['a', 'b']); t.after(() => transport.close()); await flush(); pcs.forEach(pc => pc.channel.open());
+  const decoders = pcs.map(() => new WireDecoder()), received: NetMessage[] = []; transport.onMessage(message => received.push(message));
+  const make = (seq: number) => ({ k: 'snap', s: { seq, a: [[0, seq, 0, 1]], inventory: Array(200).fill('same') } });
+  transport.send(make(1)); pcs.forEach((pc, i) => assert.deepEqual(decoders[i].decode(new Uint8Array(pc.channel.sent.at(-1)!)), make(1)));
+  transport.send(make(2)); pcs.forEach((pc, i) => {
+    const bytes = new Uint8Array(pc.channel.sent.at(-1)!); assert.equal(bytes[3], 2); assert.deepEqual(decoders[i].decode(bytes), make(2));
+  });
+  pcs[0].channel.onmessage?.({ data: write({ k: 'rtc-resync' }) });
+  transport.send(make(3));
+  assert.equal(new Uint8Array(pcs[0].channel.sent.at(-1)!)[3], 1);
+  assert.equal(new Uint8Array(pcs[1].channel.sent.at(-1)!)[3], 2);
+  pcs.forEach((pc, i) => assert.deepEqual(decoders[i].decode(new Uint8Array(pc.channel.sent.at(-1)!)), make(3)));
+  assert.deepEqual(received, [], 'codec control messages do not reach game logic');
+});
+
+test('mixed wire versions fail in the lobby with a reload message instead of a broken match', async t => {
+  const { signaling, transport } = host(); t.after(() => transport.close()); await flush();
+  signaling.receive({ k: 'hello', rtc: 1 }, 'old-guest');
+  assert.deepEqual(signaling.sent.at(-1), { k: 'reject', to: 'old-guest', why: 'webrtc' });
+  assert.equal(signaling.sent.find(m => m.k === 'roster')!.rtc, 2);
+  const clientSignals = new Signaling(); clientSignals.clientId = 'guest';
+  const client = new WebRTCTransport(clientSignals, 'client', { peerConnection: () => new PeerConnection() as unknown as RTCPeerConnection }); t.after(() => client.close());
+  const errors: string[] = []; client.onStatus((status, detail) => { if (status === 'error') errors.push(detail!); });
+  clientSignals.receive({ k: 'roster', rtc: 1, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
+  assert.match(errors[0], /tải lại game/); assert.equal(client.ready, false);
+});
+
+test('a receiver missing a baseline requests resync over the DataChannel, never signaling', async t => {
+  const { transport, pcs, signaling } = host(); t.after(() => transport.close()); await flush(); pcs[0].channel.open();
+  const remote = new WireEncoder(), received: NetMessage[] = []; transport.onMessage(message => received.push(message));
+  const make = (seq: number) => ({ k: 'snap', s: { seq, inventory: Array(100).fill('same') } });
+  const first = remote.encode(make(1)); // Lost before reaching this receiver.
+  assert.equal(first[3], 1);
+  const signals = signaling.sent.length;
+  pcs[0].channel.onmessage?.({ data: remote.encode(make(2)).buffer as ArrayBuffer });
+  assert.equal(read(pcs[0].channel.sent.at(-1)!).k, 'rtc-resync');
+  assert.equal(signaling.sent.length, signals); assert.deepEqual(received, []);
+  remote.reset(); pcs[0].channel.onmessage?.({ data: remote.encode(make(3)).buffer as ArrayBuffer });
+  assert.deepEqual(received, [make(3)]);
 });
 
 test('a congested peer is disconnected without queuing unbounded data or ending other guests', async t => {
@@ -89,7 +135,7 @@ test('a congested peer is disconnected without queuing unbounded data or ending 
   pcs[0].channel.bufferedAmount = 1024 * 1024;
   transport.send({ k: 'snap', s: {} });
   assert.deepEqual(received, ['a']); assert.equal(pcs[0].closed, true); assert.equal(pcs[1].closed, false);
-  assert.equal(JSON.parse(pcs[1].channel.sent.at(-1)!).k, 'snap');
+  assert.equal(read(pcs[1].channel.sent.at(-1)!).k, 'snap');
   transport.close(); assert.equal(signaling.closed, true); assert.equal(pcs[1].closed, true);
 });
 
@@ -168,12 +214,13 @@ test('large Unicode snapshots are chunked below SCTP limits and reassembled exac
   const packet = { k: 'snap', s: 'đồng bộ 🪂'.repeat(8000) };
   transport.send(packet);
   assert.ok(pcs[0].channel.sent.length > 1);
-  assert.ok(pcs[0].channel.sent.every(text => Buffer.byteLength(text) < 65536));
+  assert.ok(pcs[0].channel.sent.every(bytes => bytes.byteLength < 65536));
   const received: NetMessage[] = []; transport.onMessage(message => received.push(message));
   for (const text of pcs[0].channel.sent) pcs[0].channel.onmessage?.({ data: text });
   assert.deepEqual(received, [packet]);
   // Out-of-order/incomplete fragments must never escape to the simulation.
-  pcs[0].channel.onmessage?.({ data: JSON.stringify({ k: 'rtc-chunk', id: 99, index: 1, total: 2, part: 'bad' }) });
+  const incomplete = fragment(new WireEncoder().encode(packet), 99, 8192)[1];
+  pcs[0].channel.onmessage?.({ data: incomplete.buffer as ArrayBuffer });
   assert.equal(received.length, 1);
 });
 
@@ -195,7 +242,7 @@ test('selected candidate stats distinguish relay from direct and brief disconnec
   assert.equal(pc.closed, false);
   pc.connectionState = 'connected'; pc.onconnectionstatechange();
   pc.report.get('remote').candidateType = 'host';
-  pc.channel.onmessage?.({ data: JSON.stringify({ k: 'rtc-pong', seq: JSON.parse(pc.channel.sent.at(-1)!).seq }) });
+  pc.channel.onmessage?.({ data: write({ k: 'rtc-pong', seq: read(pc.channel.sent.at(-1)!).seq }) });
   now = 4000; (transport as any).health(); await flush();
   assert.equal(transport.netStats()[0].route, 'direct');
 });

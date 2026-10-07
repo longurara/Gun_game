@@ -10,6 +10,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "tsx --test tests/e2e/*.e2e.ts",
+    "net:measure": "tsx scripts/measure-network.ts",
     "assets:fetch": "node scripts/fetch-free-assets.mjs",
     "assets:fetch-buildings": "node scripts/fetch-building-assets.mjs",
     "assets:fetch-menu": "node scripts/fetch-menu-assets.mjs",

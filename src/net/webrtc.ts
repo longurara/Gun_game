@@ -1,6 +1,7 @@
 import { randomId } from './transport';
 import type { NetMessage, Transport, TransportStatus } from './transport';
 import { MAX_PLAYERS } from './protocol';
+import { MAX_WIRE_BYTES, MissingBaseline, WireAssembly, WireDecoder, WireEncoder, WIRE_VERSION, fragment } from './wire';
 
 export interface PeerStats {
   id: string; state: 'connecting' | 'open' | 'failed'; route: 'direct' | 'relay' | 'unknown';
@@ -12,7 +13,7 @@ interface Peer {
   state: PeerStats['state']; route: PeerStats['route']; rttMs: number | null;
   created: number; seen: number; disconnected: number | null; restarted: boolean;
   ping: { seq: number; at: number } | null; seq: number;
-  assembly: { id: number; total: number; next: number; size: number; parts: string[] } | null;
+  encoder: WireEncoder; decoder: WireDecoder; assembly: WireAssembly;
   chain: Promise<void>; ice: RTCIceCandidateInit[]; outgoingIce: RTCIceCandidateInit[]; descriptionSent: boolean;
   revision: number; remoteKey: string; lastDescription: number; localIce: RTCIceCandidateInit[];
   acceptedRevision: number | null; description: RTCSessionDescriptionInit | null;
@@ -27,7 +28,7 @@ export interface WebRTCOptions {
 }
 
 const LOBBY = new Set(['hello', 'roster', 'reject']);
-const MAX_MESSAGE = 256 * 1024;
+const MAX_MESSAGE = MAX_WIRE_BYTES;
 const MAX_BUFFER = 512 * 1024;
 const LINK_ERROR = 'Không kết nối được với người chơi. Thử đổi mạng; mạng hạn chế có thể cần TURN.';
 
@@ -100,7 +101,7 @@ export class WebRTCTransport implements Transport {
   send(message: NetMessage): void {
     if (this.closed) return;
     if (LOBBY.has(message.k) || (!this.playing && (message.k === 'bye' || message.k === 'closed'))) {
-      const packet = { ...message, rtc: 1 };
+      const packet = { ...message, rtc: WIRE_VERSION };
       if (message.k === 'roster' && this.role === 'host') {
         if (!this.roster(packet, this.clientId)) return;
         this.signaling.send(packet);
@@ -112,10 +113,9 @@ export class WebRTCTransport implements Transport {
       if (this.role !== 'host' || !this.ready) throw new Error('Chờ mọi người kết nối trước khi bắt đầu.');
       this.playing = true;
     }
-    const text = JSON.stringify(message);
     for (const peer of this.peers.values()) {
       if (this.role === 'client' && peer.id !== this.hostId) continue;
-      this.sendData(peer, text);
+      this.sendData(peer, message);
     }
   }
 
@@ -182,11 +182,11 @@ export class WebRTCTransport implements Transport {
     }
     // Never accept gameplay from the broadcast channel, even if a sender labels itself as the host.
     if (this.playing || !LOBBY.has(message.k) && message.k !== 'bye' && message.k !== 'closed') return;
-    if (message.k === 'hello' && this.role === 'host' && message.rtc !== 1) {
+    if (message.k === 'hello' && this.role === 'host' && message.rtc !== WIRE_VERSION) {
       this.signaling.send({ k: 'reject', to: from, why: 'webrtc' }); return;
     }
     if (message.k === 'roster' && this.role === 'client') {
-      if (message.rtc !== 1) { this.emit('error', 'Chủ phòng dùng phiên bản cũ. Cả nhóm hãy tải lại game.'); return; }
+      if (message.rtc !== WIRE_VERSION) { this.emit('error', 'Chủ phòng dùng phiên bản khác. Cả nhóm hãy tải lại game.'); return; }
       if (!this.roster(message, from)) return;
     }
     this.deliver(message, from);
@@ -197,7 +197,8 @@ export class WebRTCTransport implements Transport {
       const pc = this.options.peerConnection ? this.options.peerConnection(this.configuration) : new RTCPeerConnection(this.configuration);
       const now = this.now();
       const peer: Peer = { id, session, pc, channel: null, state: 'connecting', route: 'unknown', rttMs: null,
-        created: now, seen: now, disconnected: null, restarted: false, ping: null, seq: 0, assembly: null,
+        created: now, seen: now, disconnected: null, restarted: false, ping: null, seq: 0,
+        encoder: new WireEncoder(), decoder: new WireDecoder(), assembly: new WireAssembly(),
         chain: Promise.resolve(), ice: [], outgoingIce: [], descriptionSent: false,
         revision: 0, remoteKey: '', lastDescription: -Infinity, localIce: [], relayCandidate: false,
         acceptedRevision: null, description: null };
@@ -286,29 +287,26 @@ export class WebRTCTransport implements Transport {
         : 'Kênh dữ liệu với người chơi đã đóng. Kiểm tra tab game và mạng của cả hai.');
     };
     channel.onerror = event => { if (this.current(peer)) this.fail(peer, this.operationError('Kênh dữ liệu', (event as RTCErrorEvent).error)); };
-    channel.onmessage = event => { if (typeof event.data === 'string') this.receiveData(peer, event.data); };
+    channel.binaryType = 'arraybuffer';
+    channel.onmessage = event => { if (event.data instanceof ArrayBuffer) this.receiveData(peer, new Uint8Array(event.data)); };
   }
 
-  private receiveData(peer: Peer, text: string): void {
-    if (!this.current(peer) || text.length > MAX_MESSAGE) return;
+  private receiveData(peer: Peer, bytes: Uint8Array): void {
+    if (!this.current(peer) || bytes.length > MAX_MESSAGE) return;
     let message: NetMessage;
-    try { message = JSON.parse(text); } catch { return; }
-    if (!message || typeof message.k !== 'string') return;
-    if (message.k === 'rtc-chunk') {
-      const { id, total, index, part } = message;
-      if (!Number.isSafeInteger(id) || !Number.isInteger(total) || !Number.isInteger(index) || typeof part !== 'string' || part.length > 8192 ||
-        (total as number) < 2 || (total as number) > 256 || (index as number) < 0 || (index as number) >= (total as number)) return;
-      if (index === 0) peer.assembly = { id: id as number, total: total as number, next: 0, size: 0, parts: [] };
-      const frame = peer.assembly;
-      if (!frame || frame.id !== id || frame.total !== total || frame.next !== index) { peer.assembly = null; return; }
-      frame.parts.push(part); frame.next++; frame.size += part.length;
-      if (frame.size > MAX_MESSAGE) { peer.assembly = null; return; }
-      if (frame.next === total) { peer.assembly = null; this.receiveData(peer, frame.parts.join('')); }
+    try {
+      const frame = peer.assembly.receive(bytes);
+      if (!frame) return;
+      message = peer.decoder.decode(frame);
+    } catch (error) {
+      if (error instanceof MissingBaseline) this.sendData(peer, { k: 'rtc-resync' });
+      else this.fail(peer, 'Dữ liệu mạng không hợp lệ. Cả nhóm hãy tải lại game rồi vào lại phòng.');
       return;
     }
     peer.seen = this.now();
+    if (message.k === 'rtc-resync') { peer.encoder.reset(); return; }
     if (message.k === 'rtc-ping') {
-      this.sendData(peer, JSON.stringify({ k: 'rtc-pong', seq: message.seq })); return;
+      this.sendData(peer, { k: 'rtc-pong', seq: message.seq }); return;
     }
     if (message.k === 'rtc-pong') {
       if (peer.ping && message.seq === peer.ping.seq) {
@@ -322,24 +320,21 @@ export class WebRTCTransport implements Transport {
     this.deliver(message, peer.id); // Identity comes from the bound connection, never from a payload field.
   }
 
-  private sendData(peer: Peer, text: string): void {
+  private sendData(peer: Peer, message: NetMessage): void {
     if (!this.current(peer) || peer.channel?.readyState !== 'open') return;
-    const bytes = new TextEncoder().encode(text).length;
-    if (bytes > MAX_MESSAGE || peer.channel.bufferedAmount > MAX_BUFFER) { this.fail(peer); return; }
+    if (peer.channel.bufferedAmount > MAX_BUFFER) { this.fail(peer); return; }
     // Browser SCTP limits differ. Small chunks also avoid one large resync blocking every other message.
     const limit = peer.pc.sctp?.maxMessageSize || 65536;
     try {
-      if (bytes <= Math.min(32768, limit)) peer.channel.send(text);
+      const bytes = peer.encoder.encode(message);
+      if (bytes.length <= Math.min(32768, limit)) peer.channel.send(bytes.buffer as ArrayBuffer);
       else {
-        const size = Math.min(8192, Math.floor((limit - 1024) / 6));
-        if (size < 1024) { this.fail(peer); return; }
-        const total = Math.ceil(text.length / size), id = ++peer.seq;
-        for (let index = 0; index < total; index++) {
+        for (const part of fragment(bytes, ++peer.seq, Math.min(32768, limit))) {
           if (peer.channel.bufferedAmount > MAX_BUFFER) { this.fail(peer); return; }
-          peer.channel.send(JSON.stringify({ k: 'rtc-chunk', id, index, total, part: text.slice(index * size, (index + 1) * size) }));
+          peer.channel.send(part.buffer as ArrayBuffer);
         }
       }
-    } catch { this.fail(peer); }
+    } catch (error) { this.fail(peer, this.operationError('Gửi dữ liệu WebRTC', error)); }
   }
 
   private async route(peer: Peer): Promise<void> {
@@ -378,7 +373,7 @@ export class WebRTCTransport implements Transport {
       if (peer.state === 'connecting' && peer.descriptionSent && now - peer.lastDescription >= 3000) this.sendDescription(peer);
       if (peer.state === 'open' && (!peer.ping || now - peer.ping.at > 4000)) {
         peer.ping = { seq: ++peer.seq, at: now };
-        this.sendData(peer, JSON.stringify({ k: 'rtc-ping', seq: peer.seq }));
+        this.sendData(peer, { k: 'rtc-ping', seq: peer.seq });
         void this.route(peer);
       }
     }

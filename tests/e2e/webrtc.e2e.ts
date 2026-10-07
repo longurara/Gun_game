@@ -19,11 +19,27 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
+async function captureWire(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const stats = { binary: 0, strings: 0, delta: 0, full: 0, bytes: 0 };
+    (window as any).__WIRE_STATS__ = stats;
+    const send = RTCDataChannel.prototype.send;
+    RTCDataChannel.prototype.send = function(data: any) {
+      if (data instanceof ArrayBuffer) {
+        const bytes = new Uint8Array(data); stats.binary++; stats.bytes += bytes.length;
+        if (bytes[3] === 2) stats.delta++; if (bytes[3] === 1) stats.full++;
+      } else if (typeof data === 'string') stats.strings++;
+      return send.call(this, data);
+    };
+  });
+}
+
 async function room(size: number, noIce = false, loseSignals = false, varyAnswer = false) {
   const pages: Page[] = [], signals: Array<{ from: string; message: any }> = [], errors: string[] = [];
   const dropped = new Set<string>();
   for (let i = 0; i < size; i++) {
     const page = await browser.newPage({ viewport: { width: i ? 390 : 1280, height: 720 } });
+    await captureWire(page);
     page.on('pageerror', e => errors.push(e.message));
     await page.exposeBinding('rtcSignal', async (_source, packet) => {
       signals.push(packet);
@@ -96,6 +112,9 @@ test('six native WebRTC peers start a match, exchange gameplay without signaling
     await r.host.click('#mp-start');
     await Promise.all(r.pages.map(page => page.waitForFunction(() => (window as any).__RTC_FIXTURE__.sim?.state.phase === 'playing')));
     await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.client.netStats().snapshotsPerSecond > 0);
+    await r.host.waitForFunction(() => (window as any).__WIRE_STATS__.delta > 5);
+    assert.equal(await r.host.evaluate(() => (window as any).__WIRE_STATS__.strings), 0);
+    assert.ok(await r.pages[1].evaluate(() => (window as any).__WIRE_STATS__.binary > 0));
     const signalCount = r.signals.length;
     await Promise.all(r.pages.map(page => page.evaluate(() => (window as any).__RTC_FIXTURE__.blockSignaling())));
     const before = await r.host.evaluate(() => (window as any).__RTC_FIXTURE__.sim.actorById('p1').position.z);
@@ -138,6 +157,7 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
   try {
     for (let i = 0; i < 2; i++) {
       const page = await browser.newPage({ viewport: { width: i ? 390 : 1280, height: 844 }, hasTouch: i === 1, isMobile: i === 1 }); pages.push(page);
+      await captureWire(page);
       page.on('pageerror', e => errors.push(e.message));
       // Local Phoenix broker: exercise the installed Supabase SDK, without touching the shared project.
       await page.route('**/*.supabase.co/**', route => route.abort());
@@ -180,6 +200,8 @@ test('production game uses the Supabase SDK for handshake, then survives its Web
     await Promise.all(pages.map(page => page.waitForFunction(() => !!(window as any).__LASTLIGHT__.net())));
     await host.evaluate(() => { (window as any).__LASTLIGHT__.simulation.botsFrozen = true; });
     await guest.waitForFunction(() => (window as any).__LASTLIGHT__.net().client.netStats().snapshotsPerSecond > 0);
+    await host.waitForFunction(() => (window as any).__WIRE_STATS__.delta > 5);
+    assert.equal(await host.evaluate(() => (window as any).__WIRE_STATS__.strings), 0);
     for (const [index, page] of pages.entries()) {
       await page.waitForFunction(() => !document.querySelector<HTMLElement>('#network-badge')!.hidden && document.querySelector('#network-badge')!.textContent!.includes('ms'));
       assert.equal(await page.locator('#network-badge').isVisible(), true, 'multiplayer ping is visible with FPS disabled');
