@@ -76,7 +76,7 @@ test('recorded gunfire decodes locally, covers all families and suppressors, and
   assert.match(await page.locator('#asset-credits').innerText(), /Light Machine Gun[\s\S]*KuraiWolf[\s\S]*CC BY 4.0/);
   assert.equal(await page.evaluate(() => (window as any).__GUN_AUDIO__.requests), 0, 'menu does not preload gunfire');
   await page.keyboard.press('Escape');
-  await page.click('#map-choice button[data-value="range"]'); await page.click('#start-button');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__GUN_AUDIO__.decoded.length === 8, undefined, { timeout: 45000 });
   const decoded = await page.evaluate(() => (window as any).__GUN_AUDIO__.decoded);
   assert.ok(decoded.every((sample: any) => sample.channels === 1 && sample.seconds > .1 && sample.seconds <= 1.31 && sample.peak > .1 && sample.peak < 1 && sample.onset >= 0 && sample.onset < .02));
@@ -114,7 +114,7 @@ test('missing gunfire samples fall back to synthesis in a playable browser match
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await probeGunAudio(page);
   await page.route('**/audio/guns/*.ogg', route => route.fulfill({ status: 404, body: '' }));
-  await ready(page); await page.click('#map-choice button[data-value="range"]'); await page.click('#start-button');
+  await ready(page); { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__GUN_AUDIO__.requests === 8);
   const before = await page.evaluate(() => (window as any).__GUN_AUDIO__.procedural);
   assert.ok(await page.evaluate(() => {
@@ -175,7 +175,7 @@ test('local CC0 models render in the menu, match and inventory and survive resta
   await page.click('#back-play');
   await page.waitForTimeout(150);
   assert.equal(await page.evaluate(() => (window as any).__MENU_AUDIO__.played), beforeMuteClick, 'menu obeys volume=0');
-  await page.click('#map-choice button[data-value="range"]');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); }
   await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
   await page.waitForTimeout(800);
@@ -213,7 +213,7 @@ test('missing GLBs fall back to procedural models without preventing play', asyn
   await page.route('**/assets/free/*.glb', route => route.fulfill({ status: 404, body: '' }));
   await page.goto(url);
   await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 45000 });
-  await page.click('#map-choice button[data-value="range"]'); await page.click('#start-button');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
   assert.deepEqual(errors, []);
   await page.close();
@@ -247,7 +247,7 @@ test('missing interface audio cannot block menu, credits or starting a match', a
   await ready(page);
   await page.click('#asset-credits-button');
   await page.click('#asset-credits-close');
-  await page.click('#map-choice button[data-value="range"]');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); }
   await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
   assert.deepEqual(errors, []);

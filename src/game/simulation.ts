@@ -22,6 +22,7 @@ import { COMBO_WINDOW, DRILLS, hitPoints, isDrillId, drillGrade } from './drills
 import { popUp, runState } from './range';
 import { holdover, pathOffset, SEGMENT, STRAIGHT_RANGE, ZERO_DISTANCE } from './ballistics';
 import { alongLine, DROP, glideReach, makePlane, placePlane, steerAir } from './drop';
+import { GRENADE_GRAVITY, projectileGravity } from './projectiles';
 
 interface Options {
   seed?: number; botCount?: number; difficulty?: Difficulty; map?: MapId; /** Start the match in the transport plane (open maps only). */ drop?: boolean;
@@ -117,7 +118,6 @@ const FALL_SAFE_SPEED = 11.5;
 /** Highest thing a person vaults over (a crate, a window sill, a low wall), metres above their feet, and how long it takes. */
 const VAULT_MAX = 1.4, VAULT_SECONDS = 0.5;
 /** Grenades: gravity on a thrown one, blast radius and strength, flash reach, smoke and fire sizes and lifetimes. */
-const GRENADE_GRAVITY = 16;
 const BLASTS = {
   frag: { radius: 9, damage: 115, vehicle: 190 },
   shell: { radius: 6.5, damage: 105, vehicle: 170 },
@@ -427,8 +427,9 @@ export class GameSimulation {
     runtime.speedNow = motion.speed;
   }
 
-  /** Reconnect: discard an interrupted local vault/jump before restoring the host's movement. */
-  restoreMotion(actor: Actor, motion: { vy: number; speed: number }): void {
+  /** An authoritative relocation cancels old vault/jump prediction; revival also starts fresh action timers. */
+  restoreMotion(actor: Actor, motion: { vy: number; speed: number }, revived = false): void {
+    if (revived) this.runtimes.delete(actor.id);
     this.setMotion(actor, motion);
     this.runtime(actor).vault = null;
     this.jumpHeldBy.delete(actor.id);
@@ -743,7 +744,7 @@ export class GameSimulation {
       for (let i = flying.length - 1; i >= 0; i--) {
         const p = flying[i];
         p.fuse -= dt;
-        p.vy -= GRENADE_GRAVITY * (p.kind === 'rocket' ? 0.06 : p.kind === 'shell' ? 0.3 : 1) * dt;
+        p.vy -= projectileGravity(p.kind) * dt;
         let nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
         let bounced = false;
         const length = Math.hypot(nx - p.x, ny - p.y, nz - p.z);
@@ -1916,6 +1917,7 @@ export class GameSimulation {
     let nearest = VEHICLE_REACH;
     for (const v of this.state.vehicles) {
       if (v.driverId || v.health <= 0 || v.netVisible === false) continue;
+      if (Math.abs(actor.position.y - v.position.y) > 2) continue;
       const d = distance2(v.position, actor.position);
       if (d < nearest) { best = v; nearest = d; }
     }
@@ -1934,7 +1936,8 @@ export class GameSimulation {
     if (v.driverId || v.health <= 0 || actor.vehicleId) return false;
     this.cancelHeal(actor);
     actor.reloading = 0;
-    this.runtime(actor).reloadWeapon = null;
+    const runtime = this.runtime(actor);
+    runtime.reloadWeapon = null; runtime.velocityY = 0; runtime.vault = null; runtime.speedNow = 0;
     actor.vehicleId = v.id;
     actor.stance = 'stand';
     v.driverId = actor.id;
@@ -1946,6 +1949,8 @@ export class GameSimulation {
   private exitVehicle(actor: Actor): void {
     const v = this.vehicle(actor.vehicleId);
     actor.vehicleId = null;
+    const runtime = this.runtime(actor);
+    runtime.velocityY = 0; runtime.vault = null; runtime.speedNow = 0;
     if (!v) return;
     v.driverId = null;
     // Step out on whichever side is free, a little way from the doors.
@@ -1959,7 +1964,6 @@ export class GameSimulation {
     }
     actor.position = { x: spot.x, y: this.heightAt(spot.x, spot.z), z: spot.z };
     actor.yaw = v.yaw;
-    const runtime = this.runtime(actor);
     runtime.path = [];
     runtime.pathTimer = 0;
     if (actor.isPlayer) this.tell(actor, 'Đã xuống xe.');

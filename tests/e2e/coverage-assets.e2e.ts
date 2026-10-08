@@ -78,7 +78,7 @@ test('range integrates nine vehicle models and three wheel kits; download failur
     if(missing)await page.route('**/assets/coverage/*.glb',r=>r.fulfill({status:404,body:''}));
     await page.goto(url, { waitUntil: 'commit', timeout: 60000 });await page.waitForFunction(()=>!!(window as any).__LASTLIGHT__,undefined,{timeout:60000});
     await page.evaluate(async()=>{const m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets((window as any).__LASTLIGHT__.scene);});
-    await page.click('#map-choice button[data-value="range"]');await page.click('#start-button');
+    { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); }await page.click('#start-button');
     await page.waitForFunction(()=>(window as any).__LASTLIGHT__.simulation.state.phase==='playing');await page.waitForTimeout(700);
     const vehicles=await page.evaluate(()=>{const {simulation,scene}=(window as any).__LASTLIGHT__;return simulation.state.vehicles.map((v:any)=>{
       const root=scene.getTransformNodeByName('car-'+v.id),parts=root.getChildMeshes();
@@ -116,7 +116,7 @@ test('vehicle wheels stay circular, centred and upright after travel and reversi
     const g=(window as any).__LASTLIGHT__,m=await import('../../src/coverage-assets.ts');await m.prepareCoverageAssets(g.scene);
     (window as any).__WHEEL_SOURCES__=g.scene.meshes.filter((p:any)=>p.metadata?.template&&['k-sedan','k-wheel-default','k-wheel-racing'].includes(p.metadata.coverageAsset)).map((mesh:any)=>({mesh,positions:Array.from(mesh.getVerticesData('position'))}));
   });
-  await page.click('#map-choice button[data-value="range"]');await page.click('#start-button');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); }await page.click('#start-button');
   await page.waitForFunction(()=>(window as any).__LASTLIGHT__.simulation.state.phase==='playing');await page.waitForTimeout(500);
   const results=await page.evaluate(async()=>{
     const g=(window as any).__LASTLIGHT__;g.engine.stopRenderLoop();const m=await import('../../src/coverage-vehicles.ts');

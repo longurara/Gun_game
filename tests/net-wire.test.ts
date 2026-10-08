@@ -7,7 +7,7 @@ import type { NetMessage } from '../src/net/transport.ts';
 
 test('binary frames preserve UTF-8, decimal rounding, large numbers and command arrays exactly', () => {
   const message = { k: 'in', seq: 123, name: 'đồng bộ 🪂', values: [null, true, false, -0, -1, 2147483647, -2147483647, 2 ** 40, .01, -.001, 1234.567, Math.PI, 1e-12],
-    cmds: [['switch', 'ak'], ['inventory-drop', { kind: 'ammo:rifle', amount: 21 }]], empty: {} };
+    cmds: [['switch', 'ak'], ['inventory-drop', { kind: 'ammo:rifle', amount: 21 }]], fires: [[0, 1.2, 30, 1]], order: [-1, 0, 1], empty: {} };
   assert.deepEqual(new WireDecoder().decode(new WireEncoder().encode(message)), message);
   const input = { k: 'in', seq: 99999, ct: 1234567, mx: 1, mz: 1, sp: 1, ju: 0, th: 0, st: 0, yaw: 3.141, edge: 0, jumpId: 3 };
   assert.ok(new WireEncoder().encode(input).length < Buffer.byteLength(JSON.stringify(input)) * .6);

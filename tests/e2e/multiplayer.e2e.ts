@@ -64,7 +64,7 @@ test('three players meet in a room, start together, see each other move, shoot, 
   const [host, minh, lan] = [await newPlayer(), await newPlayer(), await newPlayer()];
   try {
     // The host chooses the small arena (fast to load) before opening the lobby.
-    await host.page.click('#map-choice button[data-value="arena"]');
+    { await host.page.click('#map-picker'); await host.page.click('#map-choice button[data-value="arena"]'); }
     await host.page.click('#multi-button');
     await host.page.fill('#mp-name', 'Hana');
     await host.page.click('#mp-create');
@@ -196,7 +196,7 @@ test('a shared link opens the lobby with the room code filled in', { timeout: 60
 test('the drop online: two players ride the same plane, one jumps and lands by parachute, the host agrees where they came down', { timeout: 150000 }, async () => {
   const [host, guest] = [await newPlayer(), await newPlayer()];
   try {
-    await host.page.click('#map-choice button[data-value="valley"]');
+    { await host.page.click('#map-picker'); await host.page.click('#map-choice button[data-value="valley"]'); }
     await host.page.click('#multi-button');
     await host.page.fill('#mp-name', 'Hana');
     await host.page.click('#mp-create');

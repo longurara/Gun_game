@@ -17,7 +17,7 @@ test('range batches pickup models and restores full detail for selecting and col
     await page.addInitScript(() => localStorage.setItem('lastlight.settings.v1', JSON.stringify({ map: 'range', botCount: 0, quality: 'low' })));
     await page.goto(`http://127.0.0.1:${(server.httpServer!.address() as any).port}`, { waitUntil: 'commit' });
     await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
-    await page.click('#map-choice button[data-value="range"]'); await page.click('#bot-choice button[data-value="0"]'); await page.click('#start-button');
+    { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#bot-choice button[data-value="0"]'); await page.click('#start-button');
     await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing', undefined, { timeout: 60000 });
     await page.evaluate(() => {
       const g = (window as any).__LASTLIGHT__;
@@ -40,6 +40,20 @@ test('range batches pickup models and restores full detail for selecting and col
     assert.ok(initial.pickups > 200);
     assert.ok(initial.sources < initial.pickups / 2, 'different weapon names share actual model batches');
     assert.ok(initial.distant > 50); assert.equal(initial.cheap, true);
+    initial.gun.position = await page.evaluate(async gun => {
+      const g = (window as any).__LASTLIGHT__, s = g.simulation;
+      const { SnapshotBuilder, applySnapshot } = await import('/src/net/protocol.ts');
+      const item = s.state.loot.find((l: any) => l.id === gun.id), old = { ...item.position };
+      item.position = { x: old.x + 3, y: old.y, z: old.z };
+      const snapshot = new SnapshotBuilder(s).build([], true);
+      item.position = old;
+      applySnapshot(s, snapshot);
+      return { ...item.position };
+    }, initial.gun);
+    await page.waitForFunction(gun => {
+      const node = (window as any).__LASTLIGHT__.scene.getMeshByName(`loot-${gun.id}`);
+      return node?.isWorldMatrixFrozen && node.position.x === gun.position.x && node.position.z === gun.position.z;
+    }, initial.gun);
     await page.evaluate(gun => {
       const s = (window as any).__LASTLIGHT__.simulation;
       s.player.position = { ...gun.position, z: gun.position.z + .6 }; s.player.vy = 0; s.player.speed = 0;

@@ -8,6 +8,7 @@ import type { GameSimulation } from '../game/simulation';
 import { WEAPON_ORDER } from '../game/weapons';
 import { applySnapshot, netRates, PROTOCOL_VERSION, SnapshotBuilder } from './protocol';
 import { placePlane } from '../game/drop';
+import { projectileGravity } from '../game/projectiles';
 import type { PoseRow, Snapshot } from './protocol';
 import type { NetMessage, Transport } from './transport';
 import { CONNECTION_STALE_MS, RECONNECT_GRACE_MS } from './transport';
@@ -124,14 +125,30 @@ export class HostSession {
     }, jumpEdge);
     if (actor.alive && !actor.vehicleId && !actor.air) actor.yaw = num(message.yaw, actor.yaw);
     if (!actor.alive) return;
-    for (const cmd of Array.isArray(message.cmds) ? message.cmds.slice(0, 64) : []) {
+    const commands = Array.isArray(message.cmds) ? message.cmds.slice(0, 64) : [];
+    const fires = Array.isArray(message.fires) ? (message.fires as number[][]).slice(0, 16) : [];
+    const seenCommands = new Set<number>(), seenFires = new Set<number>();
+    const runCommand = (index: number) => {
+      if (index < 0 || index >= commands.length || seenCommands.has(index)) return;
+      seenCommands.add(index);
+      const cmd = commands[index];
       if (Array.isArray(cmd) && typeof cmd[0] === 'string') this.command(actor.id, cmd[0], cmd[1]);
-    }
-    for (const fire of Array.isArray(message.fires) ? (message.fires as number[][]).slice(0, 16) : []) {
-      if (!Array.isArray(fire)) continue;
+    };
+    const runFire = (index: number) => {
+      if (index < 0 || index >= fires.length || seenFires.has(index)) return;
+      seenFires.add(index);
+      const fire = fires[index];
+      if (!Array.isArray(fire)) return;
       const target = { x: num(fire[0]), y: num(fire[1]), z: num(fire[2]) };
       if (Math.hypot(target.x - actor.position.x, target.z - actor.position.z) < 1200) this.shoot(actor, target, fire[3] === 1, fire);
+    };
+    // Mixed packets preserve the client's action order: nonnegative command index, negative (-1 - fire index).
+    for (const index of Array.isArray(message.order) ? message.order.slice(0, 80) : []) {
+      if (!Number.isSafeInteger(index)) continue;
+      if (index >= 0) runCommand(index); else runFire(-1 - index);
     }
+    // Legacy packets, or incomplete order metadata, still execute each bounded action exactly once.
+    commands.forEach((_, index) => runCommand(index)); fires.forEach((_, index) => runFire(index));
   }
 
   /** Remember where everything is, once per frame, for the last second. */
@@ -348,10 +365,11 @@ export class ClientSession {
   /** Part of a reconciliation correction not yet applied to the view. */
   private pending = { x: 0, y: 0, z: 0 };
   private pendingYaw = 0;
-  private lastFireAt = -Infinity;
+  private firedWeapons = new Map<WeaponType, number>();
   private intent: { stance?: { value: string; at: number }; switch?: { value: string; at: number } } = {};
   private fires: number[][] = [];
   private cmds: unknown[][] = [];
+  private actionOrder: number[] = [];
   private jumpDown = false;
   private jumpId = 0;
   private lastSnapshotSeq = -1;
@@ -398,12 +416,12 @@ export class ClientSession {
     const fire = [Math.round(target.x * 100) / 100, Math.round(target.y * 100) / 100, Math.round(target.z * 100) / 100, aimed ? 1 : 0];
     // Tell the host what this player was looking at and where they stood, so it can judge the shot as they saw it.
     if (Number.isFinite(this.viewT)) { const me = this.sim.player; fire.push(Math.round(this.viewT * 1000) / 1000, Math.round(me.position.x * 100) / 100, Math.round(me.position.y * 100) / 100, Math.round(me.position.z * 100) / 100); }
-    this.fires.push(fire);
-    this.lastFireAt = this.clock();
+    this.actionOrder.push(-1 - this.fires.length); this.fires.push(fire);
+    this.firedWeapons.set(this.sim.player.weapon, this.clock());
   }
   queueCommand(command: string, argument?: unknown): void {
     if (this.reconnecting || this.connectionLost) return;
-    this.cmds.push(argument === undefined ? [command] : [command, argument]);
+    this.actionOrder.push(this.cmds.length); this.cmds.push(argument === undefined ? [command] : [command, argument]);
     // The player's own choice shows at once; snapshots sent before the host heard of it must not undo it.
     if (command === 'stance' || command === 'switch') this.intent[command] = { value: String(argument), at: this.clock() };
     if (command === 'range-equip') this.intent.switch = { value: String(argument), at: this.clock() };
@@ -441,6 +459,8 @@ export class ClientSession {
       th: round3(input.throttle ?? 0), st: round3(input.steer ?? 0), yaw: round3(yaw), edge: this.edge ? 1 : 0, jumpId: this.jumpId,
     };
     if (this.watchId && !me.alive) packet.watch = this.watchId;
+    if (this.fires.length && this.cmds.length) packet.order = [...this.actionOrder];
+    this.actionOrder.length = 0;
     if (this.fires.length) packet.fires = this.fires.splice(0);
     if (this.cmds.length) packet.cmds = this.cmds.splice(0);
     this.edge = false;
@@ -456,8 +476,8 @@ export class ClientSession {
       this.buffer.length = 0; this.trail.length = 0; this.arrivals.length = 0;
       this.clockOffset = null; this.viewT = NaN; this.intent = {};
       this.pending = { x: 0, y: 0, z: 0 }; this.pendingYaw = 0;
-      this.fires.length = 0; this.cmds.length = 0; this.edge = false; this.jumpDown = false;
-      this.lastFireAt = -Infinity; this.regressStreak = 12; this.lastSignature = '';
+      this.fires.length = 0; this.cmds.length = 0; this.actionOrder.length = 0; this.edge = false; this.jumpDown = false;
+      this.firedWeapons.clear(); this.regressStreak = 12; this.lastSignature = '';
     }
     const now = this.clock();
     this.lastSnapshotAt = now;
@@ -470,13 +490,19 @@ export class ClientSession {
     const holds = (key: 'stance' | 'switch') => { const item = this.intent[key]; if (item && now - item.at > grace) delete this.intent[key]; return !!this.intent[key]; };
     const enteringActors = new Set(snap.a.filter(row => this.sim.state.actors[row[0]]?.netVisible === false).map(row => row[0]));
     const enteringCars = new Set(snap.c.filter(row => this.sim.state.vehicles[row[0]]?.netVisible === false).map(row => row[0]));
-    const result = applySnapshot(this.sim, snap, { writePositions: resumed, restoreMotion: resumed, protectAmmo: !resumed && now - this.lastFireAt < 350, keepFlight: !resumed && this.regressStreak < 12, keepStance: !resumed && holds('stance'), keepWeapon: !resumed && holds('switch'), predictDriving: !resumed });
-    if (resumed && result.local) {
+    for (const [weapon, at] of this.firedWeapons) if (now - at >= 350) this.firedWeapons.delete(weapon);
+    const result = applySnapshot(this.sim, snap, { writePositions: resumed, restoreMotion: resumed, protectAmmo: new Set(this.firedWeapons.keys()), keepFlight: !resumed && this.regressStreak < 12, keepStance: !resumed && holds('stance'), keepWeapon: !resumed && holds('switch'), predictDriving: !resumed });
+    const resetLocal = resumed || result.teleports.has(this.sim.state.actors.indexOf(this.sim.player));
+    if (resetLocal && result.local) {
       const { x, y, z, yaw } = result.local;
       this.sim.player.position = { x, y, z }; this.sim.player.yaw = yaw;
+      this.trail.length = 0; this.intent = {};
+      this.firedWeapons.clear();
+      this.pending = { x: 0, y: 0, z: 0 }; this.pendingYaw = 0;
     }
     for (const old of this.buffer) {
       for (const index of enteringActors) old.poses.delete(index);
+      for (const index of result.teleports) old.poses.delete(index);
       for (const index of enteringCars) old.cars.delete(index);
     }
     if (this.sim.player.reconnecting && !resumed) this.beginRecovery();
@@ -500,8 +526,8 @@ export class ClientSession {
     this.buffer.push({ at: now, t: snap.t, poses, cars });
     this.flight = { at: now, list: (this.sim.state.projectiles ?? []).map(p => ({ ...p })) };
     while (this.buffer.length > 24) this.buffer.shift();
-    if (result.local && !result.flightRegress && !resumed) this.reconcile(result.local, echoCt);
-    if (result.ownCar && !resumed) this.reconcileCar(result.ownCar, echoCt);
+    if (result.local && !result.flightRegress && !resetLocal) this.reconcile(result.local, echoCt);
+    if (result.ownCar && !resetLocal) this.reconcileCar(result.ownCar, echoCt);
     if (result.over !== undefined) this.over = true;
   }
 
@@ -619,7 +645,9 @@ export class ClientSession {
       const t = Math.min(0.25, Math.max(0, (nowMs - this.flight.at) / 1000));
       this.sim.state.projectiles = this.flight.list.map(p => {
         const x = p.x + p.vx * t, z = p.z + p.vz * t;
-        return { ...p, x, z, y: Math.max(this.sim.heightAt(x, z) + 0.12, p.y + p.vy * t - 8 * t * t) };
+        const gravity = projectileGravity(p.kind), y = p.y + p.vy * t - gravity * t * t / 2;
+        const ground = this.sim.supportHeight(x, z, Math.max(p.y, y) + .2) + .12;
+        return { ...p, x, z, y: Math.max(ground, y), vy: y <= ground ? 0 : p.vy - gravity * t };
       });
     }
     const latest = this.buffer[this.buffer.length - 1];
@@ -686,7 +714,7 @@ export class ClientSession {
   private beginRecovery(): void {
     if (this.recoveryAt !== null) return;
     this.recoveryAt = this.clock(); this.resumeAt = -Infinity;
-    this.fires.length = 0; this.cmds.length = 0; this.edge = false; this.intent = {};
+    this.fires.length = 0; this.cmds.length = 0; this.actionOrder.length = 0; this.firedWeapons.clear(); this.edge = false; this.intent = {};
     this.transport.reconnectPeer?.(this.hostId);
   }
   private sendResume(): void {

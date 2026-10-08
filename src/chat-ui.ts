@@ -1,6 +1,8 @@
 import { CHAT_LIMIT } from './net/chat';
 import type { ChatMessage } from './net/chat';
 
+const CHAT_HINT = `Enter để gửi · Esc để đóng · tối đa ${CHAT_LIMIT} ký tự`;
+
 export class ChatView {
   private readonly root: HTMLElement;
   private readonly button: HTMLButtonElement;
@@ -28,7 +30,7 @@ export class ChatView {
     this.el('chat-form').addEventListener('submit', event => {
       event.preventDefault();
       if (!this.online || !this.input.value.trim()) return;
-      if (callbacks.send(this.input.value)) { this.input.value = ''; this.el('chat-hint').textContent = `Enter để gửi · Esc để đóng · tối đa ${CHAT_LIMIT} ký tự`; }
+      if (callbacks.send(this.input.value)) { this.input.value = ''; this.el('chat-hint').textContent = CHAT_HINT; }
       else this.el('chat-hint').textContent = `Tin nhắn tối đa ${CHAT_LIMIT} ký tự. Hãy chờ một chút nếu gửi quá nhanh.`;
       this.input.focus();
     });
@@ -40,14 +42,18 @@ export class ChatView {
   private el(id: string): HTMLElement { return this.root.querySelector(`#${id}`)!; }
   setEnabled(enabled: boolean): void {
     this.enabled = enabled; this.root.hidden = !enabled;
-    if (!enabled) { this.toggle(false); this.log.replaceChildren(); this.lastId = 0; this.unread = 0; this.setReconnect(null); }
+    if (!enabled) {
+      this.toggle(false); this.log.replaceChildren(); this.lastId = 0; this.unread = 0; this.badge();
+      this.input.value = ''; this.el('chat-hint').textContent = CHAT_HINT; this.setReconnect(null);
+    }
   }
   toggle(open: boolean): void {
     if (open && !this.enabled || open === this.open) return;
     this.open = open; this.panel.hidden = !open; this.button.setAttribute('aria-expanded', String(open));
-    if (open) { this.unread = 0; this.badge(); this.log.scrollTop = this.log.scrollHeight; this.input.focus(); }
+    if (open) { this.unread = 0; this.badge(); this.log.scrollTop = this.log.scrollHeight; }
     else this.input.blur();
     this.callbacks.toggle(open);
+    if (open) this.input.focus();
   }
   render(rows: readonly ChatMessage[]): void {
     const wasAtBottom = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 30;

@@ -70,7 +70,7 @@ test('real range bots gain imported appearances while missing enemy files keep p
     if (missing) await page.route('**/assets/enemies/*.glb', route => route.fulfill({ status: 404, body: '' }));
     await page.goto(url);
     await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 45000 });
-    await page.click('#map-choice button[data-value="range"]'); await page.click('#start-button');
+    { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#start-button');
     await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.phase === 'playing');
     // Bring a few real bots close enough to need a detailed model; preserve actor ids and AI.
     await page.evaluate(() => {

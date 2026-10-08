@@ -60,7 +60,12 @@
 }
 #ui-root .lobby :is(.map-tabs button, .seg button) { padding: 3px 7px; }
 #ui-root .lobby-stage { flex: 1 0 auto; min-height: min-content; }
-html:not([data-input="touch"]) #ui-root .lobby-panel { width: min(530px, 100%); padding: 14px; border-width: 10px; border-image-width: 10px; }
+/* Keep the desktop navigation and footer in view; long content scrolls inside the framed panel. */
+html:not([data-input="touch"]) #ui-root .lobby-stage { flex: 1 1 0; min-height: 0; }
+html:not([data-input="touch"]) #ui-root .lobby-panel {
+  width: min(530px, 100%); max-height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  padding: 14px; border-width: 10px; border-image-width: 10px;
+}
 html:not([data-input="touch"]) #ui-root .panel-play { gap: 10px; }
 html:not([data-input="touch"]) #ui-root .mode-card { grid-template-columns: min(32%, 145px) 1fr; padding: 12px; }
 html:not([data-input="touch"]) #ui-root .map-tabs button { min-height: 54px; }

@@ -21,7 +21,7 @@ after(async () => { await browser?.close(); await server?.close(); });
 async function startDrop(page: Page) {
   await page.goto(url);
   await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 45000 });
-  await page.click('#map-choice button[data-value="valley"]'); await page.click('#start-button');
+  { await page.click('#map-picker'); await page.click('#map-choice button[data-value="valley"]'); } await page.click('#start-button');
   await page.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.player.air?.mode === 'plane');
 }
 const readyAircraft = (page: Page) => page.waitForFunction(() => (window as any).__LASTLIGHT__.scene.meshes.some((mesh: any) => mesh.metadata?.freeAsset === 'airplane' && mesh.getTotalVertices() > 0 && mesh.isEnabled() && mesh.material?.diffuseTexture?.isReady()), undefined, { timeout: 45000 });

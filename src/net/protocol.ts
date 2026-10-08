@@ -4,7 +4,7 @@
  * Everything here is plain data (JSON-friendly arrays, positions rounded to a centimetre) so it can be tested without
  * a network.
  */
-import type { Actor, AirMode, DrillState, GameEvent, LootKind, Stance } from '../types';
+import type { Actor, AirMode, DrillState, GameEvent, LootKind, Stance, WeaponType } from '../types';
 import type { GameSimulation } from '../game/simulation';
 import { BREATH_SECONDS } from '../game/breath';
 import { AMMO_ORDER, emptyAmmo, emptyReserve, WEAPON_ORDER } from '../game/weapons';
@@ -237,8 +237,8 @@ export interface PoseRow { x: number; y: number; z: number; yaw: number }
 export interface ApplyOptions {
   /** Write positions of remote actors straight into the mirror (tests); a client interpolates them instead. */
   writePositions?: boolean;
-  /** The local player has fired very recently: do not let a snapshot that predates those shots refill their magazine. */
-  protectAmmo?: boolean;
+  /** Recently fired guns whose magazines must not be refilled by older state; true protects the held gun. */
+  protectAmmo?: boolean | ReadonlySet<WeaponType>;
   /** Do not take the local player back to an earlier stage of the drop (a snapshot sent before the host saw their jump). */
   keepFlight?: boolean;
   /** The local player changed stance / weapon a moment ago and the host has not heard yet: keep their choice. */
@@ -252,6 +252,8 @@ export interface ApplyOptions {
 
 export interface ApplyResult {
   events: GameEvent[];
+  /** Stairs, revivals and vehicle transitions break interpolation and local prediction, regardless of distance. */
+  teleports: Set<number>;
   /** Where the host says the local player is, if they are in the snapshot. */
   local?: { x: number; y: number; z: number; yaw: number; row: ActorRow };
   /** Rows by actor index, for the interpolation buffer. */
@@ -270,7 +272,12 @@ const FLIGHT_ORDER: Record<string, number> = { plane: 1, freefall: 2, chute: 3 }
 export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: ApplyOptions = {}): ApplyResult {
   const state = sim.state;
   const poses = new Map<number, PoseRow>();
-  const result: ApplyResult = { events: snap.ev, poses };
+  const teleports = new Set<number>(), revived = new Set<number>();
+  for (const event of snap.ev) if (event.type === 'portal') {
+    const index = state.actors.findIndex(actor => actor.id === event.actorId);
+    if (index >= 0) teleports.add(index);
+  }
+  const result: ApplyResult = { events: snap.ev, poses, teleports };
   const localId = sim.localId;
   const drivenBefore = options.predictDriving ? sim.actorById(localId)?.vehicleId ?? null : null;
   if (snap.view) {
@@ -294,6 +301,9 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
     const alive = (flags & 1) !== 0;
     const wasAlive = actor.alive;
     actor.alive = alive;
+    if (sim.rangeMode && alive && !wasAlive) { revived.add(index); teleports.add(index); }
+    const vehicleId = car ? state.vehicles[car - 1]?.id ?? null : null;
+    if ((actor.vehicleId ?? null) !== vehicleId) teleports.add(index);
     if (sim.rangeMode && alive && !wasAlive) { delete actor.rank; delete actor.diedAt; if (actor.id === localId) { delete state.playerRank; delete state.diedAt; } }
     actor.health = alive ? health : 0;
     actor.reloading = flags & 2 ? Math.max(actor.reloading, 0.01) : 0;
@@ -301,18 +311,19 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
     if (flags & 128) actor.reconnecting = true; else delete actor.reconnecting;
     actor.hidden = (flags & 256) !== 0;
     const airMode = AIR_CODES[(flags >> 3) & 3];
-    if (options.keepFlight && actor.id === localId && airMode && actor.air && (FLIGHT_ORDER[actor.air.mode] ?? 0) > (FLIGHT_ORDER[airMode] ?? 0)) result.flightRegress = true;
+    const resetLocal = actor.id === localId && teleports.has(index);
+    if (!resetLocal && options.keepFlight && actor.id === localId && airMode && actor.air && (FLIGHT_ORDER[actor.air.mode] ?? 0) > (FLIGHT_ORDER[airMode] ?? 0)) result.flightRegress = true;
     else if (airMode) { if (!actor.air || actor.air.mode !== airMode) actor.air = { mode: airMode, vx: 0, vy: 0, vz: 0, time: actor.air?.time ?? 0 }; }
     else actor.air = null;
     const own = actor.id === localId;
-    if (!(own && options.keepStance)) actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
-    if (!(own && options.keepWeapon)) actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;
-    actor.vehicleId = car ? state.vehicles[car - 1]?.id ?? null : null;
+    if (!(own && options.keepStance && !resetLocal)) actor.stance = STANCES[(flags >> 5) & 3] ?? 'stand';
+    if (!(own && options.keepWeapon && !resetLocal)) actor.weapon = WEAPON_ORDER[weapon] ?? actor.weapon;
+    actor.vehicleId = vehicleId;
     actor.helmet = gear >> 2; actor.vest = gear & 3;
     // What other people's guns carry, so their scopes and suppressors show; your own come in the private row.
     if (actor.id !== localId && typeof rig === 'number') { const held = WEAPON_ORDER[weapon]; if (held) actor.attach[held] = attachFromCode(rig); }
     if (actor.id === localId) result.local = { x, y, z, yaw, row };
-    else if (options.writePositions || entering) { actor.position.x = x; actor.position.y = y; actor.position.z = z; actor.yaw = yaw; }
+    if (teleports.has(index) || actor.id !== localId && (options.writePositions || entering)) { actor.position.x = x; actor.position.y = y; actor.position.z = z; actor.yaw = yaw; }
   }
   for (const [index, x, y, z, yaw, speed, health, driver] of snap.c) {
     const car = state.vehicles[index];
@@ -371,7 +382,10 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   for (const row of snap.priv) {
     const actor = sim.actorById(row.id);
     if (!actor) continue;
-    if (actor.id === localId) applyPrivate(sim, actor, row, options.protectAmmo === true, result.flightRegress === true, options.keepWeapon === true, options.restoreMotion === true);
+    if (actor.id === localId) {
+      const index = state.actors.indexOf(actor), reset = teleports.has(index);
+      applyPrivate(sim, actor, row, reset ? false : options.protectAmmo ?? false, result.flightRegress === true, !reset && options.keepWeapon === true, reset || options.restoreMotion === true, revived.has(index));
+    }
     else { actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]); }
   }
   for (const [index, owned] of snap.pub ?? []) {
@@ -393,14 +407,18 @@ export function applySnapshot(sim: GameSimulation, snap: Snapshot, options: Appl
   return result;
 }
 
-function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean, keepFlight: boolean, keepWeapon: boolean, restoreMotion: boolean): void {
+function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protectAmmo: boolean | ReadonlySet<WeaponType>, keepFlight: boolean, keepWeapon: boolean, restoreMotion: boolean, revived: boolean): void {
   const previous = actor.ammo;
   if (!keepWeapon) actor.weapon = WEAPON_ORDER[row.weapon] ?? actor.weapon;
-  actor.ownedWeapons = row.owned.map(index => WEAPON_ORDER[index]);
+  const owned = row.owned.map(index => WEAPON_ORDER[index]);
+  const pendingNewGun = keepWeapon && !owned.includes(actor.weapon);
+  if (!pendingNewGun) actor.ownedWeapons = owned;
   const ammo = emptyAmmo();
   for (const [index, n] of row.ammo) ammo[WEAPON_ORDER[index]] = n;
-  // Shots fired in the last moment may not have reached the host yet: keep the lower count for the gun in hand.
-  if (protectAmmo) ammo[actor.weapon] = Math.min(ammo[actor.weapon], previous[actor.weapon] ?? 0);
+  // Keep the newly equipped gun usable until the host confirms its loadout, then accept its inventory normally.
+  if (pendingNewGun) ammo[actor.weapon] = previous[actor.weapon] ?? 0;
+  // Protection follows each fired gun through a switch; an unrelated new gun accepts its authoritative magazine.
+  for (const weapon of protectAmmo === true ? [actor.weapon] : protectAmmo || []) ammo[weapon] = Math.min(ammo[weapon], previous[weapon] ?? 0);
   actor.ammo = ammo;
   const reserve = emptyReserve();
   for (const [index, n] of row.reserve) reserve[AMMO_ORDER[index]] = n;
@@ -433,6 +451,6 @@ function applyPrivate(sim: GameSimulation, actor: Actor, row: PrivateRow, protec
   if (!keepFlight && row.air && actor.air) { actor.air.vx = row.air[0]; actor.air.vy = row.air[1]; actor.air.vz = row.air[2]; actor.air.time = row.air[3]; }
   // On foot the client predicts its own jump and the host's vertical speed is a round trip old: taking it would stretch
   // every jump. Only a flight (free fall, canopy) needs the host's velocity to stay in step.
-  if (restoreMotion) sim.restoreMotion(actor, { vy: row.vy, speed: row.speed });
+  if (restoreMotion) sim.restoreMotion(actor, { vy: row.vy, speed: row.speed }, revived);
   else if (!keepFlight && actor.air) sim.setMotion(actor, { vy: row.vy, speed: row.speed });
 }

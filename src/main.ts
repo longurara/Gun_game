@@ -20,6 +20,7 @@ import './loading-screen.css';
 import './ui-scrollbars.css';
 import './network-signal.css';
 import './chat.css';
+import './main-menu.css';
 import { ChatView } from './chat-ui';
 import { ChatSession } from './net/chat';
 import { holdLoadingScreen, paintLoadingScreen } from './loading-screen';
@@ -223,7 +224,7 @@ const ui = new GameUI({
   onRangeEquip: weapon => doRangeEquip(weapon),
   onDrill: id => { if (net?.client) net.client.queueCommand('range-drill', id); else if (id) sim.startDrill(id); else sim.stopDrill(); },
   onResetVehicles: () => resetRangeVehicles(),
-  onArmouryChange: open => { if (open) { shooting = false; aiming = false; if (document.pointerLockElement) document.exitPointerLock(); } else { void audio.unlock(); lockPointer(); } },
+  onArmouryChange: open => { if (open) { chatView?.toggle(false); releaseInput(); } else { void audio.unlock(); lockPointer(); } },
   onBreath: held => { mobileBreath = held; },
   onZoomStep: direction => changeZoom(direction),
   onInventoryPickup: pickupInventory,
@@ -236,6 +237,7 @@ const ui = new GameUI({
   onInventoryChange: open => {
     inventoryPreview?.setVisible(open);
     if (open) {
+      chatView?.toggle(false);
       releaseInput(); pendingJump = false;
       lastInput = { moveX: 0, moveZ: 0, sprint: false, jump: false };
       mobile?.setEnabled(false);
@@ -243,6 +245,10 @@ const ui = new GameUI({
     } else if (sim.state.phase === 'playing' && sim.player.alive && !ui.mapOpen && !mpMenuOpen && !sim.state.spectating) lockPointer();
   },
   onTouchOverlayChange: (open) => { if (open) releaseInput(); },
+  onMapChange: open => {
+    if (open) { chatView?.toggle(false); releaseInput(); }
+    else queueMicrotask(() => { if (sim.state.phase === 'playing') lockPointer(); });
+  },
   onDropDetach: () => detachSquadDrop(),
 });
 inventoryPreview = new InventoryPreview(ui.inventory.canvas);
@@ -486,7 +492,7 @@ function doVehicle(): boolean {
 const uiRoot = document.getElementById('ui-root')!;
 chatView = new ChatView(uiRoot, {
   send: text => !!net && !net.client?.reconnecting && !!chatSession?.send(text),
-  toggle: open => { if (open) { releaseInput(); if (document.pointerLockElement) document.exitPointerLock(); }
+  toggle: open => { if (open) { ui.toggleInventory(false); ui.toggleArmoury(false, true); ui.toggleMap(false); releaseInput(); }
     else if (net && sim.state.phase === 'playing') lockPointer(); },
   exit: () => leaveMatch(),
 });
@@ -835,7 +841,7 @@ function gameplayInputBlocked(): boolean {
 }
 
 function lockPointer() {
-  if (gameplayInputBlocked()) return;
+  if (sim.state.phase !== 'playing' || gameplayInputBlocked()) return;
   // A joined match starts without a local click: leave hidden lobby inputs/buttons behind.
   canvas.focus({ preventScroll: true });
   if (touchDevice || !canvas.requestPointerLock) return;
@@ -857,7 +863,7 @@ function pause() {
   ui.toggleMap(false);
   if (sim.state.phase !== 'playing') return;
   // Online the world cannot be paused (other people are in it): the menu just opens over the running game.
-  if (net) { if (!mpMenuOpen) { mpMenuOpen = true; releaseInput(); ui.setMpMenu(true); } return; }
+  if (net) { if (!mpMenuOpen) { mpMenuOpen = true; chatView?.toggle(false); releaseInput(); ui.setMpMenu(true); } return; }
   sim.setPaused(true); ui.toggleInventory(false); ui.toggleArmoury(false, true); releaseInput(); audio.pause();
 }
 
@@ -1790,6 +1796,12 @@ function renderLoot(time: number) {
         entry.node.dispose();
         entry.node = lootInstance(loot, detailed); entry.detailed = detailed;
       } else if (!entry && wanted) lootMeshes.set(loot.id, { node: lootInstance(loot, detailed), loot, detailed });
+      // A full network resync can move the same loot object. Refresh a static proxy once,
+      // then keep its world matrix frozen until another authoritative move.
+      if (entry && !entry.detailed && (entry.node.position.x !== loot.position.x ||
+        entry.node.position.y !== loot.position.y + .45 || entry.node.position.z !== loot.position.z)) {
+        entry.node.unfreezeWorldMatrix();
+      }
     }
     for (const [id, entry] of lootMeshes) if (!current.has(id)) { entry.node.dispose(); lootMeshes.delete(id); }
   }
@@ -1965,13 +1977,12 @@ function updateCamera(dt: number) {
   updateMenuStage(sim.state.phase === 'menu', dt);
   if (sim.state.phase === 'menu') { const gun = WEAPONS[sim.player.weapon]; ui.setSpotGear(`${gun.label} · ${gun.category}`); }
   if (sim.state.phase === 'menu') {
-    // Lobby shot: a low, close three-quarter angle on the soldier (left of centre; the panel fills the right) with a slow
-    // sway, leaning a little towards the pointer so the scene feels alive.
+    // Centre the full soldier in the lobby, leaving the deployment dock on the left.
     const t = performance.now() * 0.001;
     const p = sim.player.position;
-    camera.position.set(p.x + 3.0 + Math.sin(t * 0.25) * 0.7 + menuPointer.sx * 0.55, p.y + 1.0 + Math.sin(t * 0.4) * 0.06 - menuPointer.sy * 0.12, p.z - 4.4 + Math.cos(t * 0.25) * 0.4);
-    camera.setTarget(new Vector3(p.x + 1.0 - menuPointer.sx * 0.25, p.y + 1.15 - menuPointer.sy * 0.08, p.z));
-    camera.fov = 0.62; return;
+    camera.position.set(p.x + 2.7 + Math.sin(t * 0.25) * 0.22 + menuPointer.sx * 0.18, p.y + 1.25 + Math.sin(t * 0.4) * 0.03, p.z - 5.0 + Math.cos(t * 0.25) * 0.16);
+    camera.setTarget(new Vector3(p.x - 0.12 - menuPointer.sx * 0.05, p.y + 1.0 - menuPointer.sy * 0.035, p.z));
+    camera.fov = 0.57; return;
   }
   const actor = sim.player;
   if (replay) { replayCamera(dt); return; }
@@ -2419,22 +2430,27 @@ function detachSquadDrop(): void {
 }
 
 window.addEventListener('keydown', event => {
-  if (event.defaultPrevented || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
-  if (event.code === 'Enter' && !event.repeat && net && !mpMenuOpen) {
-    event.preventDefault(); chatView?.toggle(true); return;
-  }
-  if ((event.code === 'Tab' || event.code === 'KeyI') && sim.state.phase === 'playing' && !mpMenuOpen && !replay && !sim.state.spectating) {
-    event.preventDefault();
-    if (!event.repeat) ui.toggleInventory();
-    return;
-  }
+  if (event.defaultPrevented || event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLElement && event.target.isContentEditable) return;
   if (ui.inventoryOpen) {
-    if (event.code === 'Escape' && !event.repeat) { event.preventDefault(); ui.toggleInventory(false); }
+    if ((event.code === 'Escape' || event.code === 'KeyI') && !event.repeat) { event.preventDefault(); ui.toggleInventory(false); }
     return;
   }
   // With the armoury open, Esc and B close it wherever the focus is (not only while the search box or a card has it).
   if (ui.armouryOpen && sim.state.phase === 'playing') {
     if ((event.code === 'Escape' || event.code === 'KeyB') && !event.repeat) { event.preventDefault(); ui.toggleArmoury(false); }
+    return;
+  }
+  if (ui.mapOpen) {
+    if ((event.code === 'Escape' || event.code === 'KeyM') && !event.repeat) { event.preventDefault(); ui.toggleMap(false); }
+    return;
+  }
+  const activatingControl = event.target instanceof Element && !!event.target.closest('button, a, [role="button"]');
+  if (event.code === 'Enter' && !event.repeat && net && sim.state.phase === 'playing' && !mpMenuOpen && !replay && !activatingControl) {
+    event.preventDefault(); chatView?.toggle(true); return;
+  }
+  if ((event.code === 'Tab' || event.code === 'KeyI') && sim.state.phase === 'playing' && !mpMenuOpen && !replay && !sim.state.spectating) {
+    event.preventDefault();
+    if (!event.repeat) ui.toggleInventory();
     return;
   }
   if (event.code === 'Escape' && !event.repeat) {
@@ -2509,7 +2525,7 @@ window.addEventListener('mousemove', event => {
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   // The armoury releases the mouse on purpose so the cursor can pick a gun; that is not a pause.
-  if (!locked && hadLock && sim.state.phase === 'playing' && !ui.inventoryOpen && !ui.armouryOpen && !chatView?.open && !net?.client?.reconnecting) pause();
+  if (!locked && hadLock && sim.state.phase === 'playing' && !gameplayInputBlocked()) pause();
   hadLock = locked;
 });
 window.addEventListener('blur', () => { if (!net) pause(); });

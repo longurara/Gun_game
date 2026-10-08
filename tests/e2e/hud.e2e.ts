@@ -45,7 +45,7 @@ async function open(context: BrowserContext, map: 'arena' | 'island' | 'valley')
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(url);
   await page.waitForSelector('#start-button', { state: 'visible' });
-  await page.click(`#map-choice button[data-value="${map}"]`);
+  { await page.click('#map-picker'); await page.click(`#map-choice button[data-value="${map}"]`); }
   await page.click('#start-button');
   await page.waitForFunction(() => (window as unknown as { __LASTLIGHT__?: { simulation: { state: { phase: string } } } }).__LASTLIGHT__?.simulation.state.phase === 'playing');
   (page as Page & { errors: string[] }).errors = errors;
@@ -145,6 +145,7 @@ test('settings: the recoil slider and aim-assist choice appear on a phone, and t
   const dpage = await desktop.newPage();
   await dpage.goto(url);
   await dpage.click('#tab-settings');
+  await dpage.click('#settings-category-controls');
   assert.ok(await visible(dpage, '#recoil-scale'));
   assert.equal(await visible(dpage, '#gyro-choice'), false, 'gyroscope settings are touch-only');
   assert.equal(await visible(dpage, '#assist-choice'), false, 'aim assist settings are touch-only');
@@ -153,6 +154,7 @@ test('settings: the recoil slider and aim-assist choice appear on a phone, and t
   const ppage = await phone.newPage();
   await ppage.goto(url);
   await ppage.click('#tab-settings');
+  await ppage.click('#settings-category-controls');
   await ppage.locator('#assist-choice').scrollIntoViewIfNeeded();
   assert.ok(await visible(ppage, '#assist-choice'));
   assert.ok(await visible(ppage, '#gyro-choice'));

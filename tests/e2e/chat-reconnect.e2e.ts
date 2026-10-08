@@ -49,7 +49,7 @@ test('native P2P room chat and reconnect restore a protected client without inte
       }, { name: ['Chủ phòng', 'Minh', 'Lan'][i] });
       await page.goto(url, { waitUntil: 'commit' });
       await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
-      if (i === 0) await page.click('#map-choice button[data-value="arena"]');
+      if (i === 0) { await page.click('#map-picker'); await page.click('#map-choice button[data-value="arena"]'); }
       await page.click('#multi-button');
     }
     const [host, guest, mate] = pages;

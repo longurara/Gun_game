@@ -20,6 +20,7 @@ import { weaponHudIcon } from './hud-icons';
 import { loadingScreen } from './loading-screen';
 import { networkBadgeMarkup } from './network-signal';
 import type { PeerStats } from './net/webrtc';
+import { MainMenuView } from './main-menu';
 
 type Callbacks = {
   onStart: (settings: GameSettings) => void;
@@ -51,6 +52,8 @@ type Callbacks = {
   /** Change the scope's magnification: +1 zooms in, -1 out. */
   onZoomStep?: (direction: number) => void;
   onTouchOverlayChange?: (open: boolean) => void;
+  /** The map needs a cursor on desktop as well as touch controls. */
+  onMapChange?: (open: boolean) => void;
   onDropDetach?: () => void;
   onInventoryPickup?: (lootId: string) => void;
   onInventoryDrop?: (kind: LootKind, amount: number) => void;
@@ -171,6 +174,7 @@ export class GameUI {
   private flag: Vec2 | null = null;
   private aimStateKey = '';
   private readonly touchMode = document.documentElement.dataset.input === 'touch';
+  private readonly menu: MainMenuView;
 
   constructor(callbacks: Callbacks) {
     this.callbacks = callbacks;
@@ -327,6 +331,7 @@ export class GameUI {
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
       ${loadingScreen}
     `;
+    this.menu = new MainMenuView(root);
     root.querySelectorAll<HTMLElement>('[id]').forEach(element => this.elements.set(element.id, element));
     this.inventory = new InventoryView(root, {
       onClose: () => this.toggleInventory(false),
@@ -360,7 +365,7 @@ export class GameUI {
     this.el('tips').addEventListener('change', () => this.changeSettings({ tips: (this.el('tips') as HTMLInputElement).checked }));
     this.el('show-fps').addEventListener('change', () => this.changeSettings({ showFps: (this.el('show-fps') as HTMLInputElement).checked }));
     this.el('gyro-invert').addEventListener('change', () => this.changeSettings({ gyroInvertY: (this.el('gyro-invert') as HTMLInputElement).checked }));
-    choose('map-choice', value => { const map = readMap(value); this.changeSettings({ map, botCount: defaultBots(map) }); });
+    choose('map-choice', value => { const map = readMap(value); this.changeSettings({ map, botCount: defaultBots(map) }); this.menu.close(); });
     this.el('quality').addEventListener('change', () => this.changeSettings({ quality: (this.el('quality') as HTMLSelectElement).value === 'low' ? 'low' : 'high' }));
     this.el('volume').addEventListener('input', () => this.changeSettings({ volume: Number((this.el('volume') as HTMLInputElement).value) }));
     this.el('sensitivity').addEventListener('input', () => this.changeSettings({ sensitivity: Number((this.el('sensitivity') as HTMLInputElement).value) }));
@@ -452,6 +457,7 @@ export class GameUI {
     mapClose.textContent = '×';
     mapClose.addEventListener('click', () => this.toggleMap(false));
     root.querySelector('.map-card-head')?.appendChild(mapClose);
+    this.elements.set('map-close', mapClose);
     const minimap = root.querySelector<HTMLElement>('.minimap-panel')!;
     minimap.setAttribute('role', 'button');
     minimap.setAttribute('tabindex', '0');
@@ -581,10 +587,7 @@ export class GameUI {
   }
 
   private showSettings(show: boolean): void {
-    this.hide('play-panel', show);
-    this.hide('settings-panel', !show);
-    this.el('tab-play').classList.toggle('active', !show);
-    this.el('tab-settings').classList.toggle('active', show);
+    this.menu.showSettings(show);
   }
   private account: { name: string; wins: number; kills: number; matches: number } | null = null;
 
@@ -626,7 +629,7 @@ export class GameUI {
   public toggleInventory(show?: boolean): void {
     const open = show ?? !this.inventory.open;
     if (open && (this.phase !== 'playing' || !this.inventoryPlayer?.alive || this.lastState?.spectating || !this.el('pause-screen').hidden)) return;
-    if (open) { this.toggleMap(false); this.closeWeaponPicker(); this.setAim(false, this.inventoryPlayer!.weapon); }
+    if (open) { this.toggleArmoury(false, true); this.toggleMap(false); this.closeWeaponPicker(); this.setAim(false, this.inventoryPlayer!.weapon); }
     this.inventory.show(open);
   }
 
@@ -643,6 +646,7 @@ export class GameUI {
       this.phase = state.phase;
       const results = state.phase === 'won' || state.phase === 'lost';
       this.hide('menu-screen', state.phase !== 'menu');
+      if (state.phase !== 'menu') this.menu.close(false);
       this.hide('hud', state.phase === 'menu' || results);
       this.hide('pause-screen', state.phase !== 'paused');
       this.hide('result-screen', !results);
@@ -650,7 +654,7 @@ export class GameUI {
       this.hide('scope-overlay', true);
       this.aimStateKey = '';
       this.closeWeaponPicker();
-      if (state.phase !== 'playing') { this.toggleMap(false); this.toggleInventory(false); }
+      if (state.phase !== 'playing') { this.toggleMap(false); this.toggleInventory(false); this.toggleArmoury(false, true); }
       if (state.phase === 'playing') { this.resultSaved = false; this.lastHits = state.hits; }
       if (state.phase === 'menu') this.showSettings(false);
       const focusId = state.phase === 'menu' ? 'start-button' : state.phase === 'paused' ? 'resume-button' : results ? 'restart-button' : null;
@@ -661,7 +665,7 @@ export class GameUI {
     if (!player) { this.toggleInventory(false); return; }
     this.inventoryPlayer = player;
     (this.el('inventory-toggle') as HTMLButtonElement).disabled = !player.alive || !!state.spectating;
-    if (!player.alive || state.spectating) this.toggleInventory(false);
+    if (!player.alive || state.spectating) { this.toggleInventory(false); this.toggleArmoury(false, true); }
     if (this.currentWeapon !== player.weapon || phaseChanged) {
       this.currentWeapon = player.weapon;
       this.setAim(false, player.weapon);
@@ -869,13 +873,15 @@ export class GameUI {
   public toggleArmoury(show?: boolean, quiet = false): void {
     const open = show ?? !this.armouryOpen;
     if (open === this.armouryOpen) return;
-    if (open && this.phase !== 'playing') return;
+    if (open && (this.phase !== 'playing' || this.lastWorld?.id !== 'range' || !this.inventoryPlayer?.alive || this.lastState?.spectating || !this.el('pause-screen').hidden)) return;
+    const active = document.activeElement;
     this.hide('range-armoury', !open);
     if (open) {
+      this.toggleInventory(false); this.toggleMap(false); this.closeWeaponPicker();
       this.armouryPicked = null;
       this.renderArmoury(true);
       (this.el('armoury-search') as HTMLInputElement).focus({ preventScroll: true });
-    }
+    } else if (active instanceof HTMLElement && this.el('range-armoury').contains(active)) active.blur();
     // `quiet` closes the window without handing the mouse back (the game is pausing and has just let go of it).
     if (!quiet) this.callbacks.onArmouryChange?.(open);
   }
@@ -1046,9 +1052,11 @@ export class GameUI {
 
   /** The in-game menu of an online match: it opens over the running game. */
   public setMpMenu(open: boolean): void {
-    if (open) this.toggleInventory(false);
     this.hide('pause-screen', !open);
-    if (open) this.el('resume-button').focus({ preventScroll: true });
+    if (open) {
+      this.toggleInventory(false); this.toggleArmoury(false, true); this.toggleMap(false); this.closeWeaponPicker();
+      this.el('resume-button').focus({ preventScroll: true });
+    }
   }
 
   /** Banner while watching the match after dying; null otherwise. */
@@ -1107,12 +1115,17 @@ export class GameUI {
   }
 
   public toggleMap(show?: boolean): void {
-    const open = show ?? this.el('map-screen').hidden;
-    if (open && this.phase !== 'playing') return;
+    const open = show ?? !this.mapOpen;
+    if (open === this.mapOpen) return;
+    if (open && (this.phase !== 'playing' || !this.el('pause-screen').hidden)) return;
     if (open) this.closeWeaponPicker();
     this.hide('map-screen', !open);
-    if (open) this.toggleInventory(false);
+    if (open) {
+      this.toggleInventory(false); this.toggleArmoury(false, true);
+      this.el('map-close').focus({ preventScroll: true });
+    }
     this.callbacks.onTouchOverlayChange?.(this.touchOverlayOpen);
+    this.callbacks.onMapChange?.(open);
     this.root.querySelector('.minimap-panel')?.setAttribute('aria-expanded', String(open));
     if (open && this.lastState) this.drawBigMap(this.lastState, this.lastWorld!);
   }

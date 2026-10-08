@@ -83,15 +83,16 @@
 .vehicle-hud small { font-size: 10px; letter-spacing: 1.4px; color: var(--ink-3); }
 
 /* ---------- full-screen map ---------- */
-.map-screen { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 9, .78); backdrop-filter: blur(6px); pointer-events: auto; padding: 18px; }
+.map-screen { position: absolute; inset: 0; z-index: 24; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 9, .78); backdrop-filter: blur(6px); pointer-events: auto; padding: 18px; }
 .map-screen[hidden] { display: none; }
-.map-card { width: min(86vh, 900px, 100%); background: var(--panel-strong); border: 1px solid var(--stroke); border-top: 3px solid var(--amber); box-shadow: 0 30px 80px #000a; }
+.map-card { width: min(86dvh, 900px, 100%); max-height: calc(100dvh - 36px); display: flex; flex-direction: column; background: var(--panel-strong); border: 1px solid var(--stroke); border-top: 3px solid var(--amber); box-shadow: 0 30px 80px #000a; }
 .map-card-head { display: flex; align-items: center; gap: 14px; padding: 12px 16px; font-size: 13px; letter-spacing: 2px; border-bottom: 1px solid var(--stroke); }
 .map-card-head b { font-family: var(--display); font-size: 18px; letter-spacing: 3px; }
 .map-card-head span { color: var(--amber); }
 .map-card-head kbd { margin-left: auto; }
 .map-card-head small { font-size: 10px; color: var(--ink-3); letter-spacing: 1.5px; }
-.map-card canvas { display: block; width: 100%; height: auto; aspect-ratio: 1; }
+.map-card canvas { display: block; width: auto; height: auto; max-width: 100%; min-height: 0; aspect-ratio: 1; flex-shrink: 1; align-self: center; }
+.map-card-head, .map-legend { flex-shrink: 0; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 10px 16px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--stroke); }
 .map-legend span { display: flex; align-items: center; gap: 7px; }
 .map-legend i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }

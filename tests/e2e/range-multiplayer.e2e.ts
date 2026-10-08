@@ -39,7 +39,7 @@ test('three production browsers train together over native P2P with personal loa
       }, index);
       await page.goto(url, { waitUntil: 'commit' });
       await page.waitForFunction(() => !!(window as any).__LASTLIGHT__, undefined, { timeout: 60000 });
-      if (!index) { await page.click('#map-choice button[data-value="range"]'); await page.click('#bot-choice button[data-value="0"]'); }
+      if (!index) { { await page.click('#map-picker'); await page.click('#map-choice button[data-value="range"]'); } await page.click('#bot-choice button[data-value="0"]'); }
       await page.click('#multi-button');
     }
     const [host, guest, mobile] = pages;
@@ -63,6 +63,20 @@ test('three production browsers train together over native P2P with personal loa
     const before = await host.evaluate(() => (window as any).__LASTLIGHT__.simulation.actorById('p1').position.z);
     await guest.keyboard.down('w'); await guest.waitForTimeout(700); await guest.keyboard.up('w');
     await host.waitForFunction(z => (window as any).__LASTLIGHT__.simulation.actorById('p1').position.z > z + 1, before);
+    const pistolAmmo = await host.evaluate(() => (window as any).__LASTLIGHT__.simulation.actorById('p1').ammo.pistol);
+    await guest.evaluate(() => {
+      const g = (window as any).__LASTLIGHT__, s = g.simulation, p = s.player.position;
+      const target = { x: p.x, y: p.y + 70, z: p.z + 80 };
+      if (!s.shootPlayer(target, true)) throw new Error('Pistol should be ready');
+      g.net().client.queueFire(target, true);
+      if (!s.switchWeapon('rifle')) throw new Error('Rifle should be owned');
+      g.net().client.queueCommand('switch', 'rifle');
+    });
+    await host.waitForFunction(ammo => {
+      const p = (window as any).__LASTLIGHT__.simulation.actorById('p1');
+      return p.weapon === 'rifle' && p.ammo.pistol === ammo - 1;
+    }, pistolAmmo);
+    await guest.waitForTimeout(300);
     // Place only the guest beside a counting target, then fire through the actual client session.
     const target = await host.evaluate(() => {
       const s = (window as any).__LASTLIGHT__.simulation, t = s.actorById('dummy-3-15'), p = s.actorById('p1');
@@ -95,8 +109,18 @@ test('three production browsers train together over native P2P with personal loa
     await mobile.screenshot({ path: 'output/playwright/range-multiplayer-phone.png' });
     await host.evaluate(() => { const s = (window as any).__LASTLIGHT__.simulation; s.damage(s.actorById('p1'), 1000, 'p0'); });
     await guest.waitForFunction(() => !(window as any).__LASTLIGHT__.simulation.player.alive);
+    await guest.evaluate(() => {
+      // A jump can be in progress at death; its velocity stays frozen while the mirror is dead.
+      const s = (window as any).__LASTLIGHT__.simulation;
+      s.setMotion(s.player, { vy: 6.7, speed: 5 });
+    });
     await guest.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.player.alive && !(window as any).__LASTLIGHT__.simulation.state.spectating, undefined, { timeout: 10000 });
     assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.playerRank), undefined);
+    const revived = await guest.evaluate(() => {
+      const s = (window as any).__LASTLIGHT__.simulation;
+      return { y: s.player.position.y, ground: s.heightAt(s.player.position.x, s.player.position.z), vy: s.motionOf(s.player).vy };
+    });
+    assert.ok(Math.abs(revived.y - revived.ground) < .01 && revived.vy === 0, 'native WebRTC respawn must cancel the pre-death jump');
     await guest.keyboard.down('w'); await guest.waitForTimeout(500); await guest.keyboard.up('w');
     await host.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.actorById('p1').position.z > -150);
     await guest.keyboard.press('Enter'); await guest.fill('#chat-input', 'Cùng luyện tập!'); await guest.keyboard.press('Enter');
