@@ -3,7 +3,8 @@
  */
 import type { NetMessage } from './transport';
 
-export const WIRE_VERSION = 3;
+// The lobby checks this revision before opening a peer. Four-compound island layouts must not mix with the old map.
+export const WIRE_VERSION = 4;
 export const MAX_WIRE_BYTES = 256 * 1024;
 const MAX_NODES = 100_000;
 const MAX_DEPTH = 64;

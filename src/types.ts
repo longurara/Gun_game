@@ -45,6 +45,7 @@ export interface GameSettings {
   immortal: boolean;
 }
 export type ObstacleKind = 'building' | 'crate' | 'rock' | 'wall' | 'roof' | 'tree' | 'wreck' | 'floor';
+export type CompoundKind = 'temple' | 'depot' | 'garden' | 'citadel';
 /** Solid between `base + bottom` and `base + height` (base defaults to 0, bottom to 0). */
 export interface Obstacle {
   id: string; x: number; z: number; width: number; depth: number; height: number;
@@ -53,13 +54,15 @@ export interface Obstacle {
   houseId?: string;
   houseStyle?: 'brick' | 'timber' | 'hipped' | 'mill';
   structureId?: string;
-  roofShape?: 'flat';
+  roofShape?: 'flat' | 'pagoda';
+  /** Authored modular compounds use a coherent palette instead of random house facades. */
+  compoundStyle?: CompoundKind;
   furnishing?: 'bed' | 'table';
 }
 /** A stairwell: step up to it and press E to come out at `to`. Bunkers are reached and left this way. */
 export interface Portal { id: string; x: number; y: number; z: number; to: Vec3; label: string; /** True: it leads down into a bunker. */ down: boolean }
 /** A huge fenced compound with the best loot on the surface and a bunker beneath it. */
-export interface HotArea { id: string; name: string; kind: 'base' | 'factory'; x: number; z: number; radius: number }
+export interface HotArea { id: string; name: string; kind: 'base' | 'factory' | CompoundKind; x: number; z: number; radius: number }
 /** How an open map looks (rendering only): sand over the meadow, how much grass grows, a tint on the ground, the haze in the distance. */
 export interface MapTheme {
   /** 0..1: how much of the meadow is bare sand (1 is a desert). */ sand: number;

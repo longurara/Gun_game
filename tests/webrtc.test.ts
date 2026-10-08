@@ -167,13 +167,13 @@ test('binary snapshot baselines are per peer and resync requests force a new ful
 
 test('mixed wire versions fail in the lobby with a reload message instead of a broken match', async t => {
   const { signaling, transport } = host(); t.after(() => transport.close()); await flush();
-  signaling.receive({ k: 'hello', rtc: 1 }, 'old-guest');
+  signaling.receive({ k: 'hello', rtc: 3 }, 'old-guest');
   assert.deepEqual(signaling.sent.at(-1), { k: 'reject', to: 'old-guest', why: 'webrtc' });
   assert.equal(signaling.sent.find(m => m.k === 'roster')!.rtc, WIRE_VERSION);
   const clientSignals = new Signaling(); clientSignals.clientId = 'guest';
   const client = new WebRTCTransport(clientSignals, 'client', { peerConnection: () => new PeerConnection() as unknown as RTCPeerConnection }); t.after(() => client.close());
   const errors: string[] = []; client.onStatus((status, detail) => { if (status === 'error') errors.push(detail!); });
-  clientSignals.receive({ k: 'roster', rtc: 1, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
+  clientSignals.receive({ k: 'roster', rtc: 3, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
   assert.match(errors[0], /tải lại game/); assert.equal(client.ready, false);
 });
 

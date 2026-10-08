@@ -70,7 +70,7 @@ const DEFAULT_SETTINGS: GameSettings = { difficulty: 'normal', botCount: 100, ma
 const BOT_CHOICES: Record<MapId, number[]> = { island: [25, 50, 100], valley: [15, 30, 50], arena: [5, 7], desert: [25, 50, 100], pines: [25, 50, 100], metro: [25, 50, 100], range: [0, 3, 6, 10] };
 const defaultBots = (map: MapId): number => map === 'valley' ? 30 : map === 'arena' ? 5 : map === 'range' ? 3 : 100;
 const MAP_INFO: Record<MapId, { title: string; blurb: string; size: string; time: string }> = {
-  island: { title: 'ĐẢO LASTLIGHT', blurb: 'Sông, hồ, thị trấn và rừng. Lục nhà tìm súng, giáp; lái xe vượt đảo trước khi bo khép lại.', size: '4 × 4 KM', time: '≈ 10 PHÚT' },
+  island: { title: 'ĐẢO LASTLIGHT', blurb: 'Bốn khu lớn: Thiên Điện, Bến xe Lam Sơn, Trúc Viên và Thành Đá. Khám phá sân đền, nhà kho, cầu và tháp canh; tìm loot rồi vượt đảo trước khi bo khép lại.', size: '4 × 4 KM', time: '≈ 10 PHÚT' },
   valley: { title: 'ĐẤU TRƯỜNG THUNG LŨNG', blurb: 'Một thung lũng khép kín, đông bot, bo thu nhanh. Giao tranh liên tục từ giây đầu tiên.', size: '1 × 1 KM', time: '≈ 6 PHÚT' },
   arena: { title: 'SÂN TẬP', blurb: 'Bản đồ nhỏ có sẵn đủ 8 loại súng quanh điểm xuất phát. Hợp để thử súng và luyện ngắm.', size: '200 M', time: '≈ 7 PHÚT' },
   range: { title: 'TRƯỜNG BẮN', blurb: 'Năm làn bia từ 15 đến 250 m, bia chạy và bia bật lên, bài tập tính điểm, khu bot bắn trả, bãi thử mọi loại xe và kệ đủ vũ khí. Đạn vô hạn, có thể bật bất tử.', size: '400 M', time: 'KHÔNG GIỚI HẠN' },

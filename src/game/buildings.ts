@@ -177,8 +177,8 @@ export function buildTower(spec: TowerSpec): Parts {
   };
   parapet('s', 'x', z0 + WALL_THICKNESS / 2, x0, x1); parapet('n', 'x', z1 - WALL_THICKNESS / 2, x0, x1);
   parapet('w', 'z', x0 + WALL_THICKNESS / 2, z0, z1); parapet('e', 'z', x1 - WALL_THICKNESS / 2, z0, z1);
-  // Up here the crate and the loot must stay clear of the stairwell: in a tower they go over the right-hand ramp (a solid deck).
-  const deckX = hasMain ? mainCenter : x0 + 0.8 + STAIR_WIDTH + 0.4 + STAIR_WIDTH / 2;
+  // On a compact tower, keep the crate above the unused flight: an even storey count finishes on the right-hand ramp.
+  const deckX = hasMain ? mainCenter : x0 + 0.8 + (S % 2 ? STAIR_WIDTH + 0.4 : 0) + STAIR_WIDTH / 2;
   parts.obstacles.push({ id: `${id}-roof-crate`, x: deckX, z: 0, width: 1.6, depth: 1.2, height: 1.1, kind: 'crate', base: deck });
   parts.loot.push({ x: deckX, z: -2.2, y: deck, tier: 3 }, { x: deckX + (hasMain ? 3 : 0), z: 2.4, y: deck, tier: 3 });
   return parts;

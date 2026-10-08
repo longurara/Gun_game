@@ -112,8 +112,11 @@ test('underground you stand on the bunker floor, not on the terrain overhead', (
   assert.ok(Math.abs(sim.player.position.y - BUNKER_Y) < 0.05, `stands at ${sim.player.position.y}`);
   assert.ok(Math.abs(sim.supportHeight(p.x, p.z, BUNKER_Y) - BUNKER_Y) < 0.05);
   assert.ok(sim.heightAt(p.x, p.z) > BUNKER_Y + DEEP, 'the terrain is far overhead');
-  // At the surface the same column still supports the ground.
-  assert.ok(Math.abs(sim.supportHeight(p.x, p.z, sim.heightAt(p.x, p.z)) - sim.heightAt(p.x, p.z)) < 0.05);
+  // At the surface the same column supports the ground or the compound's shallow courtyard paving.
+  const ground = sim.heightAt(p.x, p.z);
+  const paving = (world.floors ?? []).filter(f => f.y0 === f.y1 && f.y0 >= ground && f.y0 <= ground + 0.6
+    && Math.abs(p.x - f.x) <= f.width / 2 && Math.abs(p.z - f.z) <= f.depth / 2).map(f => f.y0);
+  assert.ok(Math.abs(sim.supportHeight(p.x, p.z, ground) - Math.max(ground, ...paving)) < 0.05);
 });
 
 test('from every landing a player can walk to every loot spot and room in the bunker', () => {

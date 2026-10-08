@@ -117,11 +117,13 @@ Mã: [src/social/api.ts](src/social/api.ts) (gọi Supabase), [src/social/store.
 | --- | --- | --- |
 | Kích thước | 4 × 4 km | 200 × 200 m |
 | Số bot | 25 / 50 / **100** | 5 / 7 |
-| Địa hình | Đồi núi, bờ biển và bãi cát, 7 hồ sâu, 3 con sông cạn lội được, ruộng, rừng, đường nối 16 thị trấn | Mặt phẳng, vài khối nhà đặc |
+| Địa hình | Đồi núi, bờ biển và bãi cát, hồ sâu, sông cạn lội được, ruộng, rừng, đường nối 16 thị trấn và 4 khu công trình lớn | Mặt phẳng, vài khối nhà đặc |
 | Nhà | **Vào được**: có cửa, cửa sổ, mái dốc; ~390 ngôi nhà | Khối đặc, không vào được |
 | Xe | ~47 chiếc dọc đường và trong thị trấn | Không có |
 | Khởi đầu | **Nhảy dù từ máy bay** (xem mục Nhảy dù), chỉ có súng lục P-9 | Có sẵn súng và đồ quanh điểm xuất phát |
 | Thời lượng | Khoảng 9–10 phút (vòng bo thu qua 7 giai đoạn) | Khoảng 7 phút |
+
+Đảo có đúng **4 khu công trình lớn**, đặt cố định ở bốn vùng của map và được ghi tên trên bản đồ lớn: **Thiên Điện** (sân đền, chính điện trên nền cao, hành lang mái cong), **Bến xe Lam Sơn** (gara sáu khoang, nhà ga nhiều tầng, kho hàng và sân đỗ), **Trúc Viên** (cầu đá, đình hai tầng, rừng tre và cây hoa), **Thành Đá** (tường thành, bốn tháp canh, nhà chính bốn tầng). Mỗi khu có đường vào, loot và hầm với hai lối ra. Công trình được ghép theo ô render 125 m; các phòng/tầng có sàn và va chạm thật. Bot tiếp tục hoạt động ở mặt đất và trong hầm; các tầng cao dành cho người chơi như hệ thống nhà hiện tại.
 
 Sông chỉ sâu khoảng nửa mét nên đi bộ và lái xe qua được; biển và hồ đủ sâu để chặn đường. Vòng bo luôn thu về đất liền, không về mặt nước. Bản đồ đảo được sinh từ một hạt giống cố định nên mọi trận đều chơi trên cùng một hòn đảo (vị trí xuất hiện và đồ thay đổi theo trận).
 

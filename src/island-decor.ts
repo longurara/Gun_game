@@ -11,8 +11,9 @@ import { CreateSphere } from '@babylonjs/core/Meshes/Builders/sphereBuilder.js';
 import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import '@babylonjs/core/Meshes/thinInstanceMesh.js';
-import type { WorldConfig } from './types';
+import type { Floor, WorldConfig } from './types';
 import { groundNoise } from './game/world';
+import { clearsGrass } from './game/compounds';
 import { ATLAS } from './island-foliage';
 import { GrassWind } from './foliage-wind';
 import { SpatialGrid } from './game/spatial';
@@ -119,6 +120,7 @@ export class IslandDecor {
   private grassColors = new Float32Array(0);
   private readonly grassWind: GrassWind;
   private readonly grassExclusions = new SpatialGrid<GrassExclusion>(64);
+  private readonly compoundPaving = new SpatialGrid<Floor>(64);
   private scroll = 0;
 
   constructor(private readonly scene: Scene, private readonly world: WorldConfig, touch: boolean, private readonly foliage: StandardMaterial) {
@@ -131,6 +133,9 @@ export class IslandDecor {
         Math.max(ax, bx) + pad, Math.max(az, bz) + pad);
     };
     for (const road of world.roads) addRibbon(road.a.x, road.a.z, road.b.x, road.b.z, road.width);
+    for (const f of world.floors ?? []) if (f.id.startsWith('compound-') && f.y0 === f.y1) {
+      this.compoundPaving.insertBox(f, f.x - f.width / 2, f.z - f.depth / 2, f.x + f.width / 2, f.z + f.depth / 2);
+    }
     for (const river of world.water?.rivers ?? []) {
       for (let i = 0; i + 1 < river.points.length; i++) {
         const a = river.points[i], b = river.points[i + 1];
@@ -366,6 +371,10 @@ export class IslandDecor {
 
   private onRoadOrRiver(x: number, z: number): boolean {
     let blocked = false;
+    this.compoundPaving.queryBox(x, z, x, z, f => {
+      if (Math.abs(x - f.x) <= f.width / 2 + 0.25 && Math.abs(z - f.z) <= f.depth / 2 + 0.25) { blocked = true; return true; }
+    });
+    if (blocked) return true;
     this.grassExclusions.queryBox(x, z, x, z, ribbon => {
       const dx = ribbon.bx - ribbon.ax, dz = ribbon.bz - ribbon.az;
       const t = clamp01(((x - ribbon.ax) * dx + (z - ribbon.az) * dz) / (dx * dx + dz * dz || 1));
@@ -375,7 +384,8 @@ export class IslandDecor {
   }
 
   private nearTown(x: number, z: number): boolean {
-    return this.world.towns.some(town => Math.hypot(x - town.x, z - town.z) < town.radius * 1.05);
+    return this.world.towns.some(town => Math.hypot(x - town.x, z - town.z) < town.radius * 1.05)
+      || (this.world.hotAreas ?? []).some(h => clearsGrass(h.kind) &&Math.abs(x - h.x) < 124 && Math.abs(z - h.z) < 124);
   }
 
   /** Plan a new set of tufts around (cx, cz): the lattice cells to test, nearest first. They are filled in over several frames. */

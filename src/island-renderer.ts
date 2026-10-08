@@ -13,7 +13,7 @@ import type { TerrainWeights } from './terrain-biomes';
 import { TerrainTextureBlend, TERRAIN_WEIGHTS_ATTRIBUTE } from './terrain-textures';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import type { Field, Floor, Obstacle, StructurePlacement, WorldConfig } from './types';
-import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase } from './game/world';
+import { DOOR_HEIGHT, forestNoise, groundNoise, HOUSE_HEIGHT, obstacleBase, obstacleBottom, obstacleTop } from './game/world';
 import { groundBumpTexture, groundDetailTexture, IslandDecor } from './island-decor';
 import { ATLAS, CardBatch, createFacadeMaterial, createFoliageMaterial } from './island-foliage';
 import { coverageParts, hasCoverageModel, prepareCoverageAssets } from './coverage-assets';
@@ -51,6 +51,12 @@ const PALETTE = {
   autumn: [hex('#c0702a'), hex('#b8962f'), hex('#a8532a')],
   bush: [hex('#486e35'), hex('#557a38'), hex('#3f6232'), hex('#5f8238')],
   trim: hex('#eae5d6'), door: hex('#5a4030'), shadowStone: hex('#6a6c64'), warmStone: hex('#8a7b66'),
+};
+const COMPOUND_PALETTE = {
+  temple: { wall: hex('#d8c9a3'), wood: hex('#943d2d'), roof: hex('#303e42'), stone: hex('#a7afa7') },
+  depot: { wall: hex('#c1cbd1'), wood: hex('#285f91'), roof: hex('#315373'), stone: hex('#68747b') },
+  garden: { wall: hex('#d6d3b6'), wood: hex('#64553d'), roof: hex('#314d46'), stone: hex('#b8bbb1') },
+  citadel: { wall: hex('#919c9c'), wood: hex('#61513d'), roof: hex('#4c5961'), stone: hex('#a0a8a3') },
 };
 
 type PropFinish = 'plain' | 'wood' | 'bark' | 'plaster' | 'roof' | 'rock';
@@ -231,6 +237,24 @@ class Geometry {
     this.tri([x1, y0, z1], [x0, y0, z1], tip, [0, 1, 1], shade(color, 0.8));
     this.tri([x0, y0, z1], [x0, y0, z0], tip, [-1, 1, 0], shade(color, 0.85));
     this.tri([x1, y0, z0], [x1, y0, z1], tip, [1, 1, 0], color);
+    this.finish = previous;
+  }
+
+  /** Three shallow pitches create lifted eaves; roof modules stay in their chunk's material batches. */
+  pagoda(cx: number, y0: number, cz: number, w: number, d: number, rise: number, color: Rgb): void {
+    const previous = this.finish; this.finish = 'roof'; this.roofAlongX = w >= d;
+    const ring = (scale: number, y: number) => [[cx - w * scale / 2, y, cz - d * scale / 2], [cx + w * scale / 2, y, cz - d * scale / 2],
+      [cx + w * scale / 2, y, cz + d * scale / 2], [cx - w * scale / 2, y, cz + d * scale / 2]];
+    const rings = [ring(1, y0 + 0.35), ring(0.85, y0 + 0.12), ring(0.48, y0 + rise * 0.55)];
+    const outward = [[0, 1, -1], [1, 1, 0], [0, 1, 1], [-1, 1, 0]];
+    for (let band = 0; band < 2; band++) for (let side = 0; side < 4; side++) {
+      const next = (side + 1) % 4;
+      this.quad(rings[band][side], rings[band][next], rings[band + 1][next], rings[band + 1][side], outward[side], shade(color, 0.85 + side * 0.04));
+    }
+    this.gable(cx, y0 + rise * 0.55, cz, w * 0.48, d * 0.48, rise * 0.45, color, shade(color, 0.8));
+    this.finish = 'wood';
+    this.box(cx, y0, cz - d / 2, w, 0.18, 0.25, shade(color, 0.7));
+    this.box(cx, y0, cz + d / 2, w, 0.18, 0.25, shade(color, 0.7));
     this.finish = previous;
   }
 
@@ -512,6 +536,8 @@ export class IslandRenderer {
         if (hs > 0.2 + forest * 0.5 + noise * 0.1) continue;
         const y = this.height(x, z);
         if (y < 3 || this.townWeight(x, z) > 0.2 || this.lakeNear(x, z, 4)) continue;
+        // A long courtyard slab may be centred in the neighbouring chunk; local obstacle buckets alone miss it.
+        if ((this.world.hotAreas ?? []).some(h => h.kind !== 'base' && h.kind !== 'factory' && Math.abs(x - h.x) < 124 && Math.abs(z - h.z) < 124)) continue;
         if (blocked.some(o => Math.abs(x - o.x) < o.width / 2 + 1.5 && Math.abs(z - o.z) < o.depth / 2 + 1.5)) continue;
         const r = 0.6 + hs * 1.1, v = 0.82 + hx * 0.14;
         // A bush is a handful of leaf cards leaning outward from a low centre.
@@ -649,6 +675,35 @@ export class IslandRenderer {
     }
   }
 
+  private compoundModule(g: Geometry, o: Obstacle, far: boolean): void {
+    const palette = COMPOUND_PALETTE[o.compoundStyle!], y = obstacleBottom(o), height = obstacleTop(o) - y;
+    // Multi-storey modules have their own exterior proxy; keep their individual rooms out of distant chunks.
+    if (far && /^compound-(?:depot|citadel)-(?:terminal|watchtower|keep)-\d+-/.test(o.id)) return;
+    if (far && /detail-|pillar|supply|altar|bamboo/.test(o.id)) return;
+    if (o.kind === 'roof') {
+      g.finish = 'roof';
+      if (o.roofShape === 'pagoda') g.pagoda(o.x, y, o.z, o.width, o.depth, height, palette.roof);
+      else if (o.roofShape === 'flat') g.box(o.x, y, o.z, o.width, height, o.depth, palette.roof);
+      else g.gable(o.x, y, o.z, o.width, o.depth, height, palette.roof, palette.wall);
+    } else if (o.kind === 'tree') {
+      g.finish = 'bark'; const bamboo = o.id.includes('bamboo');
+      g.trunk(o.x, y, o.z, bamboo ? 0.11 : 0.4, bamboo ? 0.06 : 0.15, height, 5, bamboo ? hex('#597948') : PALETTE.trunk);
+      if (!far) { g.finish = 'plain'; g.blob(o.x, y + height * 0.58, o.z, bamboo ? 1.5 : 4.5, height * 0.5, bamboo ? 1.5 : 4.5, bamboo ? hex('#71975c') : hex('#d89bad'), 6); }
+    } else if (o.kind === 'rock') {
+      g.finish = 'rock'; g.blob(o.x, y, o.z, o.width / 2, height, o.depth / 2, palette.stone, 7, 0, 0.18);
+    } else {
+      const timber = /pillar|hall-front|hall-end|upper-pavilion/.test(o.id) && o.compoundStyle !== 'citadel';
+      const accent = o.id.includes('blue-') || o.id.includes('solar');
+      g.finish = timber || o.kind === 'crate' ? 'wood' : o.kind === 'floor' || accent ? 'plain' : 'plaster';
+      const color = o.id.includes('solar') ? hex('#183652') : accent || timber ? palette.wood : o.kind === 'floor' ? palette.stone : o.kind === 'crate' ? PALETTE.crate : palette.wall;
+      g.box(o.x, y, o.z, o.width, height, o.depth, color, 0.85, o.kind === 'floor');
+      if (!far && o.kind === 'wall' && height > 2 && !timber) {
+        g.finish = 'plain'; g.box(o.x, y, o.z, o.width + 0.08, 0.22, o.depth + 0.08, palette.stone);
+        g.box(o.x, y + height - 0.2, o.z, o.width + 0.1, 0.2, o.depth + 0.1, palette.stone);
+      }
+    }
+  }
+
   /** `far` builds a cheap silhouette (house boxes and one-piece trees) for chunks at the edge of view. */
   private buildProps(cx: number, cz: number, far = false, useKit = true): { props: Mesh | null; foliage: Mesh | null; facade: Mesh | null; assets: Mesh | null } {
     const geometry = new Geometry();
@@ -686,6 +741,7 @@ export class IslandRenderer {
     };
     for (const obstacle of this.byChunk.get(key) ?? []) {
       if (obstacle.structureId && readyStructures.has(obstacle.structureId)) continue;
+      if (obstacle.compoundStyle) { this.compoundModule(geometry, obstacle, far); continue; }
       geometry.finish = obstacle.kind === 'crate' ? 'wood' : obstacle.kind === 'tree' ? 'bark'
         : obstacle.kind === 'roof' ? 'roof' : obstacle.kind === 'rock' ? 'rock'
         : obstacle.kind === 'wall' || obstacle.kind === 'building' ? 'plaster' : 'plain';
@@ -822,6 +878,14 @@ export class IslandRenderer {
     }
     // From a distance a tall building is one solid block with its roof deck; close up the walls and floors do the job.
     if (far) for (const proxy of this.proxiesByChunk.get(key) ?? []) {
+      if (proxy.compoundStyle) {
+        geometry.finish = 'plaster';
+        const colors = COMPOUND_PALETTE[proxy.compoundStyle];
+        geometry.box(proxy.x, obstacleBase(proxy), proxy.z, proxy.width, proxy.height, proxy.depth, colors.wall);
+        geometry.finish = 'plain';
+        geometry.box(proxy.x, obstacleTop(proxy), proxy.z, proxy.width, 0.25, proxy.depth, colors.roof);
+        continue;
+      }
       geometry.finish = 'plaster';
       const base = obstacleBase(proxy), seed = hashString(proxy.id);
       this.block(geometry, panels, proxy, base, proxy.height, seed);

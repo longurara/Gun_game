@@ -1,0 +1,40 @@
+import '@babylonjs/core/Meshes/instancedMesh.js';
+import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
+import { Engine } from '@babylonjs/core/Engines/engine.js';
+import { Scene } from '@babylonjs/core/scene.js';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { createIslandWorld } from '../../src/game/world';
+import { IslandRenderer } from '../../src/island-renderer';
+import { prepareCoverageAssets } from '../../src/coverage-assets';
+import type { CompoundKind } from '../../src/types';
+
+const engine = new Engine(document.querySelector('canvas')!, true), scene = new Scene(engine), world = createIslandWorld();
+scene.clearColor = new Color4(.7, .79, .84, 1);
+const camera = new FreeCamera('gallery-camera', new Vector3(0, 100, 0), scene); camera.minZ = .2; camera.maxZ = 2200; camera.fov = .82;
+new HemisphericLight('sky-fill', new Vector3(0, 1, 0), scene).intensity = .85;
+const sun = new DirectionalLight('sun', new Vector3(.6, -1, .35), scene); sun.intensity = 1.25;
+const shadows = new ShadowGenerator(1024, sun); shadows.usePercentageCloserFiltering = true; shadows.bias = .0015;
+let renderer: IslandRenderer | null = null;
+const ready = prepareCoverageAssets(scene);
+async function show(kind: CompoundKind, far = false) {
+  await ready; renderer?.dispose();
+  renderer = new IslandRenderer(scene, world, 4, false, shadows);
+  const area = world.hotAreas!.find(h => h.kind === kind)!, y = world.terrain!(area.x, area.z);
+  renderer.update(area.x + (far ? 650 : 0), area.z, 500);
+  camera.position.set(area.x - (far ? 520 : 235), y + (far ? 240 : 160), area.z - (far ? 680 : 260));
+  camera.setTarget(new Vector3(area.x, y + 8, area.z));
+  sun.position.set(area.x - 150, y + 250, area.z - 150);
+  document.getElementById('label')!.textContent = area.name;
+  const sub = document.createElement('small'); sub.textContent = 'LASTLIGHT / ĐẢO / 4 KHU CÔNG TRÌNH'; document.getElementById('label')!.append(sub);
+  renderer.update(area.x + (far ? 650 : 0), area.z, 500, 1 / 60);
+  await scene.whenReadyAsync(); scene.render();
+  return { meshes: scene.meshes.filter(m => m.isEnabled() && m.getTotalVertices() > 0).length, vertices: scene.meshes.filter(m => m.isEnabled()).reduce((n, m) => n + m.getTotalVertices(), 0) };
+}
+engine.runRenderLoop(() => scene.render());
+(window as any).__COMPOUNDS_GALLERY__ = { engine, scene, world, show, ready };
+await show('temple');

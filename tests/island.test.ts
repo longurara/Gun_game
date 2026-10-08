@@ -36,6 +36,8 @@ test('roads are never cut: no house, crate or field lies on a road, and a river 
     const { world, terrain } = map === 'island' ? createIsland() : createValley();
     for (const o of world.obstacles) {
       if (o.kind === 'tree' || o.kind === 'floor' || (o.base ?? 0) < -30) continue;
+      // Gate roofs span a drive-through opening; their pillars are still checked against the road below.
+      if (o.compoundStyle && o.kind === 'roof' && (o.bottom ?? 0) >= 7) continue;
       for (const road of world.roads) assert.ok(segDist(o.x, o.z, road.a, road.b) >= road.width / 2 + Math.min(o.width, o.depth) / 2 - 0.5, `${map}: ${o.id} sits on a road`);
     }
     for (const f of world.fields!) for (const road of world.roads) assert.ok(segDist(f.x, f.z, road.a, road.b) > road.width / 2, `${map}: a field is on a road`);
