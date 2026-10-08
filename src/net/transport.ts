@@ -19,6 +19,8 @@ export interface Transport {
   onPeerState?(handler: (id: string, state: PeerState) => void): void;
   reconnectPeer?(id: string): void;
   forgetPeer?(id: string): void;
+  /** Host flow control: build a snapshot only when the recipient can accept one. */
+  snapshotReady?(id: string): boolean;
   close(): void;
 }
 
@@ -61,6 +63,7 @@ export class LoopbackNetwork {
   deliver(from: LoopbackTransport, message: NetMessage): void {
     for (const to of this.endpoints) {
       if (to === from || to.closed) continue;
+      if (typeof message.to === 'string' && message.to !== to.clientId) continue;
       if (this.options.loss && this.random() < this.options.loss) continue;
       const delay = (this.options.latency ?? 0) + this.random() * (this.options.jitter ?? 0);
       // JSON round trip: the real network never shares objects between machines.

@@ -273,7 +273,7 @@ test('bandwidth: two players cost about twenty packets a second each way, and th
   const before = { host: { ...m.hostStats }, client: { ...a.stats } };
   m.run(10);
   const hostPerSecond = (m.hostStats.sent - before.host.sent) / 10, clientPerSecond = (a.stats.sent - before.client.sent) / 10;
-  assert.ok(hostPerSecond >= 17 && hostPerSecond <= 22, `host ${hostPerSecond} messages/s`);
+  assert.ok(hostPerSecond >= 34 && hostPerSecond <= 44, `host ${hostPerSecond} targeted messages/s for two guests`);
   assert.ok(clientPerSecond >= 17 && clientPerSecond <= 24, `client ${clientPerSecond} messages/s`);
   const snapshotBytes = (m.hostStats.bytes - before.host.bytes) / (m.hostStats.sent - before.host.sent);
   assert.ok(snapshotBytes < 9000, `a snapshot averages ${snapshotBytes.toFixed(0)} bytes`);

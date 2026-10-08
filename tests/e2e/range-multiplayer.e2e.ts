@@ -66,12 +66,30 @@ test('three production browsers train together over native P2P with personal loa
     // Place only the guest beside a counting target, then fire through the actual client session.
     const target = await host.evaluate(() => {
       const s = (window as any).__LASTLIGHT__.simulation, t = s.actorById('dummy-3-15'), p = s.actorById('p1');
+      t.health = 1;
       p.position = { x: t.position.x, y: 0, z: t.position.z - 8 }; p.yaw = 0;
       return { x: t.position.x, y: 1.1, z: t.position.z };
     });
     await guest.waitForFunction(z => Math.abs((window as any).__LASTLIGHT__.simulation.player.position.z - (z - 8)) < 1, target.z);
+    await guest.evaluate(() => {
+      const sim = (window as any).__LASTLIGHT__.simulation;
+      (window as any).__COUNT_OVERRUNS__ = [];
+      for (const field of ['hits', 'kills']) {
+        let count = sim.state[field];
+        Object.defineProperty(sim.state, field, { configurable: true,
+          get() { return count; },
+          set(value) {
+            count = value;
+            const authoritative = field === 'hits' ? sim.player.practice.hits : sim.player.kills ?? 0;
+            if (value > authoritative) (window as any).__COUNT_OVERRUNS__.push({ field, value, authoritative });
+          },
+        });
+      }
+    });
     await guest.evaluate(target => { const h = (window as any).__LASTLIGHT__; h.simulation.shootPlayer(target, true); h.net().client.queueFire(target, true); }, target);
     await guest.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.state.drill?.score > 0);
+    const overcounts = await guest.evaluate(() => (window as any).__COUNT_OVERRUNS__);
+    assert.deepEqual(overcounts, [], 'authoritative range hit/kill counts must not be incremented again when processing shot echoes');
     assert.equal(await mobile.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.drill?.score), 0);
     await guest.screenshot({ path: 'output/playwright/range-multiplayer-desktop.png' });
     await mobile.screenshot({ path: 'output/playwright/range-multiplayer-phone.png' });

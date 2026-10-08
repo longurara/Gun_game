@@ -673,7 +673,7 @@ export class GameUI {
     if (state.hits > this.lastHits) this.hitUntil = now + 170;
     this.lastHits = state.hits;
     this.el('hit-marker').classList.toggle('visible', now < this.hitUntil);
-    this.text('alive-count', `${state.actors.filter(actor => actor.alive).length}`);
+    this.text('alive-count', `${state.aliveCount ?? state.actors.filter(actor => actor.alive).length}`);
     this.text('kill-count', `${state.kills}`);
     const onRange = world.id === 'range';
     this.root.classList.toggle('on-range', onRange);
@@ -1249,9 +1249,9 @@ export class GameUI {
       for (const x of world.range.laneX) ctx.fillRect(mapX(x - 10), mapY(world.range.firingZ + Math.max(...world.range.distances) + 8), 20 * scale, (Math.max(...world.range.distances) + 8) * scale);
       ctx.fillStyle = '#e2b53c'; ctx.fillRect(mapX(-110), mapY(world.range.firingZ) - 1, 220 * scale, 2);
       ctx.fillStyle = '#f0a04a';
-      for (const actor of state.actors) if (actor.dummy && actor.alive && !actor.hidden) ctx.fillRect(mapX(actor.position.x) - 1.2, mapY(actor.position.z) - 1.2, 2.4, 2.4);
+      for (const actor of state.actors) if (actor.dummy && actor.alive && !actor.hidden && actor.netVisible !== false) ctx.fillRect(mapX(actor.position.x) - 1.2, mapY(actor.position.z) - 1.2, 2.4, 2.4);
       ctx.fillStyle = '#6fb6ff';
-      for (const car of state.vehicles) if (car.health > 0) ctx.fillRect(mapX(car.position.x) - 2, mapY(car.position.z) - 2, 4, 4);
+      for (const car of state.vehicles) if (car.health > 0 && car.netVisible !== false) ctx.fillRect(mapX(car.position.x) - 2, mapY(car.position.z) - 2, 4, 4);
     }
     // Tint terrain outside the safe circle. Enemy positions are deliberately omitted.
     ctx.fillStyle = '#4898ce25';

@@ -118,6 +118,8 @@ export interface WorldConfig {
 }
 /** A drivable car. Only the driver rides; passengers are not modelled. */
 export interface Vehicle {
+  /** Mirror-only interest visibility, independent of destruction state. */
+  netVisible?: boolean;
   /** Car, motorbike or buggy: how it drives and whether the driver is exposed. */
   kind: VehicleKind;
   id: string; position: Vec3; yaw: number; /** Signed forward speed in m/s. */ speed: number;
@@ -167,6 +169,8 @@ export interface Actor {
   reconnecting?: boolean;
   /** Individual shooting-range tools and score; absent in battle maps. */
   practice?: { immortal: boolean; shots: number; hits: number; drill: DrillState | null; left?: boolean };
+  /** Mirror-only: false until a current row is received for this actor. */
+  netVisible?: boolean;
   /** Absent means standing. */
   stance?: Stance;
   /** Opponents (and people) this actor has put down, and the place and time of its own death. */
@@ -198,6 +202,8 @@ export interface DrillState {
   done: boolean; weapon: string;
 }
 export interface GameState {
+  /** Host count for interest-filtered mirrors. */
+  aliveCount?: number;
   phase: GamePhase; elapsed: number; actors: Actor[]; loot: Loot[]; vehicles: Vehicle[];
   zone: ZoneState; kills: number; shots: number; hits: number;
   /** Present only in a match that starts with a drop from the sky. */

@@ -14,6 +14,7 @@ const setup: MatchSetup = { seed: 77, map: 'arena', botCount: 3, difficulty: 'no
   players: [{ clientId: 'host', name: 'Host' }, { clientId: 'client', name: 'Client' }, { clientId: 'mate', name: 'Mate' }] };
 class GatedTransport implements Transport {
   online = true;
+  reconnects: string[] = [];
   sent: NetMessage[] = [];
   states: Array<(id: string, state: PeerState) => void> = [];
   statuses: Array<(status: TransportStatus) => void> = [];
@@ -27,15 +28,16 @@ class GatedTransport implements Transport {
   onMessage(handler: (message: NetMessage, from: string) => void) { this.handlers.push(handler); }
   onStatus(handler: (status: TransportStatus) => void) { this.statuses.push(handler); }
   onPeerState(handler: (id: string, state: PeerState) => void) { this.states.push(handler); }
+  reconnectPeer(id: string) { this.reconnects.push(id); }
   peer(id: string, state: PeerState) { for (const handler of this.states) handler(id, state); }
   status(status: TransportStatus) { for (const handler of this.statuses) handler(status); }
   close() { this.endpoint.close(); }
 }
-function room() {
+function room(config = setup) {
   const net = new LoopbackNetwork({ latency: 20 }), ht = new GatedTransport('host', net), ct = new GatedTransport('client', net);
-  const host = new GameSimulation(matchOptions(setup, 'host', false)), mirror = new GameSimulation(matchOptions(setup, 'client', true));
+  const host = new GameSimulation(matchOptions(config, 'host', false)), mirror = new GameSimulation(matchOptions(config, 'client', true));
   host.start(); host.botsFrozen = true; mirror.start();
-  const hs = new HostSession(host, ht, setup, 1000, () => net.now), cs = new ClientSession(mirror, ct, 'host', () => net.now);
+  const hs = new HostSession(host, ht, config, 1000, () => net.now), cs = new ClientSession(mirror, ct, 'host', () => net.now);
   const frame = () => { net.advance(1000 / 30); host.update(1 / 30, idle); hs.drainEvents(); hs.tick(1 / 30);
     if (!cs.reconnecting) mirror.update(1 / 30, idle); cs.tick(net.now, idle, 0); if (!cs.reconnecting) cs.frame(net.now); };
   const run = (seconds: number) => { for (let i = 0; i < seconds * 30; i++) frame(); };
@@ -106,4 +108,41 @@ test('forced resync carries complete loot and protection flags, within the binar
   const mirror = new GameSimulation(matchOptions(largeSetup, 'client', true)); mirror.start();
   applySnapshot(mirror, snapshot, { writePositions: true }); assert.equal(mirror.player.reconnecting, true);
   assert.equal(snapshot.loot.add.length, sim.state.loot.length); assert.equal(RECONNECT_GRACE_MS, 30000);
+});
+
+test('range respawn keeps offline protection until resume, including health and armour', () => {
+  const r = room({ ...setup, map: 'range', botCount: 0 }), guest = r.host.actorById('p1')!;
+  (r.host as any).damage(guest, 1000, 'p0'); assert.equal(guest.alive, false);
+  r.disconnect(); r.run(3);
+  assert.equal(guest.alive, true); assert.equal(guest.reconnecting, true);
+  guest.vest = 2; guest.vestHp = 80;
+  assert.equal((r.host as any).absorb(guest, 40, false), 0);
+  (r.host as any).damage(guest, 20, 'p0');
+  assert.equal(guest.health, 100); assert.equal(guest.vestHp, 80);
+  r.run(20); assert.equal(guest.reconnecting, true);
+  r.reconnect(); r.run(.6);
+  assert.equal(guest.reconnecting, undefined); assert.equal(r.cs.reconnecting, false);
+  assert.equal(r.mirror.player.alive, true); assert.equal(r.mirror.player.health, 100);
+  (r.host as any).damage(guest, 20, 'p0'); assert.equal(guest.health, 80);
+});
+
+test('offline range respawn cannot renew the grace period or resurrect after expiry', () => {
+  const r = room({ ...setup, map: 'range', botCount: 0 }), guest = r.host.actorById('p1')!;
+  (r.host as any).damage(guest, 1000, 'p0'); r.disconnect();
+  r.run(29); assert.equal(guest.alive, true); assert.equal(guest.reconnecting, true);
+  r.run(4); assert.equal(guest.alive, false); assert.equal(guest.practice!.left, true);
+  assert.equal(guest.reconnecting, undefined);
+  r.reconnect(); r.run(3); assert.equal(guest.alive, false);
+});
+
+test('intentional snapshot silence after results does not reconnect; real transport failures still do', () => {
+  const r = room(); r.host.state.phase = 'won'; r.host.state.winnerId = 'p0';
+  r.run(36);
+  assert.equal(r.cs.matchOver, true); assert.equal(r.cs.reconnecting, false);
+  assert.equal(r.cs.connectionLost, false); assert.deepEqual(r.ct.reconnects, []);
+  assert.equal(r.ct.sent.filter(message => message.k === 'resume').length, 0);
+  assert.ok(!r.hs.takeDeparted().some(text => text.includes('Client')));
+  r.ct.status('reconnecting'); assert.equal(r.cs.reconnecting, true);
+  r.ct.status('error'); assert.equal(r.cs.connectionLost, true);
+  r.ht.send({ k: 'closed' }); r.net.advance(30); assert.equal(r.cs.closedByHost, true);
 });

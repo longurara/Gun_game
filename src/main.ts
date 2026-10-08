@@ -48,6 +48,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js'
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { BREATH_SECONDS } from './game/breath';
 import { Ray } from '@babylonjs/core/Culling/ray.js';
@@ -59,6 +60,7 @@ import { CreateLines } from '@babylonjs/core/Meshes/Builders/linesBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import { GameSimulation } from './game/simulation';
+import { onlineSpectateCandidates } from './game/spectate';
 import { DROP, remainingGlide } from './game/drop';
 import { GameUI } from './ui';
 import { isSupplyKind } from './game/supplies';
@@ -71,7 +73,8 @@ import type { AttachKind, AttachSlot, PackKind } from './game/gear';
 import type { SupplyKind, ThrowKind, UseKind } from './game/supplies';
 import { GameAudio } from './audio';
 import { GUN_SOUND_ASSETS } from './gun-audio-assets';
-import { createWeaponModel } from './weapon-models';
+import { createWeaponModel, weaponModelKey } from './weapon-models';
+import { detailedRangeWeapon, rangeWeaponSilhouette } from './loot-detail';
 import { Soldier } from './soldier';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { WEAPONS, isArmorKind, isSidearm, isWeaponKind, lootLabel, parseArmor, slotOrder, ammoTypeOf } from './game/weapons';
@@ -133,7 +136,7 @@ let snapCamera = true, lastPhase = sim.state.phase, footsteps = 0;
 let clock = performance.now();
 const keys = new Set<string>();
 const models = new Map<string, Character>();
-const lootMeshes = new Map<string, { node: InstancedMesh; loot: Loot }>();
+const lootMeshes = new Map<string, { node: InstancedMesh; loot: Loot; detailed: boolean }>();
 const lootTemplates = new Map<string, Mesh>();
 let lootSelector: Mesh | null = null;
 let arenaMeshes: Mesh[] = [];
@@ -318,7 +321,7 @@ function scanAssist(now: number) {
   if (assistLevel() === 'off' || sim.state.phase !== 'playing' || !player.alive || player.air || player.vehicleId) return;
   const from = camera.position;
   for (const actor of sim.state.actors) {
-    if (actor.isPlayer || !actor.alive || actor.air || actor.vehicleId) continue;
+    if (actor.isPlayer || !actor.alive || actor.air || actor.vehicleId || actor.netVisible === false) continue;
     const dx = actor.position.x - from.x, dz = actor.position.z - from.z, distance = Math.hypot(dx, dz);
     if (distance > 150 || distance < 2) continue;
     const targetYaw = Math.atan2(dx, dz);
@@ -1110,7 +1113,7 @@ function renderActors(dt: number) {
   const time = performance.now() * 0.001;
   const detailBudget = enemyDetailBudget(touchDevice, settings.quality === 'low');
   const detailedEnemies = new Set(sim.state.actors
-    .filter(actor => !actor.isPlayer && !actor.id.startsWith('dummy') && !actor.hidden && !actor.vehicleId && actor.air?.mode !== 'plane')
+    .filter(actor => !actor.isPlayer && actor.netVisible !== false && !actor.id.startsWith('dummy') && !actor.hidden && !actor.vehicleId && actor.air?.mode !== 'plane')
     .map(actor => ({ id: actor.id, distance: Math.hypot(actor.position.x - focus.x, actor.position.y - focus.y, actor.position.z - focus.z) }))
     .filter(actor => actor.distance <= detailBudget.distance)
     .sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
@@ -1118,6 +1121,7 @@ function renderActors(dt: number) {
   let newModels = 0;
   for (const actor of sim.state.actors) {
     let model = models.get(actor.id);
+    if (actor.netVisible === false) { model?.root.setEnabled(false); continue; }
     // Riders of the plane are inside it; nobody is drawn there.
     if (actor.air?.mode === 'plane') { model?.root.setEnabled(false); continue; }
     if (actor.air && !actor.isPlayer && Math.hypot(actor.position.x - focus.x, actor.position.y - focus.y, actor.position.z - focus.z) > 300) { model?.root.setEnabled(false); continue; }
@@ -1454,6 +1458,7 @@ function renderVehicles(dt: number) {
   const focus = focusPosition();
   for (const v of sim.state.vehicles) {
     let car = carModels.get(v.id);
+    if (v.netVisible === false) { car?.root.setEnabled(false); continue; }
     if (Math.hypot(v.position.x - focus.x, v.position.z - focus.z) > 380) { car?.root.setEnabled(false); continue; }
     const key = VEHICLE_ASSETS[kindOf(v)];
     if (car && !car.asset && ((key && hasCoverageModel(scene, key)) || (!key && !car.kitWheels && hasCoverageModel(scene, 'k-wheel-default') && hasCoverageModel(scene, 'k-wheel-racing')))) {
@@ -1644,18 +1649,29 @@ function createLootNode(loot: Loot): TransformNode {
   return root;
 }
 
-/** One merged mesh per pickup kind; every item of that kind is an instance, so a kind costs one draw call. */
-function lootInstance(loot: Loot): InstancedMesh {
-  let template = lootTemplates.get(loot.kind);
+/** Batch by actual asset and tier, rather than rebuilding the same asset for every weapon name. */
+function lootInstance(loot: Loot, detailed = true): InstancedMesh {
+  const weapon = isWeaponKind(loot.kind) ? loot.kind : null;
+  const config = weapon ? WEAPONS[weapon] : null;
+  const key = weapon && config ? detailed ? `gun:${weaponModelKey(weapon, scene)}:tier${config.tier}` : `distant:${config.kind}:tier${config.tier}` : loot.kind;
+  let template = lootTemplates.get(key);
   if (!template) {
-    const root = createLootNode(loot);
-    const merged = mergeAssetMeshes(root.getChildMeshes(false) as Mesh[])!;
-    merged.name = `loot-template-${loot.kind}`;
-    merged.isPickable = false;
-    merged.setEnabled(false);
-    root.dispose();
-    template = merged;
-    lootTemplates.set(loot.kind, template);
+    if (!detailed && config) {
+      template = new Mesh(`loot-template-${key}`, scene);
+      const data = rangeWeaponSilhouette(config.kind, config.tier), vertices = new VertexData();
+      vertices.positions = data.positions; vertices.normals = data.normals; vertices.colors = data.colors;
+      vertices.uvs = data.uvs; vertices.indices = data.indices; vertices.applyToMesh(template);
+      template.material = material('distant-pickup', '#ffffff', .2);
+      template.material.backFaceCulling = false;
+    } else {
+      const root = createLootNode(loot);
+      template = mergeAssetMeshes(root.getChildMeshes(false) as Mesh[])!;
+      root.dispose();
+      template.name = `loot-template-${key}`;
+    }
+    template.isPickable = false;
+    template.setEnabled(false);
+    lootTemplates.set(key, template);
   }
   const node = template.createInstance(`loot-${loot.id}`);
   node.isPickable = false;
@@ -1752,6 +1768,7 @@ function renderGrenades(time: number) {
 function renderLoot(time: number) {
   const now = performance.now();
   const playing = sim.state.phase !== 'menu';
+  const chosen = playing && sim.state.phase === 'playing' ? lootChoiceId : null;
   if (now - lastLootScan >= 120 || hudPhase !== sim.state.phase) {
     lastLootScan = now;
     const island = sim.world.id !== 'arena';
@@ -1763,19 +1780,35 @@ function renderLoot(time: number) {
     for (const loot of sim.state.loot) {
       current.add(loot.id);
       const d = Math.hypot(loot.position.x - focus.x, loot.position.z - focus.z);
-      const entry = lootMeshes.get(loot.id);
+      let entry = lootMeshes.get(loot.id);
       const wanted = loot.active && d < range;
-      if (entry && (entry.loot !== loot || !loot.active || d > range * 1.25)) { entry.node.dispose(); lootMeshes.delete(loot.id); }
-      else if (!entry && wanted) lootMeshes.set(loot.id, { node: lootInstance(loot), loot });
+      const detailed = !sim.rangeMode || !isWeaponKind(loot.kind) || detailedRangeWeapon(d, entry?.detailed ?? false, settings.quality === 'low', touchDevice, loot.id === chosen);
+      if (entry && (entry.loot !== loot || !loot.active || d > range * 1.25)) {
+        entry.node.dispose(); lootMeshes.delete(loot.id); entry = undefined;
+      }
+      if (entry && entry.detailed !== detailed) {
+        entry.node.dispose();
+        entry.node = lootInstance(loot, detailed); entry.detailed = detailed;
+      } else if (!entry && wanted) lootMeshes.set(loot.id, { node: lootInstance(loot, detailed), loot, detailed });
     }
     for (const [id, entry] of lootMeshes) if (!current.has(id)) { entry.node.dispose(); lootMeshes.delete(id); }
   }
-  const chosen = playing && sim.state.phase === 'playing' ? lootChoiceId : null;
   let selected: Loot | null = null;
-  for (const { node, loot } of lootMeshes.values()) {
+  for (const entry of lootMeshes.values()) {
+    const { loot } = entry;
+    const isChosen = chosen !== null && loot.id === chosen;
+    // Selection can change between scans; immediately restore the detailed model for the item being picked up.
+    if (isChosen && !entry.detailed) { entry.node.dispose(); entry.node = lootInstance(loot); entry.detailed = true; }
+    const node = entry.node;
+    if (!entry.detailed) {
+      if (!node.isWorldMatrixFrozen) {
+        node.position.set(loot.position.x, loot.position.y + .45, loot.position.z);
+        node.rotation.y = 0; node.freezeWorldMatrix();
+      }
+      continue;
+    }
     node.position.set(loot.position.x, loot.position.y + 0.45 + Math.sin(time * 2 + loot.position.x) * 0.07, loot.position.z);
     node.rotation.y = time * 0.45;
-    const isChosen = chosen !== null && loot.id === chosen;
     node.scaling.setAll(isChosen ? 1.3 : 1);
     if (isChosen) selected = loot;
   }
@@ -1810,10 +1843,7 @@ const spectating = () => !sim.player.alive && (!!sim.state.spectating || (!!net 
 /** Alive opponents in a stable order, for cycling through who to watch. */
 function spectateCandidates(): Actor[] {
   if (!net) return sim.state.actors.filter(actor => !actor.isPlayer && actor.alive);
-  // Online only people and the bots around them are sent to every machine, so those are the ones worth watching.
-  const people = sim.humans.filter(human => human.alive && human.id !== sim.localId);
-  return sim.state.actors.filter(actor => actor.id !== sim.localId && actor.alive && !actor.air
-    && (actor.isPlayer || people.some(person => Math.hypot(person.position.x - actor.position.x, person.position.z - actor.position.z) < 300)));
+  return onlineSpectateCandidates(sim.state.actors, sim.localId);
 }
 
 function spectateTarget(): Actor | null {
@@ -2315,9 +2345,9 @@ function events(dt: number) {
     if ((event.type === 'message' || event.type === 'pickup') && event.for && event.for !== sim.localId) continue;
     matchStats.event(event, { localId: sim.localId, t: sim.state.elapsed, nameOf: id => sim.actorById(id)?.name ?? 'Đối thủ' });
     const ownEcho = !!net?.client && event.type === 'shot' && event.actorId === sim.localId;
-    if (ownEcho && event.type === 'shot' && event.hitId) sim.state.hits++;
+    // Range counters already arrive in the authoritative private snapshot.
+    if (!sim.rangeMode && ownEcho && event.type === 'shot' && event.hitId) sim.state.hits++;
     if (!ownEcho) audio.handle(event, focusPosition());
-    if (net?.client && event.type === 'kill' && event.killerId === sim.localId && event.actorId !== sim.localId) sim.state.kills++;
     if (event.type === 'message') ui.notify(event.text);
     if (event.type === 'portal' && event.actorId === sim.localId) stairsFade(event.down);
     if (event.type === 'shot') {
@@ -2596,6 +2626,7 @@ try {
         net.host.tick(dt);
         for (const text of net.host.takeDeparted()) ui.notify(text);
       } else if (net.client) {
+        net.client.setView(spectating() ? spectateTarget()?.id ?? null : null);
         net.client.tick(now, lastInput, yaw);
         if (net.client.reconnecting && !wasReconnecting) releaseInput();
         else if (!net.client.reconnecting && wasReconnecting) {

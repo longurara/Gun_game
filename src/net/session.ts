@@ -48,16 +48,14 @@ const MAX_REWIND = 0.8;
 /** A client's own idea of where it stood when firing is trusted this far (metres) from where the host has it. */
 const SHOOTER_TRUST = 6;
 
-interface Remote { clientId: string; actorId: string; name: string; lastSeen: number; lastSeq: number; lastCt: number; lastJumpId: number; disconnectedAt: number | null; requestedAt: number; resumedAt: number }
+interface Remote { clientId: string; actorId: string; name: string; lastSeen: number; lastSeq: number; lastCt: number; lastJumpId: number; disconnectedAt: number | null; requestedAt: number; resumedAt: number; builder: SnapshotBuilder; pending: GameEvent[]; watchId: string | null; finalSends: number }
 
 export class HostSession {
-  private builder: SnapshotBuilder;
   private readonly clock: () => number;
   private pending: GameEvent[] = [];
   private since = 0;
   private readonly interval: number;
   private remotes = new Map<string, Remote>();
-  private finalSends = 6;
   private history: PoseFrame[] = [];
   /** Players who left or timed out (reported to the UI once). */
   private gone: string[] = [];
@@ -65,10 +63,9 @@ export class HostSession {
   constructor(readonly sim: GameSimulation, private readonly transport: Transport, setup: MatchSetup, private readonly timeoutMs = CONNECTION_STALE_MS, clock: () => number = () => performance.now()) {
     this.clock = clock;
     this.interval = 1 / netRates(setup.players.length).snapshotHz;
-    this.builder = new SnapshotBuilder(sim);
     setup.players.forEach((player, index) => {
       if (player.clientId === transport.clientId) return;
-      this.remotes.set(player.clientId, { clientId: player.clientId, actorId: actorIdFor(index), name: player.name, lastSeen: this.clock(), lastSeq: -1, lastCt: 0, lastJumpId: 0, disconnectedAt: null, requestedAt: -Infinity, resumedAt: -Infinity });
+      this.remotes.set(player.clientId, { clientId: player.clientId, actorId: actorIdFor(index), name: player.name, lastSeen: this.clock(), lastSeq: -1, lastCt: 0, lastJumpId: 0, disconnectedAt: null, requestedAt: -Infinity, resumedAt: -Infinity, builder: new SnapshotBuilder(sim, actorIdFor(index)), pending: [], watchId: null, finalSends: 6 });
     });
     transport.onMessage((message, from) => this.receive(message, from));
     transport.onPeerState?.((id, state) => {
@@ -99,7 +96,8 @@ export class HostSession {
       if (remote.disconnectedAt !== null) this.gone.push(`${remote.name} đã kết nối lại`);
       remote.disconnectedAt = null; remote.lastSeen = this.clock();
       this.sim.setReconnecting(remote.actorId, false);
-      this.transport.send({ k: 'resume-state', to: from, s: this.builder.build([], true) });
+      this.transport.send({ k: 'resume-state', to: from, s: remote.builder.build(remote.pending, true, remote.watchId) });
+      remote.pending = [];
       return;
     }
     if (message.k !== 'in') return;
@@ -112,6 +110,8 @@ export class HostSession {
     const sim = this.sim;
     const actor = sim.actorById(remote.actorId);
     if (!actor) return;
+    const watched = typeof message.watch === 'string' ? sim.actorById(message.watch) : undefined;
+    remote.watchId = !actor.alive && watched?.alive && (watched.isPlayer || sim.humans.some(h => h.alive && Math.hypot(h.position.x - watched.position.x, h.position.z - watched.position.z) < 300)) ? watched.id : null;
     // Keep the latest press in every input packet: a lost or reordered tap is recovered by the next packet.
     // Repeated ids are not new presses (in particular, they must not open the canopy after a plane jump).
     const jumpId = message.jumpId;
@@ -276,12 +276,21 @@ export class HostSession {
     if (this.since < this.interval - 1e-6) return;
     this.since = this.since > this.interval * 3 ? 0 : this.since - this.interval;
     const over = this.sim.state.phase === 'won' || this.sim.state.phase === 'lost';
-    if (over && this.finalSends-- <= 0) return;
-    const snapshot = this.builder.build(this.pending);
+    const events = this.pending;
     this.pending = [];
-    const echo: Record<string, number> = {};
-    for (const remote of this.remotes.values()) echo[remote.clientId] = remote.lastCt;
-    this.transport.send({ k: 'snap', s: snapshot as unknown as Record<string, unknown>, echo });
+    for (const remote of this.remotes.values()) {
+      if (over && remote.finalSends <= 0) continue;
+      remote.pending.push(...events);
+      if (remote.disconnectedAt !== null || this.transport.snapshotReady?.(remote.clientId) === false) {
+        // Old shot particles/sounds should not replay after congestion. Durable events stay queued.
+        remote.pending = remote.pending.filter(event => event.type !== 'shot');
+        continue;
+      }
+      const snapshot = remote.builder.build(remote.pending, false, remote.watchId);
+      if (over) remote.finalSends--;
+      remote.pending = [];
+      this.transport.send({ k: 'snap', to: remote.clientId, s: snapshot as unknown as Record<string, unknown>, echo: { [remote.clientId]: remote.lastCt } });
+    }
   }
 
   close(): void { this.transport.send({ k: 'closed', why: 'host' }); this.transport.close(); }
@@ -320,6 +329,9 @@ export class ClientSession {
   private seq = 0;
   private lastSend = -Infinity;
   private lastSignature = '';
+  private watchId: string | null = null;
+  /** Send the camera's actor rather than a client-supplied position; the host validates it. */
+  setView(actorId: string | null): void { this.watchId = actorId; }
   private readonly inputInterval: number;
   private readonly snapshotInterval: number;
   /** Host clock (ms) to local clock offset: arrival time minus snapshot time, tracked towards its lower envelope. */
@@ -361,6 +373,7 @@ export class ClientSession {
     this.delay = this.snapshotInterval + 0.05;
     transport.onMessage((message, from) => {
       if (from !== hostId) return;
+      if (typeof message.to === 'string' && message.to !== transport.clientId) return;
       if (message.k === 'snap') this.snapshot(message.s as unknown as Snapshot, (message.echo as Record<string, number> | undefined)?.[transport.clientId]);
       else if (message.k === 'closed') this.closedByHost = true;
       else if (message.k === 'resume-needed' && message.to === transport.clientId) { this.beginRecovery(); this.sendResume(); }
@@ -398,7 +411,7 @@ export class ClientSession {
 
   /** Call once per frame after `sim.update(dt, input)` (which predicted the local movement). */
   tick(nowMs: number, input: PlayerInput, yaw: number): void {
-    if (this.silence * 1000 > CONNECTION_STALE_MS) this.beginRecovery();
+    if (!this.over && this.silence * 1000 > CONNECTION_STALE_MS) this.beginRecovery();
     if (this.recoveryAt !== null) {
       if (nowMs - this.recoveryAt >= RECONNECT_GRACE_MS) this.connectionLost = true;
       else this.sendResume();
@@ -415,9 +428,10 @@ export class ClientSession {
     if (input.jump && !this.jumpDown) { this.edge = true; this.jumpId++; }
     this.jumpDown = input.jump;
     const actions = this.fires.length > 0 || this.cmds.length > 0 || this.edge;
-    const signature = `${q(input.moveX)}|${q(input.moveZ)}|${input.sprint ? 1 : 0}|${input.jump ? 1 : 0}|${q(input.throttle ?? 0)}|${q(input.steer ?? 0)}`;
+    const signature = `${q(input.moveX)}|${q(input.moveZ)}|${input.sprint ? 1 : 0}|${input.jump ? 1 : 0}|${q(input.throttle ?? 0)}|${q(input.steer ?? 0)}|${round3(yaw)}|${this.watchId ?? ''}`;
     const changed = signature !== this.lastSignature;
-    const gap = actions ? ACTION_INTERVAL : changed ? CHANGE_INTERVAL : this.inputInterval;
+    const resting = !me.air && !me.vehicleId && !input.jump && Math.hypot(input.moveX, input.moveZ) < .001;
+    const gap = actions ? ACTION_INTERVAL : changed ? CHANGE_INTERVAL : resting ? 250 : this.inputInterval;
     if (nowMs - this.lastSend < gap) return;
     // Keep the phase of the schedule when frames do not line up with it, so 20 Hz stays 20 Hz at 30 fps.
     this.lastSend = nowMs - this.lastSend < gap * 2 ? this.lastSend + gap : nowMs;
@@ -426,6 +440,7 @@ export class ClientSession {
       k: 'in', seq: ++this.seq, ct: Math.round(nowMs), mx: round3(input.moveX), mz: round3(input.moveZ), sp: input.sprint ? 1 : 0, ju: input.jump ? 1 : 0,
       th: round3(input.throttle ?? 0), st: round3(input.steer ?? 0), yaw: round3(yaw), edge: this.edge ? 1 : 0, jumpId: this.jumpId,
     };
+    if (this.watchId && !me.alive) packet.watch = this.watchId;
     if (this.fires.length) packet.fires = this.fires.splice(0);
     if (this.cmds.length) packet.cmds = this.cmds.splice(0);
     this.edge = false;
@@ -453,7 +468,17 @@ export class ClientSession {
     // Hold the player's own stance / weapon choice until the host reports the same (or a generous time has passed).
     const grace = Math.max(800, this.rttMs * 2 + 400);
     const holds = (key: 'stance' | 'switch') => { const item = this.intent[key]; if (item && now - item.at > grace) delete this.intent[key]; return !!this.intent[key]; };
-    const result = applySnapshot(this.sim, snap, { writePositions: resumed, protectAmmo: !resumed && now - this.lastFireAt < 350, keepFlight: !resumed && this.regressStreak < 12, keepStance: !resumed && holds('stance'), keepWeapon: !resumed && holds('switch'), predictDriving: !resumed });
+    const enteringActors = new Set(snap.a.filter(row => this.sim.state.actors[row[0]]?.netVisible === false).map(row => row[0]));
+    const enteringCars = new Set(snap.c.filter(row => this.sim.state.vehicles[row[0]]?.netVisible === false).map(row => row[0]));
+    const result = applySnapshot(this.sim, snap, { writePositions: resumed, restoreMotion: resumed, protectAmmo: !resumed && now - this.lastFireAt < 350, keepFlight: !resumed && this.regressStreak < 12, keepStance: !resumed && holds('stance'), keepWeapon: !resumed && holds('switch'), predictDriving: !resumed });
+    if (resumed && result.local) {
+      const { x, y, z, yaw } = result.local;
+      this.sim.player.position = { x, y, z }; this.sim.player.yaw = yaw;
+    }
+    for (const old of this.buffer) {
+      for (const index of enteringActors) old.poses.delete(index);
+      for (const index of enteringCars) old.cars.delete(index);
+    }
     if (this.sim.player.reconnecting && !resumed) this.beginRecovery();
     if (result.local) {
       const [, , , , , , flags, weapon] = result.local.row;
@@ -543,7 +568,8 @@ export class ClientSession {
     const dx = truth.x - reference.x, dy = truth.y - reference.y, dz = truth.z - reference.z;
     const horizontal = Math.hypot(dx, dz);
     // How far the two can differ from timing alone: the speed times the uncertainty of when the host saw the input.
-    const tolerance = 0.3 + this.sim.motionOf(me).speed * this.inputInterval / 2000;
+    const timing = this.inputInterval / 2000 + Math.min(0.025, this.excessPeak / 1000);
+    const tolerance = 0.3 + this.sim.motionOf(me).speed * timing;
     if (horizontal < tolerance && Math.abs(dy) < 0.8) return;
     if (horizontal > 8 || Math.abs(dy) > 8) {
       me.position.x += dx + this.pending.x; me.position.y += dy + this.pending.y; me.position.z += dz + this.pending.z;
@@ -625,11 +651,12 @@ export class ClientSession {
     for (const [index, from] of older.poses) {
       if (index === localIndex) continue;
       const actor = this.sim.state.actors[index];
-      if (!actor) continue;
+      if (!actor || actor.netVisible === false) continue;
       place(actor, from, newer.poses.get(index) ?? from);
     }
     const driver = this.sim.player;
     this.sim.state.vehicles.forEach((car, index) => {
+      if (car.netVisible === false) return;
       // The car the local player drives is predicted, not drawn from the past.
       if (driver.vehicleId === car.id && car.driverId === driver.id) return;
       const from = older.cars.get(index);
@@ -654,7 +681,7 @@ export class ClientSession {
 
   /** Seconds since the host last sent anything. */
   get silence(): number { return (this.clock() - this.lastSnapshotAt) / 1000; }
-  get reconnecting(): boolean { return this.recoveryAt !== null || this.silence * 1000 > CONNECTION_STALE_MS; }
+  get reconnecting(): boolean { return this.recoveryAt !== null || (!this.over && this.silence * 1000 > CONNECTION_STALE_MS); }
   get reconnectSeconds(): number { return Math.max(0, Math.ceil((RECONNECT_GRACE_MS - (this.clock() - (this.recoveryAt ?? this.lastSnapshotAt + CONNECTION_STALE_MS))) / 1000)); }
   private beginRecovery(): void {
     if (this.recoveryAt !== null) return;

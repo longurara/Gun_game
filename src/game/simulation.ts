@@ -409,7 +409,8 @@ export class GameSimulation {
   setReconnecting(actorId: string, paused: boolean): void {
     const actor = this.actorById(actorId);
     if (!actor?.isPlayer) return;
-    if (paused && actor.alive) actor.reconnecting = true; else delete actor.reconnecting;
+    // A range respawn must retain the session's protection if the link was lost while dead.
+    if (paused) actor.reconnecting = true; else delete actor.reconnecting;
     this.setHumanInput(actorId, ZERO_INPUT);
     this.jumpHeldBy.set(actorId, false);
     this.pendingPresses.delete(actorId);
@@ -424,6 +425,13 @@ export class GameSimulation {
     const runtime = this.runtime(actor);
     runtime.velocityY = motion.vy;
     runtime.speedNow = motion.speed;
+  }
+
+  /** Reconnect: discard an interrupted local vault/jump before restoring the host's movement. */
+  restoreMotion(actor: Actor, motion: { vy: number; speed: number }): void {
+    this.setMotion(actor, motion);
+    this.runtime(actor).vault = null;
+    this.jumpHeldBy.delete(actor.id);
   }
 
   /**
@@ -1907,7 +1915,7 @@ export class GameSimulation {
     let best = null as Vehicle | null;
     let nearest = VEHICLE_REACH;
     for (const v of this.state.vehicles) {
-      if (v.driverId || v.health <= 0) continue;
+      if (v.driverId || v.health <= 0 || v.netVisible === false) continue;
       const d = distance2(v.position, actor.position);
       if (d < nearest) { best = v; nearest = d; }
     }
@@ -2377,7 +2385,7 @@ export class GameSimulation {
     const ground = this.terrainHit(origin, direction, closest.distance);
     if (ground !== null && ground < closest.distance) closest = { distance: ground };
     for (const car of this.state.vehicles) {
-      if (car.health <= 0) continue;
+      if (car.health <= 0 || car.netVisible === false) continue;
       const dx = origin.x - car.position.x, dz = origin.z - car.position.z;
       if (Math.hypot(dx, dz) > closest.distance + 4) continue;
       // Rotate the ray into the car's own frame (x to its right, z forward) and test an upright box.
@@ -2390,7 +2398,7 @@ export class GameSimulation {
       if (hit !== null && hit < closest.distance) closest = { distance: hit, vehicle: car };
     }
     for (const actor of this.state.actors) {
-      if (!actor.alive || actor.id === ignoreId || actor.air || actor.hidden) continue;
+      if (!actor.alive || actor.id === ignoreId || actor.air || actor.hidden || actor.netVisible === false) continue;
       // Inside a car you are covered; on a bike or in a buggy nothing shields you.
       if (actor.vehicleId && !this.exposedRider(actor)) continue;
       const p = actor.position;

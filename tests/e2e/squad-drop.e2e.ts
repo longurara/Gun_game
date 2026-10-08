@@ -95,7 +95,17 @@ test('production room selects a guest leader; real WebRTC carries a squad drop; 
     await host.keyboard.press('KeyJ');
     await host.waitForFunction(() => !(window as any).__LASTLIGHT__.simulation.player.dropFollowing);
     await host.waitForFunction(() => (document.querySelector('#air-detach') as HTMLElement).hidden);
-    assert.ok(broadcasts.every(message => ['hello', 'roster', 'rtc-signal', 'reject'].includes(message.k)), 'follow and detach use data channels, not Supabase gameplay messages');
+    const leaderName = await leader.evaluate(() => (window as any).__LASTLIGHT__.simulation.player.name);
+    await host.evaluate(({ victimId, killerId }) => {
+      const sim = (window as any).__LASTLIGHT__.simulation;
+      sim.damage(sim.actorById(victimId), 1000, killerId);
+    }, { victimId: mateId, killerId: actualLeader });
+    await mate.waitForFunction(name => document.querySelector('#spectate-name')?.textContent?.includes(name.toUpperCase()), leaderName);
+    assert.equal(await mate.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.spectating), true);
+    assert.equal(await host.evaluate(id => (window as any).__LASTLIGHT__.simulation.actorById(id).air?.mode, actualLeader), 'chute', 'the surviving leader can be watched while still airborne');
+    const unexpectedSignals = [...new Set(broadcasts.map(message => message.k).filter(kind => !['hello', 'roster', 'rtc-signal', 'rtc-reconnect', 'reject'].includes(kind)))];
+    assert.deepEqual(unexpectedSignals, [], 'follow, detach and spectate use data channels; only discovery/handshake/reconnect signaling can use Supabase');
+    assert.ok(broadcasts.every(message => !message.token), 'private reconnect tickets never appear in signaling');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await server.close(); }
 });

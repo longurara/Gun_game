@@ -3,11 +3,11 @@
  */
 import type { NetMessage } from './transport';
 
-export const WIRE_VERSION = 2;
+export const WIRE_VERSION = 3;
 export const MAX_WIRE_BYTES = 256 * 1024;
 const MAX_NODES = 100_000;
 const MAX_DEPTH = 64;
-const KEYS = ('k s echo v seq t zone plane a c loot add off all drops pr sm fi priv humans ev over id weapon owned ammo reserve medkits helmet vest reload heal sup boost hk tk bl pk ps att ml br hb air vy speed setup seed map botCount difficulty drop players clientId name skin type actorId sourceId from to position damage amount kind x y z yaw mx mz sp ju th st edge jumpId ct fires cmds rtc-ping rtc-pong in snap start closed why host shot explosion throw smoke fire flash portal').split(' ');
+const KEYS = ('k s echo v seq t zone plane a c loot add off all drops pr sm fi priv humans ev over id weapon owned ammo reserve medkits helmet vest reload heal sup boost hk tk bl pk ps att ml br hb air vy speed setup seed map botCount difficulty drop players clientId name skin type actorId sourceId from to position damage amount kind x y z yaw mx mz sp ju th st edge jumpId ct fires cmds rtc-ping rtc-pong in snap start closed why host shot explosion throw smoke fire flash portal view pub watch alive').split(' ');
 const KEY_INDEX = new Map(KEYS.map((key, index) => [key, index]));
 const utf8 = new TextEncoder();
 const text = new TextDecoder('utf-8', { fatal: true });

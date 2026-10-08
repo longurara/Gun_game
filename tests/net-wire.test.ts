@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GameSimulation } from '../src/game/simulation.ts';
 import { SnapshotBuilder } from '../src/net/protocol.ts';
-import { fragment, MAX_WIRE_BYTES, MissingBaseline, WireAssembly, WireDecoder, WireEncoder } from '../src/net/wire.ts';
+import { fragment, MAX_WIRE_BYTES, MissingBaseline, WireAssembly, WireDecoder, WireEncoder, WIRE_VERSION } from '../src/net/wire.ts';
 import type { NetMessage } from '../src/net/transport.ts';
 
 test('binary frames preserve UTF-8, decimal rounding, large numbers and command arrays exactly', () => {
@@ -73,7 +73,7 @@ test('malformed frames, unbounded lengths, unsafe keys and unsupported versions 
   for (let length = 0; length < valid.length; length++) assert.throws(() => decoder.decode(valid.subarray(0, length)));
   const version = valid.slice(); version[2] = 99; assert.throws(() => decoder.decode(version));
   assert.throws(() => decoder.decode(new Uint8Array([...valid, 0])));
-  assert.throws(() => decoder.decode(new Uint8Array([0x4c, 0x4c, 2, 0, 7, 255, 255, 255, 255, 15])));
+  assert.throws(() => decoder.decode(new Uint8Array([0x4c, 0x4c, WIRE_VERSION, 0, 7, 255, 255, 255, 255, 15])));
   assert.throws(() => new WireEncoder().encode(JSON.parse('{"k":"in","__proto__":{}}')));
   assert.throws(() => new WireEncoder().encode({ k: 'in', invalid: Infinity }));
 });

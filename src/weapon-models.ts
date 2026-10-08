@@ -79,6 +79,11 @@ function templateFor(weapon: WeaponType, scene: Scene): Template {
   return template;
 }
 
+/** Loot with the same loaded asset can share a merged mesh even when its gameplay weapon differs. */
+export function weaponModelKey(weapon: WeaponType, scene: Scene): string {
+  return templateFor(weapon, scene).meshes.map(mesh => mesh.uniqueId).join(',');
+}
+
 function flashTemplate(scene: Scene): Mesh {
   let flash = flashes.get(scene);
   if (flash && !flash.isDisposed()) return flash;

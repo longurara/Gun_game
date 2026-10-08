@@ -24,6 +24,7 @@ interface Peer {
   acceptedRevision: number | null; description: RTCSessionDescriptionInit | null;
   relayCandidate: boolean; error?: string;
   generation: number; token: string; disposed: boolean;
+  snapshotAt: number;
 }
 export interface WebRTCOptions {
   configuration?: RTCConfiguration;
@@ -102,6 +103,15 @@ export class WebRTCTransport implements Transport {
   netStats(): PeerStats[] {
     return [...this.peers.values()].map(peer => ({ id: peer.id, state: peer.state, route: peer.route,
       rttMs: peer.rttMs, bufferedBytes: peer.channel?.bufferedAmount ?? 0, ...(peer.error ? { error: peer.error } : {}) }));
+  }
+
+  snapshotReady(id: string): boolean {
+    const peer = this.peers.get(id);
+    if (!peer || peer.state !== 'open' || peer.channel?.readyState !== 'open') return false;
+    const buffered = peer.channel.bufferedAmount;
+    if (buffered >= 16 * 1024) return false;
+    const gap = buffered >= 8 * 1024 ? 200 : buffered >= 4 * 1024 ? 100 : 0;
+    return this.now() - peer.snapshotAt >= gap;
   }
 
   private roster(message: NetMessage, from: string): boolean {
@@ -246,6 +256,7 @@ export class WebRTCTransport implements Transport {
       const pc = this.options.peerConnection ? this.options.peerConnection(configuration) : new RTCPeerConnection(configuration);
       const now = this.now();
       const peer: Peer = { id, session, pc, channel: null, state: 'connecting', route: 'unknown', rttMs: null,
+        snapshotAt: -Infinity,
         created: now, seen: now, disconnected: null, restarted: false, ping: null, seq: 0,
         encoder: new WireEncoder(), decoder: new WireDecoder(), assembly: new WireAssembly(),
         chain: Promise.resolve(), ice: [], outgoingIce: [], descriptionSent: false,
@@ -401,6 +412,7 @@ export class WebRTCTransport implements Transport {
           peer.channel.send(part.buffer as ArrayBuffer);
         }
       }
+      if (message.k === 'snap') peer.snapshotAt = this.now();
     } catch (error) { this.fail(peer, this.operationError('Gửi dữ liệu WebRTC', error)); }
   }
 

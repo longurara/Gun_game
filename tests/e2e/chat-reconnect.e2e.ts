@@ -97,11 +97,20 @@ test('native P2P room chat and reconnect restore a protected client without inte
     await host.waitForTimeout(6500);
     assert.ok(await mate.evaluate(t => (window as any).__LASTLIGHT__.simulation.state.elapsed > t + 4, before), 'other guest keeps playing');
     assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.phase), 'playing');
+    await host.evaluate(id => { (window as any).__LASTLIGHT__.simulation.actorById(id).kills = 5; }, actorId);
     blocked.delete(guest); await guest.context().setOffline(false);
     await guest.waitForFunction(() => !(window as any).__LASTLIGHT__.net().client.reconnecting && (document.querySelector('#reconnect-banner') as HTMLElement).hidden, undefined, { timeout: 20000 });
     await host.waitForFunction(id => !(window as any).__LASTLIGHT__.simulation.actorById(id).reconnecting, actorId);
     assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.localId), actorId);
     assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.player.health), 70);
+    assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.kills), 5, 'resume repairs battle kill totals without replaying kill events');
+    await host.evaluate(id => {
+      const sim = (window as any).__LASTLIGHT__.simulation;
+      const victim = sim.state.actors.find((actor: any) => !actor.isPlayer && actor.alive);
+      sim.damage(victim, 1000, id);
+    }, actorId);
+    await guest.waitForFunction(() => (window as any).__LASTLIGHT__.simulation.player.kills === 6);
+    assert.equal(await guest.evaluate(() => (window as any).__LASTLIGHT__.simulation.state.kills), 6, 'a normal kill echo cannot count the authoritative total twice');
     assert.ok(await host.evaluate(id => (window as any).__LASTLIGHT__.net().transport.peers.get(id).generation >= 1, clientId));
     await guest.waitForFunction(() => document.querySelector('#chat-log')?.textContent?.includes('Tin nhắn khi Minh mất mạng'));
     assert.equal(await guest.locator('#chat-log p').filter({ hasText: text }).count(), 1);

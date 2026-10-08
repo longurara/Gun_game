@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { WebRTCTransport } from '../src/net/webrtc.ts';
 import { rtcConfiguration, loadRtcConfiguration } from '../src/net/config.ts';
 import type { NetMessage, Transport, TransportStatus } from '../src/net/transport.ts';
-import { fragment, WireDecoder, WireEncoder } from '../src/net/wire.ts';
+import { fragment, WireDecoder, WireEncoder, WIRE_VERSION } from '../src/net/wire.ts';
 import { reconnectProof } from '../src/net/reconnect-auth.ts';
 import { connectionConfiguration } from '../src/net/connection-mode.ts';
 
@@ -124,7 +124,7 @@ test('a brief match disconnection recovers on the existing channel; a stale offe
   const signals = new Signaling(); signals.clientId = 'guest'; const pcs: PeerConnection[] = [];
   const client = new WebRTCTransport(signals, 'client', { clock: () => now, peerConnection: () => { const pc = new PeerConnection(); pcs.push(pc); return pc as any; } });
   t.after(() => client.close());
-  signals.receive({ k: 'roster', rtc: 2, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
+  signals.receive({ k: 'roster', rtc: WIRE_VERSION, players: [{ id: 'host' }, { id: 'guest' }] }, 'host');
   const offer = (session: string, generation: number) => ({ k: 'rtc-signal', to: 'guest', session, generation, revision: 1, description: { type: 'offer', sdp: session } });
   signals.receive(offer('first', 0), 'host'); await flush();
   signals.receive(offer('new', 1), 'host'); await flush();
@@ -169,7 +169,7 @@ test('mixed wire versions fail in the lobby with a reload message instead of a b
   const { signaling, transport } = host(); t.after(() => transport.close()); await flush();
   signaling.receive({ k: 'hello', rtc: 1 }, 'old-guest');
   assert.deepEqual(signaling.sent.at(-1), { k: 'reject', to: 'old-guest', why: 'webrtc' });
-  assert.equal(signaling.sent.find(m => m.k === 'roster')!.rtc, 2);
+  assert.equal(signaling.sent.find(m => m.k === 'roster')!.rtc, WIRE_VERSION);
   const clientSignals = new Signaling(); clientSignals.clientId = 'guest';
   const client = new WebRTCTransport(clientSignals, 'client', { peerConnection: () => new PeerConnection() as unknown as RTCPeerConnection }); t.after(() => client.close());
   const errors: string[] = []; client.onStatus((status, detail) => { if (status === 'error') errors.push(detail!); });
@@ -200,6 +200,22 @@ test('a congested peer is disconnected without queuing unbounded data or ending 
   assert.deepEqual(received, ['a']); assert.equal(pcs[0].closed, true); assert.equal(pcs[1].closed, false);
   assert.equal(read(pcs[1].channel.sent.at(-1)!).k, 'snap');
   transport.close(); assert.equal(signaling.closed, true); assert.equal(pcs[1].closed, true);
+});
+
+test('snapshot flow control slows only the congested guest, leaves critical traffic reliable and preserves baselines', async t => {
+  let now = 1000;
+  const { transport, pcs } = host(['a', 'b'], () => now); t.after(() => transport.close()); await flush();
+  pcs.forEach(pc => pc.channel.open()); transport.send({ k: 'start' });
+  const decoder = new WireDecoder(), make = (seq: number) => ({ k: 'snap', to: 'a', s: { seq, unchanged: Array(100).fill('same') } });
+  transport.send(make(1)); decoder.decode(new Uint8Array(pcs[0].channel.sent.at(-1)!));
+  pcs[0].channel.bufferedAmount = 9000;
+  assert.equal(transport.snapshotReady('a'), false); assert.equal(transport.snapshotReady('b'), true);
+  now += 200; assert.equal(transport.snapshotReady('a'), true);
+  pcs[0].channel.bufferedAmount = 16384; assert.equal(transport.snapshotReady('a'), false);
+  transport.send({ k: 'chat', to: 'a', text: 'reliable' }); assert.equal(read(pcs[0].channel.sent.at(-1)!).k, 'chat');
+  assert.equal(transport.netStats()[0].state, 'open');
+  pcs[0].channel.bufferedAmount = 0; assert.equal(transport.snapshotReady('a'), true);
+  transport.send(make(2)); assert.deepEqual(decoder.decode(new Uint8Array(pcs[0].channel.sent.at(-1)!)), make(2));
 });
 
 test('ICE configuration supports STUN/TURN and rejects invalid JSON/servers', () => {
@@ -247,8 +263,8 @@ test('host honors a different route for each guest and preserves it during recon
     peerConnection: configuration => { configurations.push(configuration); const pc = new PeerConnection(); pcs.push(pc); return pc as unknown as RTCPeerConnection; },
   });
   t.after(() => transport.close());
-  signaling.receive({ k: 'hello', rtc: 2, connectionMode: 'p2p' }, 'direct');
-  signaling.receive({ k: 'hello', rtc: 2, connectionMode: 'turn' }, 'relay');
+  signaling.receive({ k: 'hello', rtc: WIRE_VERSION, connectionMode: 'p2p' }, 'direct');
+  signaling.receive({ k: 'hello', rtc: WIRE_VERSION, connectionMode: 'turn' }, 'relay');
   transport.send({ k: 'roster', players: ['host', 'direct', 'relay'].map(id => ({ id })) });
   now = 1000; (transport as any).nextOffer(); await flush();
   assert.equal(configurations[0].iceTransportPolicy, 'all');

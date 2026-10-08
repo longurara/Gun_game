@@ -4,6 +4,7 @@ import { WebRTCTransport } from '../../src/net/webrtc';
 import { GameSimulation } from '../../src/game/simulation';
 import { HostSession, ClientSession, matchOptions } from '../../src/net/session';
 import type { NetMessage, Transport, TransportStatus } from '../../src/net/transport';
+import type { MapId } from '../../src/types';
 import '../../src/lobby.css';
 import '../../src/network-signal.css';
 
@@ -13,6 +14,7 @@ const harness = window as any;
 let transport: WebRTCTransport | null = null, sim: GameSimulation | null = null;
 let host: HostSession | null = null, client: ClientSession | null = null;
 let input = { moveX: 0, moveZ: 0, sprint: false, jump: false };
+let lastSnapshot: any = null;
 let blocked = false;
 const received: Array<{ k: string; from: string }> = [];
 class Signaling implements Transport {
@@ -36,7 +38,7 @@ const view = new LobbyView(document.getElementById('ui-root')!, {
   onStart: () => controller.start(), onLeave: () => controller.leave(), onClose: () => view.show(false),
 });
 const controller = new MultiplayerController(view, {
-  config: () => ({ map: 'arena', botCount: 3, difficulty: 'normal' }),
+  config: () => ({ map: (params.get('map') === 'island' ? 'island' : 'arena') as MapId, botCount: 3, difficulty: 'normal' }),
   makeTransport: () => {
     blocked = false;
     transport = new WebRTCTransport(new Signaling(), params.get('role') === 'host' ? 'host' : 'client', {
@@ -51,7 +53,7 @@ const controller = new MultiplayerController(view, {
         return pc;
       } } : {}),
     });
-    transport.onMessage((message, from) => received.push({ k: message.k, from }));
+    transport.onMessage((message, from) => { received.push({ k: message.k, from }); if (message.k === 'snap') lastSnapshot = message.s; });
     return transport;
   },
   begin: info => {
@@ -72,7 +74,7 @@ const timer = setInterval(() => {
   if (client) { client.tick(now, input, 0); client.frame(now); }
 }, 16);
 harness.__RTC_FIXTURE__ = {
-  controller, get transport() { return transport; }, get sim() { return sim; }, get client() { return client; }, get host() { return host; }, received,
+  controller, get transport() { return transport; }, get sim() { return sim; }, get client() { return client; }, get host() { return host; }, get lastSnapshot() { return lastSnapshot; }, received,
   move: (z: number) => { input.moveZ = z; },
   blockSignaling: () => { blocked = true; harness.__SIGNAL_STATUS__('error'); },
   close: () => { clearInterval(timer); if (host) host.close(); else if (client) client.leave(); else controller.leave(); },

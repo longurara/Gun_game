@@ -34,7 +34,7 @@ async function captureWire(page: Page): Promise<void> {
   });
 }
 
-async function room(size: number, noIce = false, loseSignals = false, varyAnswer = false) {
+async function room(size: number, noIce = false, loseSignals = false, varyAnswer = false, map = 'arena') {
   const pages: Page[] = [], signals: Array<{ from: string; message: any }> = [], errors: string[] = [];
   const dropped = new Set<string>();
   for (let i = 0; i < size; i++) {
@@ -63,7 +63,7 @@ async function room(size: number, noIce = false, loseSignals = false, varyAnswer
       }
     });
     pages.push(page);
-    await page.goto(`${url}/tests/fixtures/webrtc.html?id=p${i}&role=${i ? 'client' : 'host'}${noIce ? '&no-ice=1' : ''}${loseSignals ? '&loss=1' : ''}`);
+    await page.goto(`${url}/tests/fixtures/webrtc.html?id=p${i}&role=${i ? 'client' : 'host'}&map=${map}${noIce ? '&no-ice=1' : ''}${loseSignals ? '&loss=1' : ''}`);
     await page.waitForFunction(() => !!(window as any).__RTC_FIXTURE__);
   }
   const host = pages[0]; await host.click('#mp-create');
@@ -83,6 +83,49 @@ test('native WebRTC ignores a changed duplicate answer after the first answer re
     assert.equal(await r.host.locator('#mp-error').textContent(), '');
     await r.host.click('#mp-start');
     await r.pages[1].waitForFunction(() => (window as any).__RTC_FIXTURE__.client?.netStats().snapshotsPerSecond > 0);
+    assert.deepEqual(r.errors, []);
+  } finally { await r.close(); }
+});
+
+test('native recipient views follow spectating and recover congestion without losing kills or leaving stale entities', async () => {
+  const r = await room(3, false, false, false, 'island');
+  try {
+    await r.host.waitForFunction(() => !(document.querySelector('#mp-start') as HTMLButtonElement).disabled);
+    await r.host.click('#mp-start');
+    const [host, a, b] = r.pages;
+    await Promise.all(r.pages.map(page => page.waitForFunction(() => (window as any).__RTC_FIXTURE__.sim?.state.phase === 'playing')));
+    await host.evaluate(() => {
+      const s = (window as any).__RTC_FIXTURE__.sim;
+      for (const actor of s.state.actors) actor.air = null;
+      if (s.state.plane) s.state.plane.active = false;
+      for (const actor of s.humans) actor.position = { x: actor.id === 'p2' ? 1200 : -1200, y: s.heightAt(actor.id === 'p2' ? 1200 : -1200, 0), z: 0 };
+      for (const [id, x] of [['bot-1', -1180], ['bot-2', 1180]] as const) s.actorById(id).position = { x, y: s.heightAt(x, 0), z: 0 };
+      s.state.vehicles[0].position = { x: -1185, y: s.heightAt(-1185, 0), z: 0 };
+    });
+    await a.waitForFunction(() => { const f = (window as any).__RTC_FIXTURE__; return f.sim.actorById('bot-1').netVisible && f.sim.actorById('bot-2').netVisible === false; });
+    await b.waitForFunction(() => { const f = (window as any).__RTC_FIXTURE__; return f.sim.actorById('bot-2').netVisible && f.sim.actorById('bot-1').netVisible === false; });
+    assert.deepEqual(await a.evaluate(() => (window as any).__RTC_FIXTURE__.lastSnapshot.priv.map((row: any) => row.id)), ['p1']);
+    assert.deepEqual(await b.evaluate(() => (window as any).__RTC_FIXTURE__.lastSnapshot.priv.map((row: any) => row.id)), ['p2']);
+    await a.evaluate(() => (window as any).__RTC_FIXTURE__.client.drainEvents());
+    const before = await a.evaluate(() => (window as any).__RTC_FIXTURE__.lastSnapshot.seq);
+    const otherBefore = await b.evaluate(() => (window as any).__RTC_FIXTURE__.lastSnapshot.seq);
+    await host.evaluate(() => {
+      const f = (window as any).__RTC_FIXTURE__, peer = f.transport.peers.get('p1');
+      Object.defineProperty(peer.channel, 'bufferedAmount', { configurable: true, value: 32768 });
+      f.sim.damage(f.sim.actorById('bot-1'), 1000, 'p0');
+    });
+    await b.waitForFunction(seq => (window as any).__RTC_FIXTURE__.lastSnapshot.seq > seq + 5, otherBefore);
+    const held = await a.evaluate(() => (window as any).__RTC_FIXTURE__.lastSnapshot.seq);
+    assert.ok(held <= before + 1, 'one guest holds its view without blocking others');
+    assert.equal(await host.evaluate(() => (window as any).__RTC_FIXTURE__.transport.netStats().find((p: any) => p.id === 'p1').state), 'open');
+    await host.evaluate(() => { delete (window as any).__RTC_FIXTURE__.transport.peers.get('p1').channel.bufferedAmount; });
+    await a.waitForFunction(() => !(window as any).__RTC_FIXTURE__.sim.actorById('bot-1').alive);
+    assert.ok(await a.evaluate(() => (window as any).__RTC_FIXTURE__.client.drainEvents().some((event: any) => event.type === 'kill' && event.actorId === 'bot-1')));
+    await host.evaluate(() => { const s = (window as any).__RTC_FIXTURE__.sim; s.damage(s.actorById('p1'), 1000, 'p0'); });
+    await a.waitForFunction(() => !(window as any).__RTC_FIXTURE__.sim.player.alive);
+    await a.evaluate(() => (window as any).__RTC_FIXTURE__.client.setView('p2'));
+    await a.waitForFunction(() => (window as any).__RTC_FIXTURE__.sim.actorById('bot-2').netVisible && (window as any).__RTC_FIXTURE__.sim.actorById('bot-1').netVisible === false);
+    await a.waitForFunction(() => (window as any).__RTC_FIXTURE__.sim.state.vehicles[0].netVisible === false);
     assert.deepEqual(r.errors, []);
   } finally { await r.close(); }
 });
