@@ -660,7 +660,8 @@ export class GameSimulation {
     if (previous === kind) return false;
     worn[slot] = kind;
     actor.parts[kind]--;
-    if (previous) actor.parts[previous]++;
+    // The part taken off goes back in the pack, or on the ground when it no longer fits (a 4x scope is bigger than a 2x).
+    if (previous) { if (this.roomFor(actor, spaceOf(previous), 1) >= 1) actor.parts[previous]++; else this.dropLoot(actor, previous, 0.9); }
     if (previous === 'extmag') this.trimMagazine(actor, weapon);
     if (actor.isPlayer) this.tell(actor, `Đã gắn ${ATTACH[kind].label.toLowerCase()}.`);
     return true;
@@ -935,8 +936,13 @@ export class GameSimulation {
     if (isWeaponKind(kind)) {
       const loaded = loot.loadedAmmo ?? WEAPONS[kind].magazine;
       if (!Number.isSafeInteger(loaded) || loaded < 0 || loaded > WEAPONS[kind].magazine) return false;
+      const ammo = WEAPONS[kind].ammoType;
       if (actor.ownedWeapons.includes(kind)) {
-        actor.reserve[WEAPONS[kind].ammoType] += loaded;
+        // A second copy of a gun only empties its magazine into the pack, as far as the pack allows.
+        const take = this.roomFor(actor, spaceOf(ammoKindOf(ammo), ammo), loaded);
+        if (take < loaded && take < 1) { if (actor.isPlayer) this.tell(actor, 'Ba lô đã đầy.'); return false; }
+        actor.reserve[ammo] += take;
+        if (take < loaded) { loot.loadedAmmo = loaded - take; return true; }
       } else {
         const sidearm = isSidearm(kind);
         const group = actor.ownedWeapons.filter(w => isSidearm(w) === sidearm);
@@ -948,7 +954,12 @@ export class GameSimulation {
         }
         actor.ownedWeapons.push(kind);
         actor.ammo[kind] = loaded;
-        if (loot.loadedAmmo === undefined) actor.reserve[WEAPONS[kind].ammoType] += WEAPONS[kind].magazine;
+        // A fresh world gun comes with a spare magazine; what the pack cannot hold is left on the ground.
+        if (loot.loadedAmmo === undefined) {
+          const spare = WEAPONS[kind].magazine, take = this.roomFor(actor, spaceOf(ammoKindOf(ammo), ammo), spare);
+          actor.reserve[ammo] += take;
+          if (take < spare) this.dropLoot(actor, ammoKindOf(ammo), 0.8, { amount: spare - take });
+        }
         // Taking a gun while the matching slot was empty keeps the weapon in hand; a swap equips the new one.
         if (equip && actor.isPlayer) { actor.weapon = kind; actor.reloading = 0; this.runtime(actor).reloadWeapon = null; }
         else if (equip) this.botSwitch(actor, kind);
@@ -1179,12 +1190,26 @@ export class GameSimulation {
         let kind: LootKind = table[0][0];
         for (const [candidate, weight] of table) { kind = candidate; if ((roll -= weight) < 0) break; }
         const x = spot.x + (this.lootRandom() - 0.5) * 2.4, z = spot.z + (this.lootRandom() - 0.5) * 2.4;
-        add(kind, x, z, spot.y);
-        if (pick === 0 && spot.bias === 'medical') add('medkit', x - 0.8, z - 0.6, spot.y);
-        if (isWeaponKind(kind)) add(ammoKindFor(kind), x + 0.7, z + 0.5, spot.y);
-        else if (this.lootRandom() < 0.5) add(ammoKindOf(COMMON_AMMO[Math.floor(this.lootRandom() * COMMON_AMMO.length)]), x + 0.7, z + 0.5, spot.y);
+        const put = (item: LootKind, px: number, pz: number) => { const p = this.settleLoot(spot, px, pz); add(item, p.x, p.z, p.y); };
+        put(kind, x, z);
+        if (pick === 0 && spot.bias === 'medical') put('medkit', x - 0.8, z - 0.6);
+        if (isWeaponKind(kind)) put(ammoKindFor(kind), x + 0.7, z + 0.5);
+        else if (this.lootRandom() < 0.5) put(ammoKindOf(COMMON_AMMO[Math.floor(this.lootRandom() * COMMON_AMMO.length)]), x + 0.7, z + 0.5);
       }
     }
+  }
+
+  /**
+   * Where a pickup scattered around `spot` can lie: pulled back towards the spot until it rests on the spot's own floor or
+   * ground, clear of walls, crates and water. Without this an item lands inside a wall, in a crate or off a floor's edge.
+   */
+  private settleLoot(spot: Vec3, x: number, z: number): Vec3 {
+    for (const t of [1, 0.5, 0]) {
+      const px = spot.x + (x - spot.x) * t, pz = spot.z + (z - spot.z) * t;
+      const y = this.supportHeight(px, pz, spot.y + 0.3);
+      if (Math.abs(y - spot.y) < 0.6 && this.walkable({ x: px, z: pz }, 0.15, y, 0.9)) return { x: px, y, z: pz };
+    }
+    return { x: spot.x, y: spot.y, z: spot.z };
   }
 
   private scatterArenaLoot(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
@@ -1213,7 +1238,8 @@ export class GameSimulation {
   /** Every gun not in the spawn cache, racked by class behind the spawn point so they can all be handled in the arena. */
   private layOutArmoury(add: (kind: LootKind, x: number, z: number, y?: number) => void): void {
     const core = new Set<string>(CORE_WEAPONS);
-    const columns = 15;
+    // Twenty to a shelf keeps every row (one class or more per row) inside the 100 m arena edge.
+    const columns = 20;
     let index = 0;
     for (const guns of Object.values(GUNS_BY_CLASS)) {
       for (const gun of guns) {
@@ -1881,9 +1907,10 @@ export class GameSimulation {
     for (const kind of [...contents]) if (isWeaponKind(kind)) contents.push(ammoKindFor(kind), ammoKindFor(kind));
     contents.forEach((kind, index) => {
       const angle = index / contents.length * Math.PI * 2;
-      const x = drop.x + Math.cos(angle) * 1.8, z = drop.z + Math.sin(angle) * 1.8;
+      // The landing point was checked, the ring around it was not: keep each item out of trees, rocks and water.
+      const position = this.settleLoot({ x: drop.x, y: ground, z: drop.z }, drop.x + Math.cos(angle) * 1.8, drop.z + Math.sin(angle) * 1.8);
       const id = `${drop.id}-${index}`;
-      this.state.loot.push({ id, kind, position: { x, y: this.heightAt(x, z), z }, active: true });
+      this.state.loot.push({ id, kind, position, active: true });
       drop.loot.push(id);
     });
     this.events.push({ type: 'airdrop', stage: 'landed', position: { x: drop.x, y: ground, z: drop.z } });
@@ -2444,22 +2471,39 @@ export class GameSimulation {
       if (sourceId === this.player.id && actor !== this.player) this.state.kills++;
       this.events.push({ type: 'kill', actorId: actor.id, ...(sourceId ? { killerId: sourceId } : {}), ...(how.cause ? { cause: how.cause } : {}), ...(how.head ? { head: true } : {}), at: { ...actor.position }, ...(killer ? { from: { ...killer.position } } : {}) });
       // In a match with other people a fallen person drops their gear too.
-      if ((!actor.isPlayer || this.options.humans > 1) && !this.rangeMode) {
-        const dropPosition = (offset: number): Vec3 => {
-          const x = actor.position.x + offset;
-          const position = { x, y: this.supportHeight(x, actor.position.z, actor.position.y), z: actor.position.z };
-          return this.walkable(position, 0.05, position.y) ? position : { ...actor.position, y: this.supportHeight(actor.position.x, actor.position.z, actor.position.y) };
-        };
-        this.state.loot.push({ id: `drop-${actor.id}-weapon`, kind: actor.weapon, position: dropPosition(-0.7), active: true });
-        this.state.loot.push({ id: `drop-${actor.id}-ammo`, kind: ammoKindFor(actor.weapon), position: dropPosition(0), active: true });
-        if (actor.medkits) this.state.loot.push({ id: `drop-${actor.id}-medkit`, kind: 'medkit', position: dropPosition(0.7), active: true, amount: actor.medkits });
-        if (actor.melee) this.dropLoot(actor, actor.melee, 1.5);
-        SUPPLY_ORDER.forEach((kind, i) => { if (actor.supplies[kind] > 0) this.dropLoot(actor, kind, 1.7 + i * 0.1, { amount: actor.supplies[kind] }); });
-        // Everything else the bot carried: spare guns and armour, so a fallen enemy is worth searching.
-        actor.ownedWeapons.filter(w => w !== actor.weapon).forEach(w => this.dropLoot(actor, w, 1.1));
-        for (const slot of ['helmet', 'vest'] as const) if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 1.4, { durability: actor[`${slot}Hp`] });
-      }
+      if ((!actor.isPlayer || this.options.humans > 1) && !this.rangeMode) this.dropEverything(actor);
     }
+  }
+
+  /**
+   * A fallen actor leaves exactly what it carried, so a fallen enemy is worth searching but nothing is made up: every gun
+   * with the rounds really in it, its parts, every calibre of spare ammunition, medkits, supplies, the pack and armour.
+   */
+  private dropEverything(actor: Actor): void {
+    const dropPosition = (offset: number): Vec3 => {
+      const x = actor.position.x + offset;
+      const position = { x, y: this.supportHeight(x, actor.position.z, actor.position.y), z: actor.position.z };
+      return this.walkable(position, 0.05, position.y) ? position : { ...actor.position, y: this.supportHeight(actor.position.x, actor.position.z, actor.position.y) };
+    };
+    const held = actor.weapon;
+    for (const weapon of actor.ownedWeapons.filter(w => w !== held)) this.dropWeapon(actor, weapon, false);
+    // The gun in hand keeps its own id where it fell; its parts lie beside it and rounds beyond a plain magazine go to the reserve.
+    const worn = attachmentsOf(actor, held);
+    for (const slot of ATTACH_SLOTS) { const part = worn[slot]; if (part) this.dropLoot(actor, part, 1.0 + ATTACH_SLOTS.indexOf(slot) * 0.1); }
+    delete actor.attach[held];
+    const loaded = Math.min(actor.ammo[held], WEAPONS[held].magazine);
+    actor.reserve[WEAPONS[held].ammoType] += actor.ammo[held] - loaded;
+    actor.ammo[held] = 0;
+    this.state.loot.push({ id: `drop-${actor.id}-weapon`, kind: held, position: dropPosition(-0.7), active: true, loadedAmmo: loaded });
+    const heldAmmo = WEAPONS[held].ammoType;
+    if (actor.reserve[heldAmmo] > 0) this.state.loot.push({ id: `drop-${actor.id}-ammo`, kind: ammoKindOf(heldAmmo), position: dropPosition(0), active: true, amount: actor.reserve[heldAmmo] });
+    AMMO_ORDER.forEach((ammo, i) => { if (ammo !== heldAmmo && actor.reserve[ammo] > 0) this.dropLoot(actor, ammoKindOf(ammo), 1.9 + i * 0.05, { amount: actor.reserve[ammo] }); });
+    if (actor.medkits) this.state.loot.push({ id: `drop-${actor.id}-medkit`, kind: 'medkit', position: dropPosition(0.7), active: true, amount: actor.medkits });
+    if (actor.melee) this.dropLoot(actor, actor.melee, 1.5);
+    SUPPLY_ORDER.forEach((kind, i) => { if (actor.supplies[kind] > 0) this.dropLoot(actor, kind, 1.7 + i * 0.1, { amount: actor.supplies[kind] }); });
+    ATTACH_ORDER.forEach((kind, i) => { if ((actor.parts?.[kind] ?? 0) > 0) this.dropLoot(actor, kind, 2.4 + i * 0.05, { amount: actor.parts[kind] }); });
+    if (actor.pack > 0) this.dropLoot(actor, PACK_ORDER[actor.pack - 1], 1.3);
+    for (const slot of ['helmet', 'vest'] as const) if (actor[slot] > 0) this.dropLoot(actor, armorKind(slot, actor[slot]), 1.4, { durability: actor[`${slot}Hp`] });
   }
 
   private checkEnd(): void {

@@ -544,7 +544,10 @@ function generate(spec: WorldSpec): IslandData {
       // A stair flight can protrude past a house's roof. Random street crates must leave its approach clear too.
       if (floors.some(f => Math.abs(x - f.x) < (width + f.width) / 2 + 1 && Math.abs(z - f.z) < (depth + f.depth) / 2 + 1)) continue;
       obstacles.push({ id: `${town.id}-c${i}`, x, z, width, depth, height, kind: 'crate', base });
-      lootSpots.push({ x, z, y: base, tier: 1 });
+      // The crate's loot lies on the ground beside it (inside the crate it would be hidden), on the first clear side.
+      const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([sx, sz]) => ({ x: x + sx * (width / 2 + 1.4), z: z + sz * (depth / 2 + 1.4) }));
+      const beside = sides.find(p => !obstacles.some(o => Math.abs(p.x - o.x) < o.width / 2 + 0.6 && Math.abs(p.z - o.z) < o.depth / 2 + 0.6)) ?? sides[0];
+      lootSpots.push({ x: beside.x, z: beside.z, y: base, tier: 1 });
     }
   }
 

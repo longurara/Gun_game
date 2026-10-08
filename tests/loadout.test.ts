@@ -125,6 +125,7 @@ test('a fallen bot drops everything it carried: every gun and each armour piece'
   target.ownedWeapons = ['smg', 'dmr', 'pistol'];
   target.weapon = 'smg';
   target.helmet = 2; target.vest = 3; target.helmetHp = 100; target.vestHp = 100;
+  target.reserve['9mm'] = 30;
   target.health = 1;
   game.botsFrozen = true;
   game.shootPlayer({ x: 0, y: 1.1, z: 8 });

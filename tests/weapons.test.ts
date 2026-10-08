@@ -172,6 +172,7 @@ test('bot death drops its actual new weapon and matching ammunition that the pla
   game.player.ownedWeapons = ['rifle'];
   target.weapon = 'dmr';
   target.ownedWeapons = ['dmr'];
+  target.ammo.dmr = 7; target.reserve['762'] = 40;
   target.health = 10;
   const sentinel = { ...target, id: 'sentinel', position: { x: 90, y: 0, z: 90 }, health: 100, ammo: emptyAmmo(), reserve: emptyReserve() };
   game.state.actors.push(sentinel);
@@ -185,11 +186,11 @@ test('bot death drops its actual new weapon and matching ammunition that the pla
   game.player.position = { ...weapon.position };
   assert.equal(game.interact(), true);
   assert.ok(game.player.ownedWeapons.includes('dmr'));
-  assert.equal(game.player.ammo.dmr, WEAPONS.dmr.magazine);
+  assert.equal(game.player.ammo.dmr, 7, 'the gun keeps the rounds really in it');
   game.player.position = { ...ammo.position };
   const before = game.player.reserve['762'];
   assert.equal(game.interact(), true);
-  assert.equal(game.player.reserve['762'], before + WEAPONS.dmr.ammoPickup);
+  assert.equal(game.player.reserve['762'], before + 40, 'the whole spare reserve is dropped');
 });
 
 test('restart clears every magazine and calibre pool, ownership and the previous bolt cooldown', () => {
